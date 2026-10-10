@@ -1,7 +1,7 @@
 # Desktop manual checklist
 
-Run on macOS and Windows before tagging a release that changes `app/`. Start
-from a clean data directory (`~/Library/Application Support/nimget` or
+Run on macOS and Windows after changes to `app/`, using the startup steps in
+[source.md](source.md). Start from a clean data directory (`~/Library/Application Support/nimget` or
 `%AppData%\nimget`) and with no `nimget service` running.
 
 ## Startup and shell
@@ -65,11 +65,10 @@ from a clean data directory (`~/Library/Application Support/nimget` or
 - [ ] Pause and resume an HLS download: it continues from the finished segments.
 - [ ] With ffmpeg installed, "Convert to MP4" creates a playable `.mp4` next to the `.ts`; without ffmpeg the button is hidden.
 
-## Release (M6)
+## Source startup
 
-- [ ] The dmg opens with NimGet.app and an Applications link; after "Open Anyway" the app starts and shows the NimGet icon in the Dock and the menu bar.
-- [ ] The Windows installer installs without administrator rights, adds a Start menu entry and an Apps entry, and uninstalls cleanly (settings in `%AppData%\nimget` are kept).
-- [ ] With an older version installed, the update banner appears within a minute of launch (or after the weekly check), links to the release, and Dismiss hides it for that version.
+- [ ] From a fresh checkout, `npm ci` and `npm run build` succeed in `app/frontend`, then `go run .` starts the desktop app from `app/`.
+- [ ] After updating the source and rebuilding the frontend, restarting the app preserves settings and resumes the queue.
 
 ## Secrets
 

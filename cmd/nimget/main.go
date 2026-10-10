@@ -58,7 +58,7 @@ func (h headerFlags) values() (map[string]string, error) {
 	return out, nil
 }
 
-// Set at link time by goreleaser: -X main.version=... -X main.commit=... -X main.date=...
+// Optionally set for local builds: -X main.version=... -X main.commit=... -X main.date=...
 var (
 	version = "dev"
 	commit  = "none"

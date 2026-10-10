@@ -8,6 +8,8 @@ target feature parity with Internet Download Manager. The browser extension is d
 Revision 2 (2026-09-27) records the scope review in section 14. Where it conflicts with
 revision 1, this document wins.
 
+Distribution was changed to source-only on 2026-10-11; section 10 describes the current policy.
+
 ---
 
 ## 0. Project conventions
@@ -468,31 +470,19 @@ LICENSE         Apache-2.0
 NOTICE          nimget attribution
 ```
 
-**Unsigned builds.** No Apple Developer account and no Windows code-signing certificate.
+**Source-only distribution.** Users clone the repository and run the CLI or service
+with `go run ./cmd/nimget ...`. The desktop frontend is built locally with npm,
+then the app starts with `go run .` from `app/`. Local binaries may also be built
+with Go. [docs/source.md](docs/source.md) documents prerequisites and startup for
+macOS, Windows, and headless Linux.
 
-| Channel | Artifact | Notes |
-|---|---|---|
-| GitHub Releases | CLI archives for all tier-1 targets (goreleaser), dmg, zip, Windows installer | from v0.1 for the CLI |
-| `zichuanxu/homebrew-tap` | cask (GUI) and formula (CLI) | Homebrew's official cask repository removes casks that fail Gatekeeper checks from 2026-09-01, so the GUI cannot go there unsigned |
-| `zichuanxu/scoop-bucket` | Windows GUI and CLI | |
+CI tests the source and builds the CLI and desktop app. Binary release automation,
+installer packaging, and package-manager publication have been retired.
 
-Package names: Homebrew formula `nimget` (CLI) and cask `nimget-desktop` in
-`zichuanxu/homebrew-tap`; Scoop `nimget` and `nimget-desktop` in `zichuanxu/scoop-bucket`.
-winget is not offered. `tools/packaging` renders all of
-them from the release checksums; the release workflow pushes the tap and bucket when a
-`TAP_TOKEN` secret exists and attaches the manifests to the release either way. Releases start as drafts and are published only after
-the install checks pass, so the update banner never points at a release without
-installers. The release workflow also installs the dmg and the installer on clean GitHub runners,
-launches the app, and downloads a file through it (the M6 install-to-download check).
-
-docs/install.md documents the Gatekeeper workaround (allow in System Settings, or
-`xattr -dr com.apple.quarantine /Applications/NimGet.app`) and the SmartScreen
-"More info → Run anyway" path.
-
-**Updates:** weekly poll of the GitHub Releases API, semver compare, dismissible
-banner linking to release notes. No update server, no signing keys, no
-self-replacement code — an updater that bricks an install is the scariest class of
-desktop bug.
+**Updates:** pull source changes with `git pull --ff-only`, rebuild the frontend or
+local binaries as needed, and restart. Default `dev` builds skip the release
+check. Versioned local desktop builds can still show a dismissible release-notes
+banner; it never downloads or replaces anything.
 
 `nimget version` prints the version, commit, and build date injected at link time.
 
@@ -503,17 +493,16 @@ desktop bug.
 | | Tag | Deliverable | Done when |
 |---|---|---|---|
 | **M0** | — ✅ | Current engine wired through service + SQLite + API + minimal React table. | Done. |
-| **M0.5** | v0.1 ✅ | Hardening: git, green `go vet`/`go test`, local authorization (5.1), advisory locks, lifecycle and restart recovery (4.1), async progress persistence, `slog` with redaction, LICENSE/NOTICE, `nimget version`, README fixes, CI matrix, goreleaser CLI release. | CI green with `-race` on three OSes; API contract tests cover authorization denial; `kill -9` mid-download, restart, and the download resumes. |
+| **M0.5** | v0.1 ✅ | Hardening: git, green `go vet`/`go test`, local authorization (5.1), advisory locks, lifecycle and restart recovery (4.1), async progress persistence, `slog` with redaction, LICENSE/NOTICE, `nimget version`, README fixes, CI matrix. | CI green with `-race` on three OSes; API contract tests cover authorization denial; `kill -9` mid-download, restart, and the download resumes. |
 | **M1** | v0.2 ✅ | Engine rewrite: work-stealing intervals, stall timeout and slow-connection replacement, validator table, HTTP/1.1 forcing with h2 fallback, free-space precheck, preallocation, checksums; `downloader/` removed. | Fault-injection suite and crash-resume ×100 green on three OSes; performance gate met. |
 | **M2** | v0.3 ✅ | Manager and network: priorities, connection defaults and host cap, hierarchical limiters, time-based scheduler, filename resolution and placement, manual and system proxy, per-site settings. | Deterministic fake-clock scheduler tests; system-proxy integration tests on macOS and Windows. |
 | **M3** | v0.6 ✅¹ | GUI: Wails v3, in-process service, bindings and event bus, tray/menubar, notifications, sparkline, settings, drag-drop, open/reveal folder, cURL import, clipboard monitor, keyring-encrypted secrets. | Manual checklist passes on macOS and Windows. |
 | **M4** | v0.6 ✅¹ | Extras: batch URL patterns, queue import/export, completion actions (open, sleep, shut down). | Unit tests plus manual checklist. |
 | **M5** | v0.6 ✅ | HLS: playlist parsing, AES-128, TS/fMP4 concatenation, optional system-ffmpeg remux. | Hostile-HLS fault tests green for clear and encrypted streams. |
-| **M6** | v1.0 ✅ | Release: dmg, zip, Windows installer, Homebrew tap, scoop, version-check banner, install docs. | Install-to-download flow verified on clean macOS and Windows VMs. |
+| **M6** | v1.0 ✅ (historical) | Binary distribution and install checks, retired on 2026-10-11 in favor of source startup. | Current source startup is documented in `docs/source.md`; source tests and builds remain in CI. |
 
-M6's install-to-download check runs in the release workflow on fresh GitHub macOS and
-Windows runners: it installs the dmg and the NSIS installer, launches the app, downloads
-a file through it, verifies it, and (on Windows) uninstalls.
+The former M6 release and install workflows have been removed. Desktop behavior
+is checked against local source builds using `docs/desktop-checklist.md`.
 
 ¹ M3, M4, and M5 shipped together in v0.6. Their automated checks pass in CI (unit tests,
 the desktop build on macOS and Windows, current bindings); the manual checklist
@@ -548,8 +537,8 @@ extension and video extras are deferred).
 2. **Relaxed validators** (3.3) parallelize downloads without a strong ETag. Within one
    session the risk is a resource changing mid-transfer, which the total-size and
    `Content-Range` checks catch in practice; cross-session resume still needs a validator.
-3. **Unsigned releases** cost first-run friction on macOS and Windows and rule out
-   Homebrew's official cask repository, in exchange for zero spend.
+3. **Source-only distribution** requires a local Go toolchain and, for the desktop
+   app, Node.js and platform prerequisites, in exchange for zero spend.
 4. **Wails v3 beta** is required for the tray, at the cost of tracking a pre-1.0 API.
 5. **No SSE replay**: a reconnecting client gets a snapshot, not missed history.
    Lifecycle history, if ever needed, belongs in the store.
@@ -579,5 +568,5 @@ Decisions taken in the review:
 | Local API | Token, Host allowlist, JSON-only, Origin rejection, destination confinement |
 | Engine | Finish the interval engine; stall timeout; RFC 9110 validator table |
 | Connections | 8 per download (max 32), 16 per host, 1 MiB minimum split |
-| Distribution | Unsigned; own Homebrew tap and Scoop bucket |
+| Distribution | Source-only as of 2026-10-11; see section 10 |
 | Order | Hardening (M0.5) before the engine rewrite; proxy in M2; extras before HLS |

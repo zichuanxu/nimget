@@ -9,44 +9,38 @@ NimGet is a lightweight, open-source download manager built in Go for macOS and 
 - HLS (`.m3u8`, AES-128) to one `.ts` file, optional MP4 conversion with ffmpeg.
 - Desktop app: tray icon, notifications, drag and drop, cURL import, clipboard monitor, batch URLs, sleep or shut down when done; English and Simplified Chinese, light and dark themes.
 
-## Install
+## Run from source
 
-| | |
-| --- | --- |
-| macOS app | `brew install --cask zichuanxu/tap/nimget-desktop`, or the `.dmg` from [Releases](https://github.com/zichuanxu/nimget/releases/latest) |
-| Windows app | `scoop bucket add zichuanxu https://github.com/zichuanxu/scoop-bucket` then `scoop install zichuanxu/nimget-desktop`, or the installer from Releases |
-| CLI | `brew install zichuanxu/tap/nimget`, `scoop install zichuanxu/nimget`, or an archive from Releases |
-
-The builds are unsigned; [docs/install.md](docs/install.md) has the one-time Gatekeeper and SmartScreen steps.
-
-## Quick start
+NimGet is distributed as source code. Requires Git and Go 1.25+. The desktop app also needs Node.js 22.12+ and, on macOS, the Xcode command line tools; on Windows it needs the WebView2 Runtime.
 
 ```bash
-nimget download https://example.com/file.iso ./file.iso   # one-off download
-nimget service &                                          # or run the queue in the background
-nimget add https://example.com/file.iso
-nimget list
+git clone https://github.com/zichuanxu/nimget.git
+cd nimget
 ```
 
-The desktop app runs the same service, so `nimget add` and `nimget list` also work while it is open. [docs/usage.md](docs/usage.md) covers every command, the settings, and the HTTP API.
-
-## Build from source
-
-Requires Go 1.25+. The desktop app also needs Node.js 22 and, on macOS, the Xcode command line tools.
+Run the CLI directly:
 
 ```bash
-go test ./...
-go build -o nimget ./cmd/nimget
+go run ./cmd/nimget download https://example.com/file.iso ./file.iso
 ```
 
-Run the desktop app from source (it lives in `app/`, its own Go module):
+Run the desktop app (macOS and Windows; `app/` is its own Go module):
 
 ```bash
-cd app/frontend && npm ci && npm run build && cd ..
+cd app/frontend
+npm ci
+npm run build
+cd ..
 go run .
 ```
 
-For live reload of the UI, keep `npm run dev` running in `app/frontend` and start the app with `FRONTEND_DEVSERVER_URL=http://127.0.0.1:9245 go run .`. Quit any installed NimGet or `nimget service` first: they share port 51000 and a single-instance lock.
+For a headless queue, run `go run ./cmd/nimget service` from the repository root and keep that terminal open. In another terminal, use `go run ./cmd/nimget add URL` and `go run ./cmd/nimget list`. The desktop app runs the same service, so these commands also work while it is open. Quit any other NimGet app or service before starting one: they share port 51000 and a single-instance lock.
+
+[docs/source.md](docs/source.md) covers local builds, UI live reload, and updating your checkout. [docs/usage.md](docs/usage.md) covers every command, the settings, and the HTTP API.
+
+## Development
+
+Run `go test ./...` at the repository root and again in `app/`. To build a local CLI for the examples in the usage reference, run `go build ./cmd/nimget` from the repository root; this creates `nimget` (`nimget.exe` on Windows).
 
 After changing a bound Go method or type, regenerate the TypeScript bindings (CI checks them):
 
@@ -55,7 +49,7 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.26
 cd app && wails3 generate bindings -clean=true -ts -f '-tags production'
 ```
 
-Release packages come from `app/scripts/package-macos.sh` and `app/scripts/package-windows.sh`. The design and roadmap are in [DESIGN.md](DESIGN.md); [docs/desktop-checklist.md](docs/desktop-checklist.md) is the manual test list.
+The design and roadmap are in [DESIGN.md](DESIGN.md); [docs/desktop-checklist.md](docs/desktop-checklist.md) is the manual test list.
 
 ## Repository layout
 
@@ -74,7 +68,7 @@ internal/remux/       Optional ffmpeg remux of .ts to .mp4
 internal/batch/       Batch URL patterns
 internal/queuefile/   Queue import and export
 internal/power/       Sleep and shut down
-internal/update/      Weekly release check for the desktop banner
+internal/update/      Optional release notices for versioned local builds
 internal/quarantine/  Marks completed files as downloaded from the internet
 internal/secrets/     AES-GCM sealing with a key in the OS keyring
 internal/curlimport/  "Copy as cURL" parser
@@ -82,8 +76,7 @@ internal/api/         Authenticated loopback JSON and SSE API
 internal/client/      Service client
 internal/service/     Service composition, lifecycle, paths, and token
 tools/bench/          Performance gate against aria2c
-tools/packaging/      Homebrew and Scoop manifests for a release
-docs/                 Install guide, usage reference, desktop checklist
+docs/                 Source startup guide, usage reference, desktop checklist
 app/                  Desktop app (Wails v3 module): bindings, tray, React frontend
 DESIGN.md             Design contract and M0–M6 roadmap
 ```

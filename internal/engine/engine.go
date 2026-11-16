@@ -21,6 +21,8 @@ import (
 
 	"github.com/zichuanxu/nimget/internal/filelock"
 	"github.com/zichuanxu/nimget/internal/hls"
+	"github.com/zichuanxu/nimget/internal/httporigin"
+	"github.com/zichuanxu/nimget/internal/logging"
 	"github.com/zichuanxu/nimget/internal/quarantine"
 	"golang.org/x/time/rate"
 )
@@ -144,6 +146,13 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.SegmentClient == nil {
 		// The manager enforces per-host caps; this only bounds the pool.
 		cfg.SegmentClient = newSegmentClient(2*maxConnections, cfg.Proxy)
+	}
+	probe := cfg.ProbeClient
+	cfg.ProbeClient = httporigin.Client(probe)
+	if cfg.SegmentClient == probe {
+		cfg.SegmentClient = cfg.ProbeClient
+	} else {
+		cfg.SegmentClient = httporigin.Client(cfg.SegmentClient)
 	}
 	sum, err := parseChecksum(cfg.Checksum)
 	if err != nil {
@@ -346,7 +355,7 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 	req.Header.Set("Range", "bytes=0-0")
 	resp, err := e.cfg.ProbeClient.Do(req)
 	if err != nil {
-		return probeInfo{}, retryable(fmt.Errorf("probe request: %w", err))
+		return probeInfo{}, retryable(fmt.Errorf("probe request: %w", logging.HTTPError(err)))
 	}
 	defer resp.Body.Close()
 	if err := identityEncoding(resp); err != nil {
@@ -361,7 +370,7 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 	case http.StatusPartialContent:
 		start, end, total, ok := parseContentRange(resp.Header.Get("Content-Range"))
 		if !ok || start != 0 || end != 0 {
-			return probeInfo{}, fatal(fmt.Errorf("invalid probe Content-Range %q", resp.Header.Get("Content-Range")))
+			return probeInfo{}, fatal(errors.New("invalid probe Content-Range"))
 		}
 		if _, err := io.CopyN(io.Discard, resp.Body, 1); err != nil {
 			return probeInfo{}, retryable(fmt.Errorf("read probe body: %w", err))
@@ -377,9 +386,9 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 			info.size = 0
 			return info, nil
 		}
-		return probeInfo{}, fatal(fmt.Errorf("probe returned 416 with Content-Range %q", resp.Header.Get("Content-Range")))
+		return probeInfo{}, fatal(errors.New("probe returned 416 with invalid Content-Range"))
 	default:
-		return probeInfo{}, statusError("probe", resp)
+		return probeInfo{}, statusError("probe", req, resp)
 	}
 }
 
@@ -404,7 +413,7 @@ func (e *Engine) newRequest(ctx context.Context, rawURL string) (*http.Request, 
 func validateHTTPURL(raw string) error {
 	u, err := url.ParseRequestURI(raw)
 	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
+		return errors.New("invalid download URL")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("unsupported URL scheme %q", u.Scheme)
@@ -417,15 +426,20 @@ func validateHTTPURL(raw string) error {
 
 func identityEncoding(resp *http.Response) error {
 	if enc := strings.TrimSpace(resp.Header.Get("Content-Encoding")); enc != "" && !strings.EqualFold(enc, "identity") {
-		return fmt.Errorf("server returned unsupported Content-Encoding %q", enc)
+		return errors.New("server returned unsupported Content-Encoding")
 	}
 	return nil
 }
 
-func statusError(what string, resp *http.Response) *attemptError {
-	msg := fmt.Sprintf("%s: HTTP %s", what, resp.Status)
-	if text := errorBody(resp); text != "" {
-		msg += ": " + text
+func statusError(what string, req *http.Request, resp *http.Response) *attemptError {
+	msg := fmt.Sprintf("%s: HTTP %d", what, resp.StatusCode)
+	if reason := http.StatusText(resp.StatusCode); reason != "" {
+		msg += " " + reason
+	}
+	if !httporigin.MayCarryCredentials(req) && !httporigin.MayCarryCredentials(resp.Request) {
+		if text := errorBody(resp); text != "" {
+			msg += ": " + text
+		}
 	}
 	return &attemptError{err: errors.New(msg), retryable: retryableStatus(resp.StatusCode), retryAfter: resp.Header.Get("Retry-After")}
 }

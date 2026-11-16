@@ -12,6 +12,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/zichuanxu/nimget/internal/logging"
+	"github.com/zichuanxu/nimget/internal/partialfile"
 )
 
 var (
@@ -48,13 +51,9 @@ type rangedRun struct {
 func (j *job) ranged(ctx context.Context, info probeInfo) error {
 	e := j.engine
 	want := checkpoint{Version: checkpointVersion, Identity: j.identity, Size: info.size, ETag: info.etag, LastModified: info.lastModified}
-	remaining, err := j.openPart(want)
+	f, remaining, err := j.openPart(want)
 	if err != nil {
 		return err
-	}
-	f, err := os.OpenFile(j.part, os.O_RDWR, 0)
-	if err != nil {
-		return fmt.Errorf("open partial file: %w", err)
 	}
 	defer f.Close()
 	j.progress.total.Store(info.size)
@@ -117,39 +116,47 @@ func (j *job) ranged(ctx context.Context, info probeInfo) error {
 }
 
 // openPart resumes a compatible checkpoint or creates a preallocated .part
-// file, returning the byte ranges still to download.
-func (j *job) openPart(want checkpoint) ([]interval, error) {
-	if cp, err := readCheckpoint(j.meta); err == nil && cp.resumable(want) {
-		if fi, err := os.Lstat(j.part); err == nil && fi.Mode().IsRegular() && fi.Size() == want.Size {
-			return cp.Remaining, nil
+// file. Workers write through this same validated handle.
+func (j *job) openPart(want checkpoint) (*os.File, []interval, error) {
+	f, err := partialfile.Open(j.part, os.O_RDWR, 0)
+	if err == nil {
+		info, statErr := f.Stat()
+		if statErr != nil {
+			_ = f.Close()
+			return nil, nil, fmt.Errorf("stat partial file: %w", statErr)
 		}
+		if cp, err := readCheckpoint(j.meta); err == nil && cp.resumable(want) && info.Size() == want.Size {
+			return f, cp.Remaining, nil
+		}
+		if err := f.Close(); err != nil {
+			return nil, nil, fmt.Errorf("close stale partial file: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, nil, fmt.Errorf("open partial file: %w", err)
 	}
 	j.discard()
 	if free, err := freeSpace(filepath.Dir(j.part)); err == nil && free < want.Size+freeSpaceMargin {
-		return nil, fmt.Errorf("%w: need %d bytes plus margin, %d available", ErrInsufficientSpace, want.Size, free)
+		return nil, nil, fmt.Errorf("%w: need %d bytes plus margin, %d available", ErrInsufficientSpace, want.Size, free)
 	}
-	f, err := os.OpenFile(j.part, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	f, err = partialfile.Open(j.part, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("create partial file: %w", err)
+		return nil, nil, fmt.Errorf("create partial file: %w", err)
 	}
 	if err := preallocate(f, want.Size); err != nil {
 		_ = f.Close()
 		j.discard()
-		return nil, err
-	}
-	if err := f.Close(); err != nil {
-		j.discard()
-		return nil, fmt.Errorf("close new partial file: %w", err)
+		return nil, nil, err
 	}
 	remaining := []interval{{0, want.Size}}
 	if want.ETag != "" || want.LastModified != "" {
 		want.Remaining = remaining
 		if err := writeCheckpoint(j.meta, want); err != nil {
+			_ = f.Close()
 			j.discard()
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return remaining, nil
+	return f, remaining, nil
 }
 
 // checkpoint persists progress. The snapshot is taken before the data sync:
@@ -323,10 +330,10 @@ func (r *rangedRun) fetch(ctx context.Context, seg *segment, buf []byte) (progre
 		if strings.Contains(err.Error(), "no application protocol") {
 			return false, fatal(errNeedsHTTP2)
 		}
-		return false, interrupted(err)
+		return false, interrupted(logging.HTTPError(err))
 	}
 	defer resp.Body.Close()
-	if aerr := r.validate(resp, start, end, ifRange); aerr != nil {
+	if aerr := r.validate(req, resp, start, end, ifRange); aerr != nil {
 		return false, aerr
 	}
 
@@ -366,7 +373,7 @@ func (r *rangedRun) fetch(ctx context.Context, seg *segment, buf []byte) (progre
 }
 
 // validate checks a range response against the probed representation.
-func (r *rangedRun) validate(resp *http.Response, start, end int64, ifRange string) *attemptError {
+func (r *rangedRun) validate(req *http.Request, resp *http.Response, start, end int64, ifRange string) *attemptError {
 	if err := identityEncoding(resp); err != nil {
 		return fatal(err)
 	}
@@ -386,14 +393,14 @@ func (r *rangedRun) validate(resp *http.Response, start, end int64, ifRange stri
 	case http.StatusPreconditionFailed, http.StatusRequestedRangeNotSatisfiable:
 		return fatal(ErrSourceChanged)
 	default:
-		return statusError(fmt.Sprintf("range %d-%d", start, end-1), resp)
+		return statusError(fmt.Sprintf("range %d-%d", start, end-1), req, resp)
 	}
 	if r.changed(resp) {
 		return fatal(ErrSourceChanged)
 	}
 	gotStart, gotEnd, total, ok := parseContentRange(resp.Header.Get("Content-Range"))
 	if !ok || gotStart != start || gotEnd != end-1 || total != r.info.size {
-		return fatal(fmt.Errorf("%w: unexpected Content-Range %q for bytes %d-%d", ErrSourceChanged, resp.Header.Get("Content-Range"), start, end-1))
+		return fatal(fmt.Errorf("%w: unexpected Content-Range for bytes %d-%d", ErrSourceChanged, start, end-1))
 	}
 	if resp.ContentLength >= 0 && resp.ContentLength != end-start {
 		return fatal(fmt.Errorf("range %d-%d has Content-Length %d", start, end-1, resp.ContentLength))

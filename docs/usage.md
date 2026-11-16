@@ -80,9 +80,11 @@ Client commands read the same token file and talk to `http://127.0.0.1:51000` un
 ./nimget settings get > settings.json
 ./nimget settings set settings.json
 ./nimget add --batch 'https://example.com/photos/img[001-120].jpg' --dir ~/Downloads/photos
-./nimget export queue.json                                   # unfinished downloads, never their headers
+./nimget export queue.json                                   # unfinished downloads with credentials omitted
 ./nimget import queue.json                                   # or a text file with one URL per line
 ```
+
+Queue exports omit request headers, URL user information, query parameters, and fragments. Supply the current URL and request headers when re-adding an exported download that requires them.
 
 Batch patterns expand left to right: `[1-10]`, zero-padded `[001-120]`, stepped `[0-100:5]`, letters `[a-z]`, and alternatives `{cd,dvd}`, up to 10,000 URLs.
 

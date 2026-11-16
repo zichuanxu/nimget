@@ -28,6 +28,9 @@ var (
 	ErrDestinationBusy = errors.New("destination is locked by another download")
 	// ErrInvalidSettings reports settings that failed validation.
 	ErrInvalidSettings = errors.New("invalid settings")
+	// Runner errors used to classify task failures without exposing diagnostics.
+	ErrStalled   = errors.New("connection stalled")
+	ErrDiskSpace = errors.New("not enough free disk space")
 )
 
 type Status string
@@ -54,6 +57,16 @@ const (
 	RecoveryRestartRequired Recovery = "restart-required"
 )
 
+type Failure string
+
+const (
+	FailureAuthorization        Failure = "authorization"
+	FailureDiskSpace            Failure = "disk-space"
+	FailureFilesystemPermission Failure = "filesystem-permission"
+	FailureNetwork              Failure = "network"
+	FailureUnsupportedMedia     Failure = "unsupported-media"
+)
+
 type Item struct {
 	ID          string   `json:"id"`
 	URL         string   `json:"url"`
@@ -62,6 +75,7 @@ type Item struct {
 	Completed   int64    `json:"completed"`
 	Total       int64    `json:"total"`
 	Error       string   `json:"error,omitempty"`
+	Failure     Failure  `json:"failure,omitempty"`
 	Recovery    Recovery `json:"recovery,omitempty"`
 	Priority    int      `json:"priority"`
 	// Connections overrides the site and default connection count when set.
@@ -71,22 +85,25 @@ type Item struct {
 	Checksum   string `json:"checksum,omitempty"`
 	// Headers are request headers such as cookies. They may hold secrets, so
 	// they never leave the service.
-	Headers   map[string]string `json:"-"`
-	CreatedAt time.Time         `json:"createdAt"`
-	UpdatedAt time.Time         `json:"updatedAt"`
+	Headers                   map[string]string `json:"-"`
+	WebsiteSession            *WebsiteSession   `json:"-"`
+	WebsiteSessionUnavailable bool              `json:"-"`
+	CreatedAt                 time.Time         `json:"createdAt"`
+	UpdatedAt                 time.Time         `json:"updatedAt"`
 }
 
 // Request adds a download. Without a Destination the file name comes from the
 // server, placed in Directory or in the root's category folder.
 type Request struct {
-	URL         string            `json:"url"`
-	Destination string            `json:"destination,omitempty"`
-	Directory   string            `json:"directory,omitempty"`
-	Priority    int               `json:"priority,omitempty"`
-	Connections int               `json:"connections,omitempty"`
-	SpeedLimit  int64             `json:"speedLimit,omitempty"`
-	Checksum    string            `json:"checksum,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
+	URL            string            `json:"url"`
+	Destination    string            `json:"destination,omitempty"`
+	Directory      string            `json:"directory,omitempty"`
+	Priority       int               `json:"priority,omitempty"`
+	Connections    int               `json:"connections,omitempty"`
+	SpeedLimit     int64             `json:"speedLimit,omitempty"`
+	Checksum       string            `json:"checksum,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	WebsiteSession *WebsiteSession   `json:"-"`
 }
 
 // Patch changes a download's options; nil fields are left alone. A new speed

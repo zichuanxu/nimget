@@ -56,8 +56,44 @@
   "sendLink": {
     "message": "使用 NimGet 下载"
   },
+  "sendWithWebsiteSession": {
+    "message": "使用网站会话在 NimGet 中下载…"
+  },
+  "websiteSessionTitle": {
+    "message": "使用您的网站会话"
+  },
+  "websiteSessionDescription": {
+    "message": "NimGet 可以使用 $1 上适用于此下载的 Cookie。浏览器可能会记住对此网站的访问权限。您也可以不使用 Cookie 发送链接。"
+  },
+  "websiteSessionUse": {
+    "message": "使用网站会话"
+  },
+  "websiteSessionSkip": {
+    "message": "不使用会话直接发送"
+  },
+  "websiteSessionDenied": {
+    "message": "已拒绝网站访问权限。仍可不使用会话发送链接。对于受保护的文件，请登录并允许访问，或直接在浏览器中下载。"
+  },
+  "websiteSessionUnavailable": {
+    "message": "没有可用的网站会话。请登录网站后重试、不使用会话发送链接，或在浏览器中下载。"
+  },
+  "websiteSessionDraftExpired": {
+    "message": "此链接已无法发送。请返回原链接，再次选择使用网站会话在 NimGet 中下载。"
+  },
+  "websiteSessionSending": {
+    "message": "正在将下载发送到 NimGet…"
+  },
+  "websiteSessionRetryNeedsConsent": {
+    "message": "浏览器已不再保留此网站会话，NimGet 也尚未确认接收。请先查看 NimGet 队列，再使用新的网站会话发送链接。"
+  },
   "handoffAccepted": {
     "message": "NimGet 已接受下载。"
+  },
+  "handoffAcceptedWithoutWebsiteSession": {
+    "message": "NimGet 已在未使用网站会话的情况下接受链接。如果访问失败，请登录后使用网站会话发送链接，或直接在浏览器中下载。"
+  },
+  "handoffAcceptedMemoryOnly": {
+    "message": "NimGet 已接受下载。安全凭据存储不可用，重启 NimGet 后将丢失网站会话。您可能需要重新登录并授权下载。"
   },
   "handoffUnsupported": {
     "message": "NimGet 仅支持发送未嵌入凭据的 HTTP 或 HTTPS 链接。请尝试在浏览器中下载。"

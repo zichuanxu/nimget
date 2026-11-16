@@ -20,8 +20,10 @@ async function emit(page: Page, events: { name: string; data?: unknown }[]) {
   }, events);
 }
 
-function download(type: string, item: ReturnType<typeof task>) {
-  return { name: "download", data: { type, item } };
+let eventSequence = 0;
+
+function download(type: string, item: ReturnType<typeof task>, sequence = ++eventSequence) {
+  return { name: "download", data: { type, item, sequence } };
 }
 
 test("opens later matches with the keyboard and operates checked tasks across queue pages", async ({ page }) => {
@@ -42,6 +44,7 @@ test("opens later matches with the keyboard and operates checked tasks across qu
   const select = (index: number) => page.getByRole("checkbox", { name: "Select " + task(index).id + ".zip", exact: true });
   const pages = page.getByRole("navigation", { name: "Download pages" });
   await expect(pages).toContainText("1–50 of 105");
+  await expect(page.getByRole("list", { name: "All downloads" }).getByRole("listitem")).toHaveCount(50);
   await select(1).press("Space");
   await row(50).focus();
   await page.keyboard.press("ArrowDown");
@@ -124,7 +127,6 @@ test("retains task changes and removals that arrive while the queue resyncs", as
   await expect(getRunning()).toContainText("50%");
 });
 
-
 test("preserves keyboard focus when a dark Chinese queue loses its last page", async ({ page }) => {
   const items = Array.from({ length: 51 }, (_, i) => task(i + 1));
   await page.emulateMedia({ colorScheme: "dark" });
@@ -143,4 +145,86 @@ test("preserves keyboard focus when a dark Chinese queue loses its last page", a
   await emit(page, [download("deleted", items[50])]);
   await expect(pages).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "搜索下载" })).toBeFocused();
+});
+
+test("returns focus to search when an arriving task displaces an open row menu", async ({ page }) => {
+  const items = Array.from({ length: 50 }, (_, i) => task(i + 1));
+  await mockDesktop(page, { List: () => items });
+  await page.goto("/");
+  const button = page.getByRole("button", { name: "More actions for task-0050.zip" });
+  await button.press("Enter");
+  const menu = page.getByRole("menu", { name: "More actions for task-0050.zip" });
+  await expect(menu.getByRole("menuitem", { name: "Download details" })).toBeFocused();
+
+  await emit(page, [download("updated", task(0))]);
+
+  await expect(page.getByRole("navigation", { name: "Download pages" })).toContainText("1–50 of 51");
+  await expect(button).toHaveCount(0);
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Search downloads" })).toBeFocused();
+});
+
+test("uses snapshot order and skips replay of events already covered by the snapshot", async ({ page }) => {
+  const running = task(1, "running");
+  const retained = task(2, "paused");
+  const removed = task(3);
+  const departed = task(4, "paused");
+  const appended = task(5, "paused");
+  const late = task(6, "paused");
+  type Snapshot = { items: ReturnType<typeof task>[]; sequence: number };
+  const initial: Snapshot = { items: [running, retained, removed], sequence: 10 };
+  const replies: ((snapshot: Snapshot) => void)[] = [];
+  let hold = false;
+  const snapshot = () => hold ? new Promise<Snapshot>((resolve) => { replies.push(resolve); }) : Promise.resolve(initial);
+
+  await mockDesktop(page, {
+    List: async () => (await snapshot()).items,
+    QueueSnapshot: snapshot,
+  });
+  await page.goto("/");
+  const row = (index: number) => page.locator("#task-row-" + task(index).id);
+  await expect(row(3)).toBeVisible();
+  hold = true;
+  await emit(page, [{ name: "resync" }]);
+  await expect.poll(() => replies.length).toBe(1);
+  await emit(page, [{ name: "resync" }]);
+  await expect.poll(() => replies.length).toBe(2);
+
+  await emit(page, [
+    download("progress", { ...running, completed: 256 }, 12),
+    download("updated", departed, 15),
+    download("updated", appended, 24),
+    download("deleted", removed, 25),
+  ]);
+  await expect(row(1)).toContainText("25%");
+  await expect(row(5)).toBeVisible();
+
+  async function resolveRefresh(index: number, result: Snapshot) {
+    const response = page.waitForResponse((response) => response.url().endsWith("/wails/runtime"));
+    replies[index](result);
+    await (await response).finished();
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  }
+
+  // The newer call reaches the manager first, but its response is delivered last.
+  await resolveRefresh(0, { sequence: 22, items: [{ ...running, completed: 768 }, retained, removed] });
+  await expect(row(1)).toContainText("75%");
+  await expect(row(2)).toBeVisible();
+  await expect(row(3)).toHaveCount(0);
+  await expect(row(4)).toHaveCount(0);
+  await expect(row(5)).toBeVisible();
+  await resolveRefresh(1, { sequence: 20, items: [{ ...running, completed: 512 }, retained, departed, removed] });
+  await expect(row(1)).toContainText("75%");
+  await expect(row(2)).toBeVisible();
+  await expect(row(3)).toHaveCount(0);
+  await expect(row(4)).toHaveCount(0);
+  await expect(row(5)).toBeVisible();
+  await emit(page, [{ name: "resync" }]);
+  await expect.poll(() => replies.length).toBe(3);
+  await resolveRefresh(2, { sequence: 30, items: [{ ...running, completed: 768 }, retained, appended] });
+  // The native event queue still contains an add for a task deleted before the snapshot.
+  await emit(page, [download("updated", late, 27)]);
+  await expect(row(6)).toHaveCount(0);
+  await emit(page, [download("progress", { ...running, completed: 896 }, 31)]);
+  await expect(row(1)).toContainText("87%");
 });

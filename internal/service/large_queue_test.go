@@ -83,14 +83,14 @@ func TestLargePersistedQueueTracksProgress(t *testing.T) {
 	}
 	seed()
 
-	progress := make(chan download.Item, 64)
+	progress := make(chan download.Event, 64)
 	cfg := service.Config{
 		Address: "127.0.0.1:0", DatabasePath: dbPath, TokenPath: filepath.Join(dir, "token"),
 		DownloadRoots: []string{downloadRoot}, Sealer: sealer, Runner: queueProgressRunner{},
 		Publish: func(event download.Event) {
 			if event.Type == download.EventProgress {
 				select {
-				case progress <- event.Item:
+				case progress <- event:
 				default:
 				}
 			}
@@ -105,11 +105,11 @@ func TestLargePersistedQueueTracksProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	observed := make(map[string]int64)
+	observed := make(map[string]download.Event)
 	for len(observed) < activeDownloads {
 		select {
-		case item := <-progress:
-			observed[item.ID] = item.Completed
+		case event := <-progress:
+			observed[event.Item.ID] = event
 		case <-ctx.Done():
 			t.Fatalf("received progress from %d of %d persisted downloads", len(observed), activeDownloads)
 		}
@@ -136,8 +136,38 @@ func TestLargePersistedQueueTracksProgress(t *testing.T) {
 		if !exists {
 			t.Fatalf("reopened queue is missing %s", id)
 		}
-		if i <= activeDownloads && (item.Status != download.StatusRunning || observed[id] == 0 || item.Completed < observed[id]) {
-			t.Fatalf("%s = %s, %d bytes after a %d-byte progress event", id, item.Status, item.Completed, observed[id])
+		if i <= activeDownloads && (item.Status != download.StatusRunning || observed[id].Item.Completed == 0 || item.Completed < observed[id].Item.Completed) {
+			t.Fatalf("%s = %s, %d bytes after a %d-byte progress event", id, item.Status, item.Completed, observed[id].Item.Completed)
+		}
+	}
+
+	snapshot, sequence, err := svc.Manager().ListSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotProgress := make(map[string]int64, activeDownloads)
+	for _, item := range snapshot {
+		if event, ok := observed[item.ID]; ok {
+			if event.Sequence <= 0 || event.Sequence >= sequence || item.Completed < event.Item.Completed {
+				t.Fatalf("snapshot %d has %d bytes for %s after event %d with %d bytes", sequence, item.Completed, item.ID, event.Sequence, event.Item.Completed)
+			}
+			snapshotProgress[item.ID] = item.Completed
+		}
+	}
+	if len(snapshotProgress) != activeDownloads {
+		t.Fatalf("snapshot contains progress for %d of %d tasks", len(snapshotProgress), activeDownloads)
+	}
+	for len(snapshotProgress) > 0 {
+		select {
+		case event := <-progress:
+			if done, ok := snapshotProgress[event.Item.ID]; ok && event.Sequence > sequence {
+				if event.Item.Completed < done {
+					t.Fatalf("event %d has %d bytes for %s after snapshot %d with %d bytes", event.Sequence, event.Item.Completed, event.Item.ID, sequence, done)
+				}
+				delete(snapshotProgress, event.Item.ID)
+			}
+		case <-ctx.Done():
+			t.Fatalf("missing post-snapshot progress for %d tasks", len(snapshotProgress))
 		}
 	}
 

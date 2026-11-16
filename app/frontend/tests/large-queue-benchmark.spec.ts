@@ -59,7 +59,7 @@ test("measures search and status filters under a persisted queue's progress work
       const timer = setInterval(() => {
         const item = active[delivered % active.length];
         item.completed += 64 << 10;
-        host._wails.dispatchWailsEvent({ name: "download", data: { type: "progress", item: { ...item } } });
+        host._wails.dispatchWailsEvent({ name: "download", data: { type: "progress", item: { ...item }, sequence: delivered + 1 } });
         delivered++;
         if (delivered === 128) {
           clearInterval(timer);

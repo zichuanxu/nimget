@@ -147,6 +147,12 @@ export function PickDirectory(): $CancellablePromise<string> {
     return $Call.ByID(1318710752);
 }
 
+export function QueueSnapshot(): $CancellablePromise<$models.QueueSnapshot> {
+    return $Call.ByID(546300731).then(($result: any) => {
+        return $$createType9($result);
+    });
+}
+
 /**
  * Reauthenticate queues a stopped download with a fresh URL or copied cURL
  * request. The service checks that any saved bytes match the new source.
@@ -191,7 +197,7 @@ export function RevokeExtensionPairing(id: string): $CancellablePromise<void> {
 
 export function SaveSettings(s: settings$0.Settings): $CancellablePromise<settings$0.Settings> {
     return $Call.ByID(884926860, s).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType10($result);
     });
 }
 
@@ -220,13 +226,13 @@ export function SetWhenDone(action: string): $CancellablePromise<void> {
 
 export function Settings(): $CancellablePromise<settings$0.Settings> {
     return $Call.ByID(3894829833).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType10($result);
     });
 }
 
 export function State(): $CancellablePromise<$models.State> {
     return $Call.ByID(3152233241).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType11($result);
     });
 }
 
@@ -251,5 +257,6 @@ const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = $models.ImportResult.createFrom;
 const $$createType7 = $Create.Array($$createType0);
 const $$createType8 = download$0.Request.createFrom;
-const $$createType9 = settings$0.Settings.createFrom;
-const $$createType10 = $models.State.createFrom;
+const $$createType9 = $models.QueueSnapshot.createFrom;
+const $$createType10 = settings$0.Settings.createFrom;
+const $$createType11 = $models.State.createFrom;

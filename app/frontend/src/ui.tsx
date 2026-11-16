@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { X, type LucideIcon } from "lucide-react";
 import { useI18n } from "./i18n";
 
@@ -21,6 +21,7 @@ export function Modal({
   footer?: ReactNode;
 }) {
   const { t } = useI18n();
+  const titleId = useId();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -28,14 +29,14 @@ export function Modal({
   }, [onClose]);
   return (
     <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal ${size}`} role="dialog" aria-modal="true">
+      <div className={`modal ${size}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="modal-head">
           {Icon && (
             <span className={`modal-icon ${tone}`}>
               <Icon size={18} strokeWidth={2} />
             </span>
           )}
-          <h2>{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <button className="icon ghost" onClick={onClose} aria-label={t("common.close")} title={t("common.close")}>
             <X size={16} />
           </button>

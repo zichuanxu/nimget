@@ -48,27 +48,39 @@ function observeWhenEnabled(observe) {
   };
 }
 
-function observeNavigation({ requestId, url, method, initiator, tabId, timeStamp }) {
-  if (trackingFull || tabId < 0 || !supportsHandoff(url)) return;
+function trackNavigation({ requestId, url, method, initiator, tabId, timeStamp }, starting = false) {
+  if (trackingFull || !supportsHandoff(url)) return null;
+  // One webRequest ID can span several redirect hops.
+  const key = requestId + "\n" + url;
   for (const [key, request] of requests) {
-    if (request.attachmentAt && timeStamp - request.attachmentAt > requestWindowMs) requests.delete(key);
+    const lastEvidence = request.endedAt ?? request.attachmentAt;
+    if (lastEvidence !== undefined && timeStamp - lastEvidence > requestWindowMs) requests.delete(key);
   }
+  if (requests.has(key)) return requests.get(key);
   if (requests.size >= maxTrackedRequests) {
     // Evicting an in-flight request could make a concurrent navigation look
     // unique. Wait for the worker to restart or capture to be disabled.
     requests.clear();
     trackingFull = true;
-    return;
+    return null;
   }
   const sameURL = [...requests.values()].filter((request) => request.url === url);
   for (const request of sameURL) request.ambiguous = true;
-  requests.set(requestId, { url, method, initiator, tabId, ambiguous: sameURL.length > 0 });
+  const request = { url, ambiguous: sameURL.length > 0 };
+  if (starting && tabId >= 0) Object.assign(request, { method, initiator, tabId });
+  requests.set(key, request);
+  return request;
 }
 
-function observeResponse({ requestId, url, method, responseHeaders, statusCode, timeStamp }) {
-  const request = requests.get(requestId);
-  if (!request || request.url !== url || request.method !== "GET" || method !== "GET" ||
-      request.ambiguous || statusCode !== 200) return;
+function observeNavigation(details) {
+  trackNavigation(details, true);
+}
+
+function observeResponse(details) {
+  const { method, responseHeaders, statusCode, timeStamp } = details;
+  const request = trackNavigation(details);
+  if (!request || request.method !== "GET" || method !== "GET" ||
+      request.ambiguous || request.endedAt !== undefined || statusCode !== 200) return;
   const attachment = responseHeaders?.some(({ name, value }) =>
     name.toLowerCase() === "content-disposition" && /^\s*attachment(?:\s*;|\s*$)/i.test(value ?? ""));
   if (attachment) {
@@ -83,19 +95,24 @@ function observeResponse({ requestId, url, method, responseHeaders, statusCode, 
           return false;
       }
     });
-  } else {
-    requests.delete(requestId);
   }
 }
 
-function forgetNavigation({ requestId }) {
-  requests.delete(requestId);
+function observeRedirect(details) {
+  const request = trackNavigation(details);
+  if (request) {
+    delete request.attachmentAt;
+    request.endedAt = details.timeStamp;
+  }
+  // The next hop shares the request ID and may look like a fresh GET.
+  trackNavigation({ ...details, url: details.redirectUrl });
 }
 
-function navigationEnded({ requestId }) {
-  // Chromium can finish its navigation while it is still determining the
-  // file name for the corresponding download.
-  if (!requests.get(requestId)?.attachmentAt) requests.delete(requestId);
+function navigationEnded(details) {
+  const request = trackNavigation(details);
+  // A download can appear after its navigation ended. Retain both positive
+  // and negative evidence for the whole correlation window.
+  if (request) request.endedAt = details.timeStamp;
 }
 
 function claimNavigation(item) {
@@ -105,10 +122,10 @@ function claimNavigation(item) {
   if (!Number.isFinite(started)) return null;
   const candidates = [...requests].filter(([, request]) => request.url === item.url);
   if (candidates.length !== 1) return null;
-  const [id, request] = candidates[0];
-  if (request.ambiguous || !request.attachmentAt ||
+  const [, request] = candidates[0];
+  if (request.ambiguous || request.claimed || !request.attachmentAt ||
       Math.abs(started - request.attachmentAt) > requestWindowMs) return null;
-  requests.delete(id);
+  request.claimed = true;
   return request;
 }
 
@@ -127,7 +144,7 @@ function registerCaptureListeners() {
   if (!chrome.downloads || !chrome.webRequest || chrome.downloads.onCreated.hasListener(downloadCreated)) return;
   chrome.webRequest.onBeforeRequest.addListener(observeWhenEnabled(observeNavigation), navigations);
   chrome.webRequest.onHeadersReceived.addListener(observeWhenEnabled(observeResponse), navigations, ["responseHeaders"]);
-  chrome.webRequest.onBeforeRedirect.addListener(observeWhenEnabled(forgetNavigation), navigations);
+  chrome.webRequest.onBeforeRedirect.addListener(observeWhenEnabled(observeRedirect), navigations);
   chrome.webRequest.onCompleted.addListener(observeWhenEnabled(navigationEnded), navigations);
   chrome.webRequest.onErrorOccurred.addListener(observeWhenEnabled(navigationEnded), navigations);
   chrome.downloads.onCreated.addListener(downloadCreated);

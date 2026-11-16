@@ -1,6 +1,6 @@
 {
   "manifestDescription": {
-    "message": "将此浏览器与 NimGet 桌面应用配对。"
+    "message": "将此浏览器中的下载链接发送到 NimGet 桌面应用。"
   },
   "checking": {
     "message": "正在检查连接…"
@@ -52,5 +52,47 @@
   },
   "pair": {
     "message": "请求配对"
+  },
+  "sendLink": {
+    "message": "使用 NimGet 下载"
+  },
+  "handoffAccepted": {
+    "message": "NimGet 已接受下载。"
+  },
+  "handoffUnsupported": {
+    "message": "NimGet 仅支持发送未嵌入凭据的 HTTP 或 HTTPS 链接。请尝试在浏览器中下载。"
+  },
+  "handoffPairingRequired": {
+    "message": "请先将此浏览器与 NimGet 配对，或直接在浏览器中下载。"
+  },
+  "handoffPairingChanged": {
+    "message": "此次传送属于之前的配对。再次下载前请查看 NimGet 队列。"
+  },
+  "handoffUnconfirmed": {
+    "message": "NimGet 尚未确认此次传送。请打开 NimGet 后在此重试，或查看队列后在浏览器中下载。"
+  },
+  "handoffStoreFailure": {
+    "message": "NimGet 无法确认下载是否已保存。请查看队列并在此重试。"
+  },
+  "handoffRejected": {
+    "message": "NimGet 拒绝了此链接。请检查桌面应用的设置或在浏览器中下载。"
+  },
+  "handoffConflict": {
+    "message": "NimGet 已为此次传送记录了另一项下载。请查看队列。"
+  },
+  "handoffLocalFailure": {
+    "message": "浏览器无法保存或更新此次传送。再次下载前请查看 NimGet 队列。"
+  },
+  "handoffRetryTarget": {
+    "message": "$1 · $2"
+  },
+  "handoffRetry": {
+    "message": "重试"
+  },
+  "handoffForget": {
+    "message": "忽略"
+  },
+  "handoffForgotten": {
+    "message": "已忽略此次传送。请查看 NimGet 队列，确认应用是否已接受该任务。"
   }
 }

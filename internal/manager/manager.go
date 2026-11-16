@@ -254,7 +254,14 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 		if dir != "" && !filepath.IsAbs(dir) {
 			return invalid(errors.New("directory must be an absolute path"))
 		}
-		name := m.resolveName(ctx, rawURL, m.headers(hostOf(rawURL), req.Headers), inspectTimeout)
+		name := fileName("", rawURL)
+		if req.WebsiteSession == nil || req.WebsiteSession.Usable(m.opts.Now()) {
+			headers := m.headers(hostOf(rawURL), req.Headers)
+			if req.WebsiteSession != nil {
+				req.WebsiteSession.Apply(headers)
+			}
+			name = m.resolveName(ctx, rawURL, headers, inspectTimeout)
+		}
 		if dir == "" {
 			dir = filepath.Join(m.roots[0], category(name))
 		}
@@ -300,7 +307,7 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 		ID: id, URL: rawURL, Destination: destination, Status: download.StatusQueued,
 		Priority: req.Priority, Connections: req.Connections, SpeedLimit: req.SpeedLimit,
 		Checksum: strings.TrimSpace(req.Checksum), Headers: req.Headers,
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt: now, UpdatedAt: now, WebsiteSession: req.WebsiteSession,
 	}
 	created, err := persist(ctx, item)
 	if err != nil || !created {
@@ -408,6 +415,10 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 		}
 		if p.Headers != nil {
 			item.Headers = *p.Headers
+		}
+		if p.URL != nil || p.Headers != nil {
+			item.WebsiteSession = nil
+			item.WebsiteSessionUnavailable = false
 		}
 		if j, ok := m.active[id]; ok {
 			j.item.Priority, j.item.Connections, j.item.SpeedLimit = item.Priority, item.Connections, item.SpeedLimit
@@ -676,6 +687,15 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	}
 	delete(m.retryAt, id)
 	item.UpdatedAt = now.UTC()
+	if item.WebsiteSessionUnavailable || (item.WebsiteSession != nil && !item.WebsiteSession.Usable(now)) {
+		item.Status = download.StatusFailed
+		item.Error = "The website session is no longer available. Sign in to the site again and use Refresh download link in NimGet, or send the link with the browser's website session."
+		if err := m.repo.Update(ctx, item); err != nil {
+			return err
+		}
+		m.publish(download.EventUpdated, item)
+		return nil
+	}
 	// Re-check confinement: a symlinked ancestor may have changed since Add.
 	if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
 		item.Status = download.StatusFailed
@@ -695,9 +715,13 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	j := &job{cancel: cancel, item: item, host: host, conns: conns, limiter: rate.NewLimiter(limitOf(item.SpeedLimit), limiterBurst)}
 	j.completed.Store(item.Completed)
 	j.total.Store(item.Total)
+	headers := m.headers(host, item.Headers)
+	if item.WebsiteSession != nil {
+		item.WebsiteSession.Apply(headers)
+	}
 	spec := download.Spec{
 		URL: item.URL, Destination: item.Destination, Connections: conns,
-		Headers: m.headers(host, item.Headers), Checksum: item.Checksum,
+		Headers: headers, Checksum: item.Checksum,
 		ResumeKey: item.ID, ValidateSource: item.Recovery == download.RecoveryValidateSource,
 		Limiters: []*rate.Limiter{m.global, j.limiter},
 	}
@@ -749,6 +773,8 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 		item.Status = download.StatusCompleted
 		item.Error = ""
 		item.Recovery = ""
+		item.WebsiteSession = nil
+		item.WebsiteSessionUnavailable = false
 		if item.Total > 0 {
 			item.Completed = item.Total
 		} else {
@@ -765,6 +791,9 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	default:
 		item.Status = download.StatusFailed
 		item.Error = runErr.Error()
+		if j.item.WebsiteSession != nil && websiteSessionRejected(runErr) {
+			item.Error += ". The website session may have expired. Sign in to the site again and use Refresh download link in NimGet, or send the link with the browser's website session."
+		}
 		if errors.Is(runErr, download.ErrRestartRequired) {
 			item.Recovery = download.RecoveryRestartRequired
 		}

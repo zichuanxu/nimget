@@ -10,6 +10,14 @@ import (
 	"strings"
 )
 
+// StatusError carries a safe HTTP failure message and the response status.
+type StatusError struct {
+	Code    int
+	Message string
+}
+
+func (e *StatusError) Error() string { return e.Message }
+
 // Client copies a client's configuration, preserving its transport and
 // redirect policy while restricting headers on any cross-origin hop.
 func Client(client *http.Client) *http.Client {

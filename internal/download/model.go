@@ -71,22 +71,25 @@ type Item struct {
 	Checksum   string `json:"checksum,omitempty"`
 	// Headers are request headers such as cookies. They may hold secrets, so
 	// they never leave the service.
-	Headers   map[string]string `json:"-"`
-	CreatedAt time.Time         `json:"createdAt"`
-	UpdatedAt time.Time         `json:"updatedAt"`
+	Headers                   map[string]string `json:"-"`
+	WebsiteSession            *WebsiteSession   `json:"-"`
+	WebsiteSessionUnavailable bool              `json:"-"`
+	CreatedAt                 time.Time         `json:"createdAt"`
+	UpdatedAt                 time.Time         `json:"updatedAt"`
 }
 
 // Request adds a download. Without a Destination the file name comes from the
 // server, placed in Directory or in the root's category folder.
 type Request struct {
-	URL         string            `json:"url"`
-	Destination string            `json:"destination,omitempty"`
-	Directory   string            `json:"directory,omitempty"`
-	Priority    int               `json:"priority,omitempty"`
-	Connections int               `json:"connections,omitempty"`
-	SpeedLimit  int64             `json:"speedLimit,omitempty"`
-	Checksum    string            `json:"checksum,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
+	URL            string            `json:"url"`
+	Destination    string            `json:"destination,omitempty"`
+	Directory      string            `json:"directory,omitempty"`
+	Priority       int               `json:"priority,omitempty"`
+	Connections    int               `json:"connections,omitempty"`
+	SpeedLimit     int64             `json:"speedLimit,omitempty"`
+	Checksum       string            `json:"checksum,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	WebsiteSession *WebsiteSession   `json:"-"`
 }
 
 // Patch changes a download's options; nil fields are left alone. A new speed

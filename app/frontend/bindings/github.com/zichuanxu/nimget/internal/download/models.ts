@@ -54,6 +54,7 @@ export class Item {
     "completed": number;
     "total": number;
     "error"?: string;
+    "recovery"?: Recovery;
     "priority": number;
 
     /**
@@ -121,6 +122,13 @@ export class Patch {
     "speedLimit"?: number | null;
 
     /**
+     * URL replaces the source of a stopped, failed or paused download and
+     * queues it for recovery. Supply Headers with the new request context.
+     * Omitted headers are cleared when replacing the source.
+     */
+    "url"?: string | null;
+
+    /**
      * Headers replace the request headers, for example after the session
      * cookie expired; they apply from the next start.
      */
@@ -136,14 +144,24 @@ export class Patch {
      * Creates a new Patch instance from a string or object.
      */
     static createFrom($$source: any = {}): Patch {
-        const $$createField3_0 = $$createType2;
+        const $$createField4_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("headers" in $$parsedSource) {
-            $$parsedSource["headers"] = $$createField3_0($$parsedSource["headers"]);
+            $$parsedSource["headers"] = $$createField4_0($$parsedSource["headers"]);
         }
         return new Patch($$parsedSource as Partial<Patch>);
     }
 }
+
+export enum Recovery {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    RecoveryValidateSource = "validate-source",
+    RecoveryRestartRequired = "restart-required",
+};
 
 /**
  * Request adds a download. Without a Destination the file name comes from the

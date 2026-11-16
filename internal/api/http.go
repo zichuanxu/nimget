@@ -25,6 +25,7 @@ type Downloads interface {
 	Pause(context.Context, string) error
 	Resume(context.Context, string) error
 	Retry(context.Context, string) error
+	Restart(context.Context, string) error
 	Update(context.Context, string, download.Patch) error
 	Delete(ctx context.Context, id string, removeFiles bool) error
 	Settings() settings.Settings
@@ -85,6 +86,7 @@ type Config struct {
 	Token             string
 	Logger            *slog.Logger
 	ExtensionPairings ExtensionPairings
+	ExtensionHandoffs ExtensionHandoffs
 }
 
 type Handler struct {
@@ -93,6 +95,7 @@ type Handler struct {
 	token     string
 	log       *slog.Logger
 	pairings  ExtensionPairings
+	handoffs  ExtensionHandoffs
 }
 
 func NewHandler(downloads Downloads, broker *Broker, cfg Config) http.Handler {
@@ -102,7 +105,7 @@ func NewHandler(downloads Downloads, broker *Broker, cfg Config) http.Handler {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	h := &Handler{downloads: downloads, broker: broker, token: cfg.Token, log: cfg.Logger, pairings: cfg.ExtensionPairings}
+	h := &Handler{downloads: downloads, broker: broker, token: cfg.Token, log: cfg.Logger, pairings: cfg.ExtensionPairings, handoffs: cfg.ExtensionHandoffs}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/ping", h.ping)
 	mux.HandleFunc("GET /v1/downloads", h.list)
@@ -116,6 +119,7 @@ func NewHandler(downloads Downloads, broker *Broker, cfg Config) http.Handler {
 	extension := http.NewServeMux()
 	extension.HandleFunc("POST /v1/extension/pairing", h.requestExtensionPairing)
 	extension.HandleFunc("POST /v1/extension/pairing/status", h.readExtensionPairing)
+	extension.HandleFunc("POST /v1/extension/handoffs", h.acceptExtensionHandoff)
 	return h.guard(mux, h.guardExtension(extension))
 }
 
@@ -246,9 +250,10 @@ func (h *Handler) command(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	commands := map[string]func(context.Context, string) error{
-		"pause":  h.downloads.Pause,
-		"resume": h.downloads.Resume,
-		"retry":  h.downloads.Retry,
+		"pause":   h.downloads.Pause,
+		"resume":  h.downloads.Resume,
+		"retry":   h.downloads.Retry,
+		"restart": h.downloads.Restart,
 	}
 	run, ok := commands[verb]
 	if !ok {
@@ -330,6 +335,8 @@ func (h *Handler) writeCommandError(w http.ResponseWriter, action string, err er
 	switch {
 	case errors.Is(err, download.ErrNotFound):
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Download not found")
+	case errors.Is(err, download.ErrRestartRequired):
+		writeError(w, http.StatusConflict, "RESTART_REQUIRED", err.Error())
 	case errors.Is(err, download.ErrInvalidTransition), errors.Is(err, download.ErrActive):
 		writeError(w, http.StatusConflict, "CONFLICT", err.Error())
 	case errors.Is(err, download.ErrInvalidDownload):

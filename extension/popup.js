@@ -1,4 +1,5 @@
 import { pairingStatus, requestPairing } from "./pairing.js";
+import { manualHandoffPrefix, manualHandoffResult } from "./handoff.js";
 
 const get = (id) => document.getElementById(id);
 const t = (key, substitutions) => chrome.i18n.getMessage(key, substitutions);
@@ -63,5 +64,72 @@ button.addEventListener("click", async () => {
   await update(requestPairing, true);
   button.disabled = false;
 });
+
+const handoffResult = get("handoff-result");
+const retries = get("handoff-retries");
+
+async function renderHandoffs() {
+  const stored = await chrome.storage.local.get(null);
+  const records = Object.entries(stored)
+    .filter(([key]) => key.startsWith(manualHandoffPrefix))
+    .map(([, record]) => record)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const feedback = stored[manualHandoffResult] ?? (records.length > 0 ? "handoffUnconfirmed" : null);
+  setText(handoffResult, feedback ? t(feedback) : "");
+  // Keep keyboard focus when another browser event refreshes the list.
+  const focused = document.activeElement?.dataset.handoffAction;
+  retries.replaceChildren(...records.map(renderHandoffRetry));
+  retries.hidden = records.length === 0;
+  if (focused) {
+    const target = Array.from(retries.querySelectorAll("button")).find((button) => button.dataset.handoffAction === focused);
+    target?.focus();
+  }
+}
+
+function renderHandoffRetry(record) {
+  const item = document.createElement("li");
+  const host = new URL(record.request.url).hostname;
+  const date = new Date(record.createdAt).toLocaleString();
+  const label = t("handoffRetryTarget", [host, date]);
+  item.textContent = label;
+  if (record.feedback) {
+    const feedback = document.createElement("p");
+    feedback.textContent = t(record.feedback);
+    item.append(feedback);
+  }
+  const actions = document.createElement("div");
+  for (const [type, key] of [["retryManualHandoff", "handoffRetry"], ["forgetManualHandoff", "handoffForget"]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = t(key);
+    button.setAttribute("aria-label", `${t(key)} ${label}`);
+    button.dataset.handoffAction = `${type}:${record.request.handoffId}`;
+    button.addEventListener("click", async () => {
+      for (const button of actions.children) button.disabled = true;
+      try {
+        await chrome.runtime.sendMessage({ type, handoffId: record.request.handoffId });
+      } catch {
+        setText(handoffResult, t("handoffLocalFailure"));
+      } finally {
+        for (const button of actions.children) button.disabled = false;
+      }
+    });
+    actions.append(button);
+  }
+  item.append(actions);
+  return item;
+}
+
+function updateHandoffs() {
+  void renderHandoffs().catch(() => setText(handoffResult, t("handoffLocalFailure")));
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && Object.keys(changes).some((key) => key === manualHandoffResult || key.startsWith(manualHandoffPrefix))) {
+    updateHandoffs();
+  }
+});
+updateHandoffs();
+
 await update(pairingStatus);
 window.setInterval(() => { void update(pairingStatus); }, 2000);

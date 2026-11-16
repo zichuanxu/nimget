@@ -37,7 +37,7 @@ func (e *Engine) downloadHLS(ctx context.Context, rawURL, dest string, onProgres
 		Client: e.cfg.ProbeClient, Headers: headers, UserAgent: e.cfg.UserAgent,
 		Concurrency: min(e.cfg.Connections, 8), MaxAttempts: e.cfg.MaxAttempts,
 		BaseBackoff: e.cfg.BaseBackoff, MaxBackoff: e.cfg.MaxBackoff, StallTimeout: e.cfg.StallTimeout,
-		Limiters: limiters,
+		Limiters: limiters, RequireFresh: e.cfg.ValidateSource,
 	}
 	var progress func(hls.Progress)
 	if onProgress != nil {

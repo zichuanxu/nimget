@@ -1,6 +1,6 @@
 {
   "manifestDescription": {
-    "message": "Pair this browser with the NimGet desktop app."
+    "message": "Send download links from this browser to the NimGet desktop app."
   },
   "checking": {
     "message": "Checking connection…"
@@ -52,5 +52,47 @@
   },
   "pair": {
     "message": "Request pairing"
+  },
+  "sendLink": {
+    "message": "Download with NimGet"
+  },
+  "handoffAccepted": {
+    "message": "NimGet accepted the download."
+  },
+  "handoffUnsupported": {
+    "message": "NimGet can send only HTTP or HTTPS links without embedded credentials. Try downloading in the browser."
+  },
+  "handoffPairingRequired": {
+    "message": "Pair this browser with NimGet before sending links, or download in the browser."
+  },
+  "handoffPairingChanged": {
+    "message": "This handoff belongs to an earlier pairing. Check NimGet’s queue before downloading again."
+  },
+  "handoffUnconfirmed": {
+    "message": "NimGet hasn’t confirmed the handoff. Open NimGet and retry here, or check its queue before downloading in the browser."
+  },
+  "handoffStoreFailure": {
+    "message": "NimGet couldn’t confirm that it saved the download. Check its queue and retry here."
+  },
+  "handoffRejected": {
+    "message": "NimGet rejected this link. Check the desktop settings or download in the browser."
+  },
+  "handoffConflict": {
+    "message": "NimGet already recorded a different download for this handoff. Check its queue."
+  },
+  "handoffLocalFailure": {
+    "message": "The browser couldn’t save or update this handoff. Check NimGet’s queue before downloading again."
+  },
+  "handoffRetryTarget": {
+    "message": "$1 · $2"
+  },
+  "handoffRetry": {
+    "message": "Retry"
+  },
+  "handoffForget": {
+    "message": "Dismiss"
+  },
+  "handoffForgotten": {
+    "message": "Handoff dismissed. Check NimGet’s queue for any task it may have accepted."
   }
 }

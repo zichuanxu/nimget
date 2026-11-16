@@ -1,6 +1,7 @@
 package partialfile
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -38,6 +39,21 @@ func CheckDirectory(path string) error {
 	}
 	if !info.IsDir() || isReparsePoint(info) {
 		return unsafeCollision(path, "expected a directory without links")
+	}
+	return nil
+}
+
+var ErrExists = errors.New("partial download data already exists")
+
+// RequireAbsent refuses to replace any existing partial data. Callers hold
+// the download's destination lock while checking and opening partial paths.
+func RequireAbsent(paths ...string) error {
+	for _, path := range paths {
+		if _, err := os.Lstat(path); err == nil {
+			return ErrExists
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 	}
 	return nil
 }

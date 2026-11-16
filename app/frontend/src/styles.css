@@ -455,6 +455,13 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .form-error { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--red); font-size: 12.5px; min-width: 0; user-select: text; }
 .form-error svg { flex: none; }
 
+.batch-results { margin: 0; padding-inline-start: 24px; }
+.batch-results li { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.batch-results li:first-child { padding-top: 0; }
+.batch-results .field { margin-bottom: 4px; }
+.batch-url, .batch-task { overflow-wrap: anywhere; user-select: text; }
+.batch-task { color: var(--text-2); }
+
 .input-icon { position: relative; }
 .input-icon > svg { position: absolute; left: 11px; top: 9px; color: var(--text-3); pointer-events: none; }
 .input-icon > input, .input-icon > textarea { padding-left: 34px; }

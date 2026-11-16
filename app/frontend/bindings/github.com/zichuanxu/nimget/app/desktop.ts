@@ -125,11 +125,18 @@ export function PickDirectory(): $CancellablePromise<string> {
 }
 
 /**
- * Reauthenticate replaces a download's request headers with those of a fresh
- * curl command for the same host and retries it; used after a 401 or 403.
+ * Reauthenticate queues a stopped download with a fresh URL or copied cURL
+ * request. The service checks that any saved bytes match the new source.
  */
-export function Reauthenticate(id: string, command: string): $CancellablePromise<void> {
-    return $Call.ByID(1039163308, id, command);
+export function Reauthenticate(id: string, source: string): $CancellablePromise<void> {
+    return $Call.ByID(1039163308, id, source);
+}
+
+/**
+ * Restart discards partial data and queues the download from the beginning.
+ */
+export function Restart(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2619778239, id);
 }
 
 export function Resume(id: string): $CancellablePromise<void> {

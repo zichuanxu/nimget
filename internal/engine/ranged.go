@@ -50,7 +50,10 @@ type rangedRun struct {
 
 func (j *job) ranged(ctx context.Context, info probeInfo) error {
 	e := j.engine
-	want := checkpoint{Version: checkpointVersion, Identity: j.identity, Size: info.size, ETag: info.etag, LastModified: info.lastModified}
+	want := checkpoint{
+		Version: checkpointVersion, Identity: j.identity, Size: info.size,
+		SourceScope: info.sourceScope, ETag: info.etag, LastModified: info.lastModified,
+	}
 	f, remaining, err := j.openPart(want)
 	if err != nil {
 		return err
@@ -125,8 +128,17 @@ func (j *job) openPart(want checkpoint) (*os.File, []interval, error) {
 			_ = f.Close()
 			return nil, nil, fmt.Errorf("stat partial file: %w", statErr)
 		}
-		if cp, err := readCheckpoint(j.meta); err == nil && cp.resumable(want) && info.Size() == want.Size {
-			return f, cp.Remaining, nil
+		if cp, err := readCheckpoint(j.meta); err == nil && info.Size() == want.Size {
+			expected := want
+			if !j.engine.cfg.ValidateSource && cp.Identity == j.url {
+				// Checkpoints made before task IDs were used are valid for
+				// the original URL. Successful runs rewrite them with the ID.
+				expected.Identity = j.url
+			}
+			if cp.resumable(expected) &&
+				(!j.engine.cfg.ValidateSource || (cp.ETag != "" && cp.SourceScope != "")) {
+				return f, cp.Remaining, nil
+			}
 		}
 		if err := f.Close(); err != nil {
 			return nil, nil, fmt.Errorf("close stale partial file: %w", err)
@@ -134,7 +146,13 @@ func (j *job) openPart(want checkpoint) (*os.File, []interval, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, nil, fmt.Errorf("open partial file: %w", err)
 	}
-	j.discard()
+	if j.engine.cfg.ValidateSource {
+		if err := partialfile.RequireAbsent(j.part, j.meta); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		j.discard()
+	}
 	if free, err := freeSpace(filepath.Dir(j.part)); err == nil && free < want.Size+freeSpaceMargin {
 		return nil, nil, fmt.Errorf("%w: need %d bytes plus margin, %d available", ErrInsufficientSpace, want.Size, free)
 	}
@@ -410,6 +428,9 @@ func (r *rangedRun) validate(req *http.Request, resp *http.Response, start, end 
 
 // changed reports a response whose validators differ from the probe's.
 func (r *rangedRun) changed(resp *http.Response) bool {
+	if r.info.sourceScope != sourceScope(resp.Request.URL) {
+		return true
+	}
 	if r.info.etag != "" {
 		return strongETag(resp.Header.Get("ETag")) != r.info.etag
 	}

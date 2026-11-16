@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { KeyRound, Moon, Power, RotateCw, Trash2 } from "lucide-react";
 import { Desktop, Item, Status, message } from "./api";
-import { baseName, looksLikeCurl } from "./format";
+import { baseName } from "./format";
 import { useI18n } from "./i18n";
 import { Modal } from "./ui";
 
@@ -56,17 +56,31 @@ export function DeleteDialog({ item, onClose, onError }: { item: Item; onClose: 
   );
 }
 
-export function ReauthDialog({ item, onClose, onError }: { item: Item; onClose: () => void; onError: (e: unknown) => void }) {
+export function ReauthDialog({ item, onClose }: { item: Item; onClose: () => void }) {
   const { t } = useI18n();
   const [text, setText] = useState("");
-  const submit = async () => {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const id = useId();
+  const restartRequired = item.recovery === "restart-required";
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    setError("");
     try {
-      await Desktop.Reauthenticate(item.id, text);
+      await action();
       onClose();
     } catch (err) {
-      onError(err);
+      setError(message(err));
+      setBusy(false);
     }
   };
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void run(() => Desktop.Reauthenticate(item.id, text));
+  };
+
   return (
     <Modal
       icon={KeyRound}
@@ -75,16 +89,44 @@ export function ReauthDialog({ item, onClose, onError }: { item: Item; onClose: 
       onClose={onClose}
       footer={
         <>
-          <button onClick={onClose}>{t("common.cancel")}</button>
-          <button className="primary" disabled={!looksLikeCurl(text)} onClick={submit}>
+          <button type="button" onClick={onClose}>{t("common.cancel")}</button>
+          {restartRequired && (
+            <button type="button" className="danger" disabled={busy} onClick={() => void run(() => Desktop.Restart(item.id))}>
+              {t("reauth.restart")}
+            </button>
+          )}
+          <button type="submit" form={id + "-form"} className="primary" disabled={busy}>
             <RotateCw size={14} />
             {t("reauth.submit")}
           </button>
         </>
       }
     >
-      <p className="muted">{t("reauth.body", { name: baseName(item.destination) })}</p>
-      <textarea className="mono" rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="curl 'https://…' -H 'cookie: …'" autoFocus spellCheck={false} />
+      {restartRequired && <p>{t("reauth.restartBody")}</p>}
+      <p id={id + "-help"} className="muted">{t("reauth.body", { name: baseName(item.destination) })}</p>
+      <form id={id + "-form"} method="post" onSubmit={submit}>
+        <label className="field" htmlFor={id}>
+          <span className="field-label">{t("reauth.source")}</span>
+          <textarea
+            id={id}
+            name="source"
+            className="mono"
+            rows={5}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setError("");
+            }}
+            aria-describedby={id + "-help"}
+            autoFocus
+            required
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="none"
+          />
+        </label>
+        <p className="error-text" role="status">{error}</p>
+      </form>
     </Modal>
   );
 }

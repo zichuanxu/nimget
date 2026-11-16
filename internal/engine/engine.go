@@ -4,6 +4,8 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -19,10 +21,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/zichuanxu/nimget/internal/download"
 	"github.com/zichuanxu/nimget/internal/filelock"
 	"github.com/zichuanxu/nimget/internal/hls"
 	"github.com/zichuanxu/nimget/internal/httporigin"
 	"github.com/zichuanxu/nimget/internal/logging"
+	"github.com/zichuanxu/nimget/internal/partialfile"
 	"github.com/zichuanxu/nimget/internal/quarantine"
 	"golang.org/x/time/rate"
 )
@@ -64,7 +68,9 @@ type Config struct {
 	// ResumeKey identifies the file across expiring signed URLs; the URL is
 	// used when it is empty.
 	ResumeKey string
-	Overwrite bool
+	// ValidateSource prohibits replacing partial data after the source has changed.
+	ValidateSource bool
+	Overwrite      bool
 	// FileMode is applied after the complete file has been verified.
 	FileMode os.FileMode
 	// Limiters cap body reads (DESIGN.md 3.9); every one must admit the bytes.
@@ -184,6 +190,9 @@ func (e *Engine) Download(ctx context.Context, rawURL, dest string, onProgress f
 	} else if err = e.downloadFile(ctx, rawURL, dest, onProgress); errors.Is(err, errPlaylist) {
 		err = e.downloadHLS(ctx, rawURL, dest, onProgress)
 	}
+	if errors.Is(err, partialfile.ErrExists) {
+		return download.ErrRestartRequired
+	}
 	if err == nil {
 		// Best effort: some file systems (FAT, network shares) refuse it.
 		_ = quarantine.Mark(dest, rawURL)
@@ -229,6 +238,15 @@ func (e *Engine) downloadFile(ctx context.Context, rawURL, dest string, onProgre
 		if hls.Detect(info.contentType, info.finalURL, nil) {
 			return errPlaylist // handled after the lock is released
 		}
+		if e.cfg.ValidateSource {
+			paths := []string{dest + ".hls"}
+			if !info.ranges || info.size <= 0 {
+				paths = append(paths, job.part, job.meta)
+			}
+			if err := partialfile.RequireAbsent(paths...); err != nil {
+				return err
+			}
+		}
 		if info.ranges && info.size > 0 {
 			err = job.ranged(ctx, info)
 		} else {
@@ -239,6 +257,8 @@ func (e *Engine) downloadFile(ctx context.Context, rawURL, dest string, onProgre
 			return job.commit()
 		case errors.Is(err, errNeedsHTTP2) && job.segments != e.cfg.ProbeClient:
 			job.segments, job.connections = e.cfg.ProbeClient, 1
+		case e.cfg.ValidateSource && (errors.Is(err, ErrSourceChanged) || errors.Is(err, ErrRangeUnsupported)):
+			return download.ErrRestartRequired
 		case attempt == 0 && (errors.Is(err, ErrSourceChanged) || errors.Is(err, ErrRangeUnsupported)):
 			// Re-probe. Written bytes came from validated responses, so openPart
 			// keeps them when the validators still match and discards them
@@ -313,6 +333,7 @@ type probeInfo struct {
 	ranges       bool
 	etag         string // strong ETag only
 	lastModified string
+	sourceScope  string
 	// For Inspect.
 	disposition, contentType, finalURL string
 }
@@ -364,7 +385,7 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 	info := probeInfo{
 		etag: strongETag(resp.Header.Get("ETag")), lastModified: resp.Header.Get("Last-Modified"),
 		disposition: resp.Header.Get("Content-Disposition"), contentType: resp.Header.Get("Content-Type"),
-		finalURL: resp.Request.URL.String(),
+		finalURL: resp.Request.URL.String(), sourceScope: sourceScope(resp.Request.URL),
 	}
 	switch resp.StatusCode {
 	case http.StatusPartialContent:
@@ -390,6 +411,32 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 	default:
 		return probeInfo{}, statusError("probe", req, resp)
 	}
+}
+
+// sourceScope limits validator comparisons to the final HTTP resource. Only
+// known signing parameters can change without invalidating the checkpoint.
+func sourceScope(u *url.URL) string {
+	path := u.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	var query []string
+	for pair := range strings.SplitSeq(u.RawQuery, "&") {
+		name, _, hasValue := strings.Cut(pair, "=")
+		if hasValue && !strings.Contains(pair, ";") {
+			switch strings.ToLower(name) {
+			case "token", "sig", "signature", "expires", "key-pair-id", "policy",
+				"x-amz-algorithm", "x-amz-credential", "x-amz-date", "x-amz-expires",
+				"x-amz-security-token", "x-amz-signature", "x-amz-signedheaders",
+				"x-goog-algorithm", "x-goog-credential", "x-goog-date", "x-goog-expires",
+				"x-goog-signature", "x-goog-signedheaders":
+				continue
+			}
+		}
+		query = append(query, pair)
+	}
+	sum := sha256.Sum256([]byte(httporigin.Key(u) + path + "?" + strings.Join(query, "&")))
+	return hex.EncodeToString(sum[:])
 }
 
 // newRequest builds a GET carrying the caller's headers, minus the ones the

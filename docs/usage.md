@@ -142,13 +142,18 @@ Every endpoint except `/v1/ping` requires `Authorization: Bearer <token>`. Comma
 | `POST` | `/v1/downloads/{id}:pause` | Pauses a queued or running download. `204` |
 | `POST` | `/v1/downloads/{id}:resume` | Requeues a paused download. `204` |
 | `POST` | `/v1/downloads/{id}:retry` | Requeues a failed download. `204` |
-| `PATCH` | `/v1/downloads/{id}` | Body with any of `priority`, `connections`, `speedLimit`. `204` |
+| `POST` | `/v1/downloads/{id}:restart` | Discards partial data and requeues a failed download with `recovery: "restart-required"`. `204` |
+| `PATCH` | `/v1/downloads/{id}` | Updates `priority`, `connections`, `speedLimit`, or `headers`. Supplying `url` refreshes the source and requeues a stopped failed or paused download. `204` |
 | `DELETE` | `/v1/downloads/{id}` | Deletes a stopped download; `?files=true` also removes partial data and, for completed downloads, the file. `204` |
 | `GET` | `/v1/settings` | The settings document. |
 | `PUT` | `/v1/settings` | Replaces the settings; returns them, or `422` with every validation error. |
 | `GET` | `/v1/events` | `text/event-stream`; also accepts `?token=` because `EventSource` cannot send headers. |
 
 Errors use `{"error":{"code":"...","message":"..."}}`: `404` for an unknown ID, `409` for a command the current status forbids (for example pausing a completed download, or deleting one that is still stopping), and `422` for an invalid URL, a destination outside the download roots, or a destination another download already uses.
+
+Download recovery keeps the task ID and destination. Include fresh `headers` alongside the new `url` if the source requires them. A URL replacement clears the previous request headers. The desktop **Refresh download link** action accepts either a pasted URL or the browser's **Copy as cURL** command.
+
+For HTTP partial data, NimGet checks byte-range support, size, a matching strong ETag, and the final resource URL after ignoring recognized signing parameters. A missing or incompatible checkpoint, or partial HLS data whose segment contents cannot be validated, sets `recovery: "restart-required"`. The saved data stays available while you try another link. Choose **Restart from beginning** to discard it and download from the current source. Ordinary API retry returns `409 RESTART_REQUIRED` in this state.
 
 The event stream starts with one `snapshot` event holding every download, followed by `updated`, `progress`, and `deleted` deltas:
 

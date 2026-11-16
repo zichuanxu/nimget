@@ -120,6 +120,7 @@ func NewHandler(downloads Downloads, broker *Broker, cfg Config) http.Handler {
 	extension.HandleFunc("POST /v1/extension/pairing", h.requestExtensionPairing)
 	extension.HandleFunc("POST /v1/extension/pairing/status", h.readExtensionPairing)
 	extension.HandleFunc("POST /v1/extension/handoffs", h.acceptExtensionHandoff)
+	extension.HandleFunc("POST /v1/extension/handoffs/status", h.lookupExtensionHandoff)
 	return h.guard(mux, h.guardExtension(extension))
 }
 

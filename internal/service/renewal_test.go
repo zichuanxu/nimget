@@ -19,34 +19,43 @@ import (
 )
 
 func TestRenewExpiredDownloadResumesExistingTask(t *testing.T) {
-	testSignedURLRenewal(t, `"version-1"`, "", false)
+	testSignedURLRenewal(t, `"version-1"`, "", false, 1)
+}
+
+func TestRenewExpiredDownloadResumesAfterVerificationCancellation(t *testing.T) {
+	testSignedURLRenewal(t, `"version-1"`, "", false, 2)
 }
 
 func TestRenewExpiredDownloadRequiresExplicitRestart(t *testing.T) {
 	for _, tc := range []struct {
 		name, etag, query string
+		verifications     int32
 	}{
 		{name: "changed validator", etag: `"version-2"`},
 		{name: "missing validator"},
-		{name: "different resource query with same validator", etag: `"version-1"`, query: "&file=other"},
+		{name: "different resource query with same validator", etag: `"version-1"`, query: "&file=other", verifications: 1},
+		{name: "different resource in a signing-shaped field", etag: `"version-1"`, query: "&token=other", verifications: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			testSignedURLRenewal(t, tc.etag, tc.query, true)
+			testSignedURLRenewal(t, tc.etag, tc.query, true, tc.verifications)
 		})
 	}
 }
 
-func testSignedURLRenewal(t *testing.T, freshETag, freshQuery string, wantRestart bool) {
+func testSignedURLRenewal(t *testing.T, freshETag, freshQuery string, wantRestart bool, wantVerifications int32) {
 	t.Helper()
 	payload := bytes.Repeat([]byte("signed download bytes\n"), 16<<10)
 	prefix := len(payload) / 2
 	pauseAt := prefix + (len(payload)-prefix)/2
 	reachedPause := make(chan struct{}, 1)
+	verificationStarted := make(chan struct{}, 1)
+	cancelFirstVerification := wantVerifications == 2
 	freshPayload := payload
 	if wantRestart {
 		freshPayload = bytes.Repeat([]byte{'x'}, len(payload))
 	}
 	var expired atomic.Bool
+	var verifications atomic.Int32
 	var renewedStart atomic.Int64
 	renewedStart.Store(-1)
 	var resumedStart atomic.Int64
@@ -79,6 +88,17 @@ func testSignedURLRenewal(t *testing.T, freshETag, freshQuery string, wantRestar
 		if old {
 			expired.Store(true)
 			_, _ = w.Write(payload[:prefix])
+			return
+		}
+		if start == 0 && end < len(payload)-1 {
+			if verifications.Add(1) == 1 && cancelFirstVerification {
+				_, _ = w.Write(freshPayload[:1])
+				w.(http.Flusher).Flush()
+				verificationStarted <- struct{}{}
+				<-r.Context().Done()
+				return
+			}
+			_, _ = w.Write(freshPayload[:end+1])
 			return
 		}
 		firstRenewed := renewedStart.CompareAndSwap(-1, int64(start))
@@ -130,6 +150,10 @@ func testSignedURLRenewal(t *testing.T, freshETag, freshQuery string, wantRestar
 	if err := svc.Close(); err != nil {
 		t.Fatal(err)
 	}
+	checkpoint, err := os.ReadFile(dest + ".part.meta")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	svc, api = startRenewalService(t, ctx, cfg)
 	fresh := remote.URL + "/asset?signature=fresh" + freshQuery
@@ -145,6 +169,30 @@ func testSignedURLRenewal(t *testing.T, freshETag, freshQuery string, wantRestar
 	}
 	if err := api.Update(ctx, added.ID, patch); err != nil {
 		t.Fatal(err)
+	}
+	if cancelFirstVerification {
+		select {
+		case <-verificationStarted:
+		case <-ctx.Done():
+			t.Fatal("saved-byte verification did not begin")
+		}
+		if err := api.Pause(ctx, added.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if current, err := os.ReadFile(dest + ".part.meta"); err != nil || !bytes.Equal(current, checkpoint) {
+			t.Fatalf("verification cancellation changed the checkpoint: %v", err)
+		}
+		svc, api = startRenewalService(t, ctx, cfg)
+		paused := waitRenewalTask(t, ctx, api, download.StatusPaused)
+		if paused.Completed != int64(prefix) || paused.Recovery != download.RecoveryValidateSource {
+			t.Fatalf("paused while verifying = %+v, want original progress", paused)
+		}
+		if err := api.Resume(ctx, added.ID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	expectedOffset := int64(prefix)
 	if wantRestart {
@@ -204,6 +252,9 @@ func testSignedURLRenewal(t *testing.T, freshETag, freshQuery string, wantRestar
 	}
 	if !wantRestart && resumedStart.Load() != int64(pauseAt) {
 		t.Fatalf("request after pause and service restart started at %d, want %d", resumedStart.Load(), pauseAt)
+	}
+	if got := verifications.Load(); got != wantVerifications {
+		t.Fatalf("saved-byte verifications = %d, want %d", got, wantVerifications)
 	}
 	if data, err := os.ReadFile(dest); err != nil || !bytes.Equal(data, freshPayload) {
 		t.Fatalf("completed file = %d bytes, %v", len(data), err)

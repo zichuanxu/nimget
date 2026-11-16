@@ -413,29 +413,10 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 	}
 }
 
-// sourceScope limits validator comparisons to the final HTTP resource. Only
-// known signing parameters can change without invalidating the checkpoint.
+// sourceScope limits validator comparisons to the final HTTP resource.
+// Hash the full request URI so signed values stay out of the checkpoint.
 func sourceScope(u *url.URL) string {
-	path := u.EscapedPath()
-	if path == "" {
-		path = "/"
-	}
-	var query []string
-	for pair := range strings.SplitSeq(u.RawQuery, "&") {
-		name, _, hasValue := strings.Cut(pair, "=")
-		if hasValue && !strings.Contains(pair, ";") {
-			switch strings.ToLower(name) {
-			case "token", "sig", "signature", "expires", "key-pair-id", "policy",
-				"x-amz-algorithm", "x-amz-credential", "x-amz-date", "x-amz-expires",
-				"x-amz-security-token", "x-amz-signature", "x-amz-signedheaders",
-				"x-goog-algorithm", "x-goog-credential", "x-goog-date", "x-goog-expires",
-				"x-goog-signature", "x-goog-signedheaders":
-				continue
-			}
-		}
-		query = append(query, pair)
-	}
-	sum := sha256.Sum256([]byte(httporigin.Key(u) + path + "?" + strings.Join(query, "&")))
+	sum := sha256.Sum256([]byte(httporigin.Key(u) + u.RequestURI()))
 	return hex.EncodeToString(sum[:])
 }
 

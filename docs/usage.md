@@ -153,7 +153,9 @@ Errors use `{"error":{"code":"...","message":"..."}}`: `404` for an unknown ID, 
 
 Download recovery keeps the task ID and destination. Include fresh `headers` alongside the new `url` if the source requires them. A URL replacement clears the previous request headers. The desktop **Refresh download link** action accepts either a pasted URL or the browser's **Copy as cURL** command.
 
-For HTTP partial data, NimGet checks byte-range support, size, a matching strong ETag, and the final resource URL after ignoring recognized signing parameters. A missing or incompatible checkpoint, or partial HLS data whose segment contents cannot be validated, sets `recovery: "restart-required"`. The saved data stays available while you try another link. Choose **Restart from beginning** to discard it and download from the current source. Ordinary API retry returns `409 RESTART_REQUIRED` in this state.
+For HTTP partial data, NimGet checks byte-range support, size, and a matching strong ETag. If the final resource URL changes, including its query string, NimGet downloads the saved ranges again to compare the bytes before resuming. This adds verification traffic. Links that resolve to the same final resource URL can resume without that extra transfer.
+
+An incompatible checkpoint, mismatched saved bytes, or partial HLS data whose segment contents cannot be validated sets `recovery: "restart-required"`. The saved data stays available while you try another link. Choose **Restart from beginning** to discard it and download from the current source. Ordinary API retry returns `409 RESTART_REQUIRED` in this state.
 
 The event stream starts with one `snapshot` event holding every download, followed by `updated`, `progress`, and `deleted` deltas:
 

@@ -530,6 +530,7 @@ function Shell() {
         <AddDialog
           key={addFormKey}
           prefill={adding}
+          hasNewPrefill={retainAddDraft && !!adding?.text}
           defaultDirectory={state.defaultDirectory}
           onClose={(keepDraft) => {
             setRetainAddDraft(keepDraft);

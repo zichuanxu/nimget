@@ -56,8 +56,44 @@
   "sendLink": {
     "message": "Download with NimGet"
   },
+  "sendWithWebsiteSession": {
+    "message": "Download with NimGet using website session…"
+  },
+  "websiteSessionTitle": {
+    "message": "Use your website session"
+  },
+  "websiteSessionDescription": {
+    "message": "NimGet can use cookies that match this download on $1. The browser may remember access for this site. You can also send the link without cookies."
+  },
+  "websiteSessionUse": {
+    "message": "Use website session"
+  },
+  "websiteSessionSkip": {
+    "message": "Send without session"
+  },
+  "websiteSessionDenied": {
+    "message": "Website access declined. You can send the link without a session. For a protected file, sign in and allow access or download in the browser."
+  },
+  "websiteSessionUnavailable": {
+    "message": "No usable website session was available. Sign in on the site and try again, send without a session, or download in the browser."
+  },
+  "websiteSessionDraftExpired": {
+    "message": "This link is no longer ready to send. Return to the link and choose Download with NimGet using website session again."
+  },
+  "websiteSessionSending": {
+    "message": "Sending the download to NimGet…"
+  },
+  "websiteSessionRetryNeedsConsent": {
+    "message": "The browser no longer has this website session, and NimGet has no receipt yet. Check its queue before sending the link again with a fresh website session."
+  },
   "handoffAccepted": {
     "message": "NimGet accepted the download."
+  },
+  "handoffAcceptedWithoutWebsiteSession": {
+    "message": "NimGet accepted the link without a website session. If access fails, sign in and send it using the website session or download in the browser."
+  },
+  "handoffAcceptedMemoryOnly": {
+    "message": "NimGet accepted the download. Secure credential storage is unavailable. The website session will be lost when NimGet restarts. You may need to sign in and authorize the download again."
   },
   "handoffUnsupported": {
     "message": "NimGet can send only HTTP or HTTPS links without embedded credentials. Try downloading in the browser."

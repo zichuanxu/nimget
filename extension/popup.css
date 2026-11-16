@@ -72,3 +72,16 @@ button:focus-visible {
   margin-block-start: 4px;
   margin-inline-end: 6px;
 }
+
+.website-session-page {
+  inline-size: auto;
+}
+
+.website-session-page main {
+  max-inline-size: 36rem;
+  margin: 3rem auto;
+}
+
+.website-session-page button {
+  margin-inline-end: 0.5rem;
+}

@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -10,18 +11,20 @@ import (
 	"github.com/zichuanxu/nimget/internal/download"
 )
 
+const websiteSessionRecovery = "Sign in to the site again and use Refresh download link in NimGet, or send the link with the browser's website session."
+
 // AcceptHandoff queues a browser request using the same settings, destination
 // selection and notifications as a task added in the desktop app.
-func (m *Manager) AcceptHandoff(ctx context.Context, pairingID, handoffID string, req download.Request) (download.HandoffReceipt, error) {
+func (m *Manager) AcceptHandoff(ctx context.Context, pairingID, handoffID, pairingCredential string, req download.Request) (download.HandoffReceipt, error) {
 	repo, ok := m.repo.(download.HandoffRepository)
 	if !ok {
 		return download.HandoffReceipt{}, errors.New("download repository does not support browser handoff")
 	}
-	payload, err := json.Marshal(req)
+	digest, err := handoffDigest(req, pairingCredential)
 	if err != nil {
 		return download.HandoffReceipt{}, err
 	}
-	handoff := download.Handoff{PairingID: pairingID, ID: handoffID, Digest: sha256.Sum256(payload)}
+	handoff := download.Handoff{PairingID: pairingID, ID: handoffID, Digest: digest}
 	receipt, err := repo.FindHandoff(ctx, handoff)
 	if err != nil || receipt.TaskID != "" {
 		return receipt, err
@@ -36,4 +39,32 @@ func (m *Manager) AcceptHandoff(ctx context.Context, pairingID, handoffID string
 		return receipt.Created, storeErr
 	})
 	return receipt, err
+}
+
+func (m *Manager) LookupHandoff(ctx context.Context, pairingID, handoffID string) (download.HandoffReceipt, error) {
+	repo, ok := m.repo.(download.HandoffRepository)
+	if !ok {
+		return download.HandoffReceipt{}, errors.New("download repository does not support browser handoff")
+	}
+	return repo.LookupHandoff(ctx, pairingID, handoffID)
+}
+
+func handoffDigest(req download.Request, credential string) ([32]byte, error) {
+	// Keep the digest for existing URL-only receipts stable. Bind the typed
+	// session as well for new protected requests, using a keyed digest so
+	// a copy of the database cannot be used to guess a cookie offline.
+	if req.WebsiteSession == nil {
+		payload, err := json.Marshal(req)
+		return sha256.Sum256(payload), err
+	}
+	payload, err := json.Marshal(struct {
+		download.Request
+		Session *download.WebsiteSession `json:"websiteSession"`
+	}{req, req.WebsiteSession})
+	if err != nil {
+		return [32]byte{}, err
+	}
+	hash := hmac.New(sha256.New, []byte(credential))
+	_, _ = hash.Write(payload)
+	return [32]byte(hash.Sum(nil)), nil
 }

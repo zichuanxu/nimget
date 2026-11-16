@@ -1,6 +1,6 @@
 # Production readiness plan
 
-Status: product scope and test boundaries synthesized in [the production specification](production-spec.md), published as [GitHub issue #1](https://github.com/zichuanxu/nimget/issues/1) with the `ready-for-agent` label. Implementation has not started.
+The product scope and test boundaries appear in the [production specification](production-spec.md) and [GitHub issue #1](https://github.com/zichuanxu/nimget/issues/1). This plan records the original sequence and discovery findings. See the [Windows release guide](windows-release.md) for the implemented packaging and validation commands.
 
 ## Confirmed scope (2026-11-16)
 
@@ -8,14 +8,14 @@ Status: product scope and test boundaries synthesized in [the production specifi
 - Prioritize Windows 10/11 with Chrome and Edge. Preserve existing macOS and Linux capabilities; defer other browser integrations.
 - Cover HTTP(S) files, authenticated downloads, reliable resume, queue scheduling, browser handoff, desktop usability, and existing HLS functionality.
 - Exclude DRM and payment restriction bypass from this scope.
-- Keep expenditure at zero. Distribute installers through GitHub Releases. This supersedes the source-only distribution decision in DESIGN.md for the planned release; packaging is not yet implemented.
+- Keep expenditure at zero. Prepare the unsigned Windows installer and matching extension archive for GitHub Releases.
 - Default to an explicit browser context-menu action. Automatic capture is opt-in, with site and file-type exclusions. Cancel the browser download only after durable task acceptance; otherwise preserve the browser download.
 - NimGet has no account or login system. Support on-demand transfer of relevant website cookies for authenticated downloads. Require initial desktop confirmation of extension pairing and support revocation.
 - Preserve the current React/Wails architecture and visual style. Improve bulk operations, accessibility, failure recovery, task details, and browser connection visibility.
 
-## Decisions still open
+## Test boundaries
 
-- Exact interfaces, schemas, packaging technology, and implementation schedule remain implementation details. The user confirmed service/API integration tests, local HTTP fault fixtures, and focused browser, desktop, and installer acceptance as the test boundaries.
+- The user confirmed service/API integration tests, local HTTP fault fixtures, and focused browser, desktop, and installer acceptance as the test boundaries.
 
 ## Proposed implementation sequence and acceptance
 
@@ -45,7 +45,7 @@ These are code-review findings, not claims of reproduced exploits or completed f
 | Medium | HLS alternate audio/subtitle renditions are omitted | internal/hls/playlist.go; docs/usage.md | Explicitly communicate unsupported media combinations |
 | High | Installer/release automation retired; desktop manual acceptance remains pending | DESIGN.md sections 10 and 11; .github/workflows/ci.yml | Clean-machine installation and desktop acceptance |
 
-## Validation performed
+## Initial discovery validation
 
 - `go test ./internal/engine ./internal/hls` passed on the current Windows workspace.
 - No full-suite, race, desktop runtime, browser integration, or installer acceptance run has been completed in this discovery session.

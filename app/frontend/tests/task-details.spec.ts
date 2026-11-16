@@ -116,3 +116,22 @@ test("offers a fresh link after the website rejects authorization", async ({ pag
   await details.getByRole("button", { name: "Refresh download link" }).click();
   await expect(page.getByRole("dialog", { name: "Recover download" })).toBeVisible();
 });
+
+test("explains media limitations and offers an alternative source", async ({ page }) => {
+  await mockDesktop(page, {
+    List: () => [{
+      ...task,
+      status: "failed",
+      failure: "unsupported-media",
+      error: "unsupported HLS feature: selected variant uses separate subtitles (test-secret)",
+    }],
+  });
+  await page.goto("/");
+  await page.getByText("report.zip", { exact: true }).hover();
+  await page.getByRole("button", { name: "Details for report.zip" }).click();
+  const details = page.getByRole("dialog", { name: "Download details" });
+  await expect(details.getByText("Unsupported media stream")).toBeVisible();
+  await expect(details.getByText(/separate audio, video, or subtitles/)).toBeVisible();
+  await expect(details.getByText(/direct video file or an on-demand HLS link/)).toBeVisible();
+  await expect(details).not.toContainText(/test-password|test-secret/);
+});

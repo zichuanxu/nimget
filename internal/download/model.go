@@ -29,8 +29,9 @@ var (
 	// ErrInvalidSettings reports settings that failed validation.
 	ErrInvalidSettings = errors.New("invalid settings")
 	// Runner errors used to classify task failures without exposing diagnostics.
-	ErrStalled   = errors.New("connection stalled")
-	ErrDiskSpace = errors.New("not enough free disk space")
+	ErrStalled          = errors.New("connection stalled")
+	ErrDiskSpace        = errors.New("not enough free disk space")
+	ErrUnsupportedMedia = errors.New("unsupported media stream")
 )
 
 type Status string

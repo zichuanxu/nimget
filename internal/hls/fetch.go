@@ -49,9 +49,9 @@ func (s fileSink) reset() error {
 
 // get fetches a small resource (a playlist or key) into memory. It returns
 // the body and the URL after redirects.
-func (d *downloader) get(ctx context.Context, uri string) ([]byte, *url.URL, error) {
+func (d *downloader) get(ctx context.Context, uri, label string) ([]byte, *url.URL, error) {
 	var buf memSink
-	final, n, err := d.fetch(ctx, uri, 0, -1, false, maxInMemory, &buf)
+	final, n, err := d.fetch(ctx, uri, label, 0, -1, false, maxInMemory, &buf)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -62,7 +62,7 @@ func (d *downloader) get(ctx context.Context, uri string) ([]byte, *url.URL, err
 // retrying transient failures, and returns the final URL and the byte count.
 // limit bounds the body (-1 for none). When counted, received bytes feed the
 // progress tracker.
-func (d *downloader) fetch(ctx context.Context, uri string, off, n int64, counted bool, limit int64, w sink) (*url.URL, int64, error) {
+func (d *downloader) fetch(ctx context.Context, uri, label string, off, n int64, counted bool, limit int64, w sink) (*url.URL, int64, error) {
 	var last *attemptError
 	for attempt := 0; attempt < d.opts.MaxAttempts; attempt++ {
 		if last != nil {
@@ -74,7 +74,7 @@ func (d *downloader) fetch(ctx context.Context, uri string, off, n int64, counte
 			}
 		}
 		var got int64
-		final, written, aerr := d.getOnce(ctx, uri, off, n, limit, w, func(k int) {
+		final, written, aerr := d.getOnce(ctx, uri, label, off, n, limit, w, func(k int) {
 			if counted {
 				got += int64(k)
 				d.prog.add(int64(k))
@@ -94,12 +94,11 @@ func (d *downloader) fetch(ctx context.Context, uri string, off, n int64, counte
 	return nil, 0, last
 }
 
-func (d *downloader) getOnce(ctx context.Context, uri string, off, n, limit int64, w sink, onRead func(int)) (*url.URL, int64, *attemptError) {
+func (d *downloader) getOnce(ctx context.Context, uri, label string, off, n, limit int64, w sink, onRead func(int)) (*url.URL, int64, *attemptError) {
 	reqCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	stall := newStallTimer(d.opts.StallTimeout, func() { cancel(download.ErrStalled) })
 	defer stall.Stop()
-	label := logging.RedactURL(uri)
 	interrupted := func(err error) *attemptError {
 		if errors.Is(context.Cause(reqCtx), download.ErrStalled) && ctx.Err() == nil {
 			err = download.ErrStalled

@@ -93,6 +93,9 @@ func TestProtectedDownloadsKeepCredentialsOutOfDiagnosticsAndExports(t *testing.
 	}
 
 	cancel()
+	if err := svc.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := svc.Wait(); err != nil {
 		t.Fatal(err)
 	}

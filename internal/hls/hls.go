@@ -54,6 +54,8 @@ type Options struct {
 	BaseBackoff, MaxBackoff time.Duration
 	StallTimeout            time.Duration // fail a request idle this long, default 30s
 	Limiters                []Limiter
+	// RequireFresh refuses to replace saved segments when a source is refreshed.
+	RequireFresh bool
 }
 
 // Progress reports a download's state. Callbacks are serialized.
@@ -119,6 +121,12 @@ func Download(ctx context.Context, rawURL, dest string, opts Options, progress f
 		return fmt.Errorf("%w: %s", ErrDestinationExists, dest)
 	}
 
+	work := dest + ".hls"
+	if opts.RequireFresh {
+		if err := partialfile.RequireAbsent(work, dest+".part", dest+".part.meta"); err != nil {
+			return err
+		}
+	}
 	d := &downloader{opts: opts, prog: &tracker{cb: progress}, keys: map[string]*keyEntry{}}
 	if u, err := url.Parse(rawURL); err == nil {
 		d.origin = u
@@ -127,7 +135,6 @@ func Download(ctx context.Context, rawURL, dest string, opts Options, progress f
 	if err != nil {
 		return err
 	}
-	work := dest + ".hls"
 	if err := prepareWorkDir(work, items); err != nil {
 		return err
 	}
@@ -160,10 +167,13 @@ func Discard(dest string) error {
 	if err := removeWorkDir(dest + ".hls"); err != nil {
 		return err
 	}
-	if err := os.Remove(dest + ".part"); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
+	var errs []error
+	for _, path := range []string{dest + ".part", dest + ".part.meta"} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Detect reports whether a response looks like an HLS playlist, judging by its

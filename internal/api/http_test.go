@@ -49,9 +49,10 @@ func (f *fakeDownloads) record(call string) error {
 	return f.failure
 }
 
-func (f *fakeDownloads) Pause(_ context.Context, id string) error  { return f.record("pause " + id) }
-func (f *fakeDownloads) Resume(_ context.Context, id string) error { return f.record("resume " + id) }
-func (f *fakeDownloads) Retry(_ context.Context, id string) error  { return f.record("retry " + id) }
+func (f *fakeDownloads) Pause(_ context.Context, id string) error   { return f.record("pause " + id) }
+func (f *fakeDownloads) Resume(_ context.Context, id string) error  { return f.record("resume " + id) }
+func (f *fakeDownloads) Retry(_ context.Context, id string) error   { return f.record("retry " + id) }
+func (f *fakeDownloads) Restart(_ context.Context, id string) error { return f.record("restart " + id) }
 func (f *fakeDownloads) Delete(_ context.Context, id string, files bool) error {
 	return f.record(fmt.Sprintf("delete %s files=%v", id, files))
 }

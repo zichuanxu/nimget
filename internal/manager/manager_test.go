@@ -66,13 +66,23 @@ func (r *memoryRepository) List(context.Context) ([]download.Item, error) {
 }
 
 func (r *memoryRepository) Update(_ context.Context, item download.Item) error {
+	return r.update(item, false)
+}
+
+func (r *memoryRepository) UpdateWithHeaders(_ context.Context, item download.Item) error {
+	return r.update(item, true)
+}
+
+func (r *memoryRepository) update(item download.Item, withHeaders bool) error {
 	r.updates.Add(1)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.failUpdate {
 		return errors.New("disk full")
 	}
-	item.Headers = r.items[item.ID].Headers // written only by UpdateHeaders, like the store
+	if !withHeaders {
+		item.Headers = r.items[item.ID].Headers
+	}
 	r.items[item.ID] = item
 	return nil
 }
@@ -95,18 +105,6 @@ func (r *memoryRepository) Delete(_ context.Context, id string) error {
 		return errNotFound
 	}
 	delete(r.items, id)
-	return nil
-}
-
-func (r *memoryRepository) UpdateHeaders(_ context.Context, id string, h map[string]string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	item, ok := r.items[id]
-	if !ok {
-		return errNotFound
-	}
-	item.Headers = h
-	r.items[id] = item
 	return nil
 }
 

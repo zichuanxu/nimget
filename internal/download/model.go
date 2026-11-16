@@ -19,6 +19,8 @@ var (
 	ErrInvalidTransition = errors.New("invalid download state transition")
 	// ErrActive reports a command that requires the runner to have stopped.
 	ErrActive = errors.New("download is active")
+	// ErrRestartRequired means the refreshed source cannot safely reuse the saved bytes.
+	ErrRestartRequired = errors.New("cannot verify the refreshed source matches the partial download; restart from the beginning or supply another source")
 	// ErrInvalidDownload reports a rejected URL or destination.
 	ErrInvalidDownload = errors.New("invalid download")
 	// ErrDestinationBusy reports that another process holds the destination
@@ -45,15 +47,23 @@ const (
 	PriorityHigh   = 1
 )
 
+type Recovery string
+
+const (
+	RecoveryValidateSource  Recovery = "validate-source"
+	RecoveryRestartRequired Recovery = "restart-required"
+)
+
 type Item struct {
-	ID          string `json:"id"`
-	URL         string `json:"url"`
-	Destination string `json:"destination"`
-	Status      Status `json:"status"`
-	Completed   int64  `json:"completed"`
-	Total       int64  `json:"total"`
-	Error       string `json:"error,omitempty"`
-	Priority    int    `json:"priority"`
+	ID          string   `json:"id"`
+	URL         string   `json:"url"`
+	Destination string   `json:"destination"`
+	Status      Status   `json:"status"`
+	Completed   int64    `json:"completed"`
+	Total       int64    `json:"total"`
+	Error       string   `json:"error,omitempty"`
+	Recovery    Recovery `json:"recovery,omitempty"`
+	Priority    int      `json:"priority"`
 	// Connections overrides the site and default connection count when set.
 	Connections int `json:"connections,omitempty"`
 	// SpeedLimit caps this download in bytes per second; 0 is none.
@@ -85,6 +95,10 @@ type Patch struct {
 	Priority    *int   `json:"priority,omitempty"`
 	Connections *int   `json:"connections,omitempty"`
 	SpeedLimit  *int64 `json:"speedLimit,omitempty"`
+	// URL replaces the source of a stopped, failed or paused download and
+	// queues it for recovery. Supply Headers with the new request context.
+	// Omitted headers are cleared when replacing the source.
+	URL *string `json:"url,omitempty"`
 	// Headers replace the request headers, for example after the session
 	// cookie expired; they apply from the next start.
 	Headers *map[string]string `json:"headers,omitempty"`
@@ -118,8 +132,8 @@ type Repository interface {
 	// so a periodic flush can never overwrite a newer terminal status.
 	UpdateProgress(ctx context.Context, id string, completed, total int64) error
 	Delete(context.Context, string) error
-	// UpdateHeaders replaces the request headers; Update never writes them.
-	UpdateHeaders(ctx context.Context, id string, headers map[string]string) error
+	// UpdateWithHeaders stores the item and its replacement request headers atomically.
+	UpdateWithHeaders(context.Context, Item) error
 	// LoadSettings returns the stored settings, or ok=false when none are.
 	LoadSettings(context.Context) (s settings.Settings, ok bool, err error)
 	SaveSettings(context.Context, settings.Settings) error
@@ -131,6 +145,9 @@ type Spec struct {
 	Connections      int
 	Headers          http.Header
 	Checksum         string
+	ResumeKey        string
+	// ValidateSource requires proof of continuity before saved bytes can be reused.
+	ValidateSource bool
 	// Limiters cap the body reads; every one of them must admit the bytes.
 	Limiters []*rate.Limiter
 }

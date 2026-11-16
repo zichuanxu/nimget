@@ -319,7 +319,7 @@ func (m *Manager) List(ctx context.Context) ([]download.Item, error) {
 }
 
 func (m *Manager) Pause(ctx context.Context, id string) error {
-	return m.transition(ctx, id, func(item *download.Item) error {
+	return m.transition(ctx, id, false, func(item *download.Item) error {
 		if item.Status != download.StatusQueued && item.Status != download.StatusRunning {
 			return fmt.Errorf("%w: cannot pause a %s download", ErrInvalidTransition, item.Status)
 		}
@@ -342,8 +342,8 @@ func (m *Manager) Retry(ctx context.Context, id string) error {
 	return m.requeue(ctx, id, download.StatusFailed)
 }
 
-// Update changes a download's priority, connections, or speed limit. A new
-// speed limit applies to a running download at once.
+// Update changes download options or queues a stopped download with a
+// refreshed source. A new speed limit applies to active downloads at once.
 func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error {
 	var priority, conns int
 	var limit int64
@@ -366,7 +366,27 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 			}
 		}
 	}
-	err := m.transition(ctx, id, func(item *download.Item) error {
+	var rawURL string
+	if p.URL != nil {
+		rawURL = strings.TrimSpace(*p.URL)
+		if err := validateURL(rawURL); err != nil {
+			return fmt.Errorf("%w: %w", download.ErrInvalidDownload, err)
+		}
+	}
+	err := m.transition(ctx, id, p.URL != nil || p.Headers != nil, func(item *download.Item) error {
+		if p.URL != nil {
+			if _, active := m.active[id]; active {
+				return ErrActive
+			}
+			if item.Status != download.StatusFailed && item.Status != download.StatusPaused {
+				return fmt.Errorf("%w: cannot refresh the source of a %s download", ErrInvalidTransition, item.Status)
+			}
+			item.URL = rawURL
+			item.Headers = nil
+			item.Recovery = download.RecoveryValidateSource
+			item.Status = download.StatusQueued
+			item.Error = ""
+		}
 		if p.Priority != nil {
 			item.Priority = priority
 		}
@@ -377,9 +397,6 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 			item.SpeedLimit = limit
 		}
 		if p.Headers != nil {
-			if err := m.repo.UpdateHeaders(ctx, id, *p.Headers); err != nil {
-				return err
-			}
 			item.Headers = *p.Headers
 		}
 		if j, ok := m.active[id]; ok {
@@ -395,9 +412,12 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 }
 
 func (m *Manager) requeue(ctx context.Context, id string, from download.Status) error {
-	err := m.transition(ctx, id, func(item *download.Item) error {
+	err := m.transition(ctx, id, false, func(item *download.Item) error {
 		if item.Status != from {
 			return fmt.Errorf("%w: expected a %s download, got %s", ErrInvalidTransition, from, item.Status)
+		}
+		if item.Recovery == download.RecoveryRestartRequired {
+			return download.ErrRestartRequired
 		}
 		// A paused runner may still be shutting down; requeueing now would let
 		// the scheduler start a second runner against the same destination.
@@ -414,9 +434,37 @@ func (m *Manager) requeue(ctx context.Context, id string, from download.Status) 
 	return err
 }
 
+// Restart discards partial data only when a refreshed source could not be
+// resumed safely. It keeps the task's source and destination.
+func (m *Manager) Restart(ctx context.Context, id string) error {
+	err := m.transition(ctx, id, false, func(item *download.Item) error {
+		if _, active := m.active[id]; active {
+			return ErrActive
+		}
+		if item.Status != download.StatusFailed || item.Recovery != download.RecoveryRestartRequired {
+			return fmt.Errorf("%w: this download does not require a restart", ErrInvalidTransition)
+		}
+		if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
+			return err
+		}
+		if err := m.runner.Discard(item.Destination); err != nil {
+			return err
+		}
+		item.Completed, item.Total = 0, 0
+		item.Status = download.StatusQueued
+		item.Error = ""
+		item.Recovery = ""
+		return nil
+	})
+	if err == nil {
+		m.signal()
+	}
+	return err
+}
+
 // transition applies change to the stored item under the manager lock, then
 // persists and publishes it.
-func (m *Manager) transition(ctx context.Context, id string, change func(*download.Item) error) error {
+func (m *Manager) transition(ctx context.Context, id string, withHeaders bool, change func(*download.Item) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	item, err := m.repo.Get(ctx, id)
@@ -430,7 +478,11 @@ func (m *Manager) transition(ctx context.Context, id string, change func(*downlo
 		return err
 	}
 	item.UpdatedAt = m.opts.Now().UTC()
-	if err := m.repo.Update(ctx, item); err != nil {
+	save := m.repo.Update
+	if withHeaders {
+		save = m.repo.UpdateWithHeaders
+	}
+	if err := save(ctx, item); err != nil {
 		return err
 	}
 	m.publish(download.EventUpdated, item)
@@ -636,6 +688,7 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	spec := download.Spec{
 		URL: item.URL, Destination: item.Destination, Connections: conns,
 		Headers: m.headers(host, item.Headers), Checksum: item.Checksum,
+		ResumeKey: item.ID, ValidateSource: item.Recovery == download.RecoveryValidateSource,
 		Limiters: []*rate.Limiter{m.global, j.limiter},
 	}
 	m.active[id] = j
@@ -685,6 +738,7 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 		// finished file, which a later Resume would reject as already existing.
 		item.Status = download.StatusCompleted
 		item.Error = ""
+		item.Recovery = ""
 		if item.Total > 0 {
 			item.Completed = item.Total
 		} else {
@@ -701,6 +755,9 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	default:
 		item.Status = download.StatusFailed
 		item.Error = runErr.Error()
+		if errors.Is(runErr, download.ErrRestartRequired) {
+			item.Recovery = download.RecoveryRestartRequired
+		}
 	}
 	if err := m.repo.Update(context.Background(), item); err != nil {
 		// The row stays "running"; requeueOrphans recovers it on the next tick.
@@ -774,8 +831,8 @@ func validateURL(rawURL string) error {
 	if rawURL == "" {
 		return errors.New("download URL is required")
 	}
-	u, err := url.Parse(rawURL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	u, err := url.ParseRequestURI(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return errors.New("download URL must be an absolute http or https URL")
 	}
 	return nil

@@ -167,6 +167,21 @@ func (d *Desktop) List() ([]download.Item, error) {
 	return m.List(context.Background())
 }
 
+// QueueSnapshot pairs a desktop list with the download event sequence.
+type QueueSnapshot struct {
+	Items    []download.Item `json:"items"`
+	Sequence int64           `json:"sequence"`
+}
+
+func (d *Desktop) QueueSnapshot() (QueueSnapshot, error) {
+	m, err := d.manager()
+	if err != nil {
+		return QueueSnapshot{}, err
+	}
+	items, sequence, err := m.ListSnapshot(context.Background())
+	return QueueSnapshot{Items: items, Sequence: sequence}, err
+}
+
 func (d *Desktop) Add(req download.Request) (download.Item, error) {
 	m, err := d.manager()
 	if err != nil {

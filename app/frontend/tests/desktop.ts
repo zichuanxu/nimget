@@ -22,6 +22,7 @@ export async function mockDesktop(page: Page, methods: Record<string, Handler> =
     List: () => [],
     ...methods,
   };
+  handlers.QueueSnapshot ??= async () => ({ items: await handlers.List(), sequence: 0 });
   const bound = new Map(Object.entries(handlers).map(([name, handler]) => [desktopMethodID(name), handler]));
   await page.route("**/wails/runtime", async (route) => {
     const call: WailsCall = route.request().postDataJSON();

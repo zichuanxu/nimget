@@ -121,7 +121,7 @@ test("keeps the action menu operable when the focused action disappears", async 
 
   await page.evaluate((item) => {
     const { _wails } = window as typeof window & { _wails: { dispatchWailsEvent(event: unknown): void } };
-    _wails.dispatchWailsEvent({ name: "download", data: { type: "updated", item } });
+    _wails.dispatchWailsEvent({ name: "download", data: { type: "updated", item, sequence: 1 } });
   }, { ...task, status: "completed", completed: task.total });
 
   await expect(menu.getByRole("menuitem", { name: "Open", exact: true })).toBeVisible();

@@ -6,7 +6,12 @@ import { useI18n } from "./i18n";
 import { taskFailure } from "./taskFailure";
 import { Modal } from "./ui";
 
-export default function TaskDetailsDialog({ item, onClose, onRecover }: { item: Item; onClose: () => void; onRecover: () => void }) {
+export default function TaskDetailsDialog({ item, onClose, onRecover, focusFallback }: {
+  item: Item;
+  onClose: () => void;
+  onRecover: () => void;
+  focusFallback: () => void;
+}) {
   const { t } = useI18n();
   const id = useId();
   const [priority, setPriority] = useState(item.priority);
@@ -81,6 +86,7 @@ export default function TaskDetailsDialog({ item, onClose, onRecover }: { item: 
       icon={Info}
       title={t("details.title")}
       onClose={() => !busy && onClose()}
+      focusFallback={focusFallback}
       footer={
         <>
           <button type="button" disabled={busy} onClick={onClose}>{t("common.close")}</button>

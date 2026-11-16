@@ -175,14 +175,15 @@ type Remote struct {
 	// Filename is the Content-Disposition name, if any.
 	Filename string
 	// URL is the final URL after redirects.
-	URL         string
-	ContentType string
-	Size        int64 // -1 when unknown
+	URL             string
+	ContentType     string
+	Size            int64  // -1 when unknown
+	AttachmentProof string // hash of replayable attachment metadata at the requested URL
 }
 
 type Runner interface {
 	Inspect(ctx context.Context, rawURL string, headers http.Header) (Remote, error)
 	Download(context.Context, Spec, func(Progress)) error
 	// Discard removes the resumable partial state kept for a destination.
-	Discard(destination string) error
+	Discard(Spec) error
 }

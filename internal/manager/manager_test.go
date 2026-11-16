@@ -152,10 +152,10 @@ func (r *funcRunner) Download(ctx context.Context, spec download.Spec, progress 
 	return r.download(ctx, progress)
 }
 
-func (r *funcRunner) Discard(destination string) error {
+func (r *funcRunner) Discard(spec download.Spec) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.discarded = append(r.discarded, destination)
+	r.discarded = append(r.discarded, spec.Destination)
 	return nil
 }
 

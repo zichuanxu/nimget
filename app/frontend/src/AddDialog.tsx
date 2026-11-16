@@ -11,9 +11,10 @@ type BatchEntry = { url: string } & (
   { status: "pending" } | { status: "accepted"; id: string } | { status: "rejected"; error: string }
 );
 
-function hostOf(url: string): string {
+function originOf(url: string): string {
   try {
-    return new URL(url).hostname.toLowerCase();
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : "";
   } catch {
     return "";
   }
@@ -33,8 +34,8 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
   const { t } = useI18n();
   const [text, setText] = useState(prefill?.text ?? "");
   const [headers, setHeaders] = useState<Record<string, string>>({});
-  // Imported headers (cookies) are sent only to the host they came from.
-  const [headerHost, setHeaderHost] = useState("");
+  // Reuse imported headers only at their original HTTP security origin.
+  const [headerOrigin, setHeaderOrigin] = useState("");
   const [directory, setDirectory] = useState("");
   const [fileName, setFileName] = useState("");
   const [priority, setPriority] = useState(0);
@@ -64,14 +65,14 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
         if (!current) return;
         setText(req.url);
         setHeaders((req.headers as Record<string, string>) ?? {});
-        setHeaderHost(hostOf(req.url));
+        setHeaderOrigin(originOf(req.url));
         setError("");
       })
-      .catch((err) => current && setError(message(err)));
+      .catch(() => current && setError(t("add.curlInvalid")));
     return () => {
       current = false;
     };
-  }, [text, isCurl]);
+  }, [text, isCurl, t]);
 
   useEffect(() => {
     Desktop.Settings()
@@ -134,7 +135,7 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
       };
       function requestFor(url: string) {
         const req = new Request({ ...base, url });
-        if (Object.keys(headers).length && hostOf(url) === headerHost) req.headers = headers;
+        if (Object.keys(headers).length && headerOrigin && originOf(url) === headerOrigin) req.headers = headers;
         if (fileName.trim() && !isBatch) {
           req.destination = joinPath(directory || defaultDirectory, fileName.trim());
         } else if (directory) {
@@ -175,7 +176,7 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
 
   const headerCount = Object.keys(headers).length;
   const pendingURLs = batch?.filter((entry) => entry.status !== "accepted").map((entry) => entry.url) ?? urls;
-  const otherHosts = headerCount > 0 && pendingURLs.some((url) => hostOf(url) !== headerHost);
+  const otherOrigins = headerCount > 0 && pendingURLs.some((url) => originOf(url) !== headerOrigin);
   const optionsSet = priority !== 0 || !!connections || !!limit || !!checksum;
   const finished = batch !== null && !busy && rejected === 0;
   if (!prefill) return null;
@@ -281,8 +282,8 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
         <div className="chip">
           <Cookie size={14} />
           <span className="grow ellipsis" title={Object.keys(headers).join(", ")}>
-            {headerCount === 1 ? t("add.headers1", { host: headerHost }) : t("add.headers", { n: headerCount, host: headerHost })}
-            {otherHosts ? ` ${t("add.headersOther")}` : ""}
+            {headerCount === 1 ? t("add.headers1", { origin: headerOrigin }) : t("add.headers", { n: headerCount, origin: headerOrigin })}
+            {otherOrigins ? ` ${t("add.headersOther")}` : ""}
           </span>
           <button className="icon ghost tiny" onClick={() => setHeaders({})} title={t("common.remove")} aria-label={t("common.remove")}>
             <X size={12} />

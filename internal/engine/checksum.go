@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"os"
 	"strings"
 )
 
@@ -42,26 +41,21 @@ func parseChecksum(value string) (*checksum, error) {
 	algo = strings.ToLower(strings.TrimSpace(algo))
 	newHash, known := checksumAlgorithms[algo]
 	if !ok || !known {
-		return nil, fmt.Errorf("checksum must be algo:hex with algo one of sha256, sha512, sha1, md5; got %q", value)
+		return nil, errors.New("checksum must be algo:hex with algo one of sha256, sha512, sha1, md5")
 	}
 	want, err := hex.DecodeString(strings.TrimSpace(digest))
 	if err != nil || len(want) != newHash().Size() {
-		return nil, fmt.Errorf("invalid %s digest %q", algo, digest)
+		return nil, fmt.Errorf("invalid %s digest", algo)
 	}
 	return &checksum{algo: algo, want: want, new: newHash}, nil
 }
 
-func (c *checksum) verify(path string) error {
+func (c *checksum) verify(data io.Reader) error {
 	if c == nil {
 		return nil
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open file for %s: %w", c.algo, err)
-	}
-	defer f.Close()
 	h := c.new()
-	if _, err := io.Copy(h, f); err != nil {
+	if _, err := io.Copy(h, data); err != nil {
 		return fmt.Errorf("calculate %s: %w", c.algo, err)
 	}
 	if got := h.Sum(nil); subtle.ConstantTimeCompare(got, c.want) != 1 {

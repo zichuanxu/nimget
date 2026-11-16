@@ -3,7 +3,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,11 +15,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/zichuanxu/nimget/internal/download"
 	"github.com/zichuanxu/nimget/internal/filelock"
@@ -204,7 +203,7 @@ func (e *Engine) Download(ctx context.Context, rawURL, dest string, onProgress f
 func (e *Engine) downloadFile(ctx context.Context, rawURL, dest string, onProgress func(Progress)) error {
 	release, err := filelock.Acquire(dest + ".lock")
 	if errors.Is(err, filelock.ErrLocked) {
-		return fmt.Errorf("%w: %s", ErrLocked, dest)
+		return ErrLocked
 	}
 	if err != nil {
 		return err
@@ -212,7 +211,7 @@ func (e *Engine) downloadFile(ctx context.Context, rawURL, dest string, onProgre
 	defer func() { _ = release() }()
 	if !e.cfg.Overwrite {
 		if _, err := os.Lstat(dest); err == nil {
-			return fmt.Errorf("%w: %s", ErrDestinationExists, dest)
+			return ErrDestinationExists
 		}
 	}
 
@@ -285,21 +284,88 @@ type job struct {
 	connections int
 }
 
-func (j *job) discard() {
-	_ = os.Remove(j.part)
-	_ = os.Remove(j.meta)
+func (j *job) discard() error {
+	return removePartial(j.part, j.meta, j.identity)
+}
+
+// loadPartial validates ownership separately from remote byte continuity.
+func loadPartial(part, meta, identity, legacyURL string) (*os.File, checkpoint, error) {
+	f, err := partialfile.Open(part, os.O_RDWR, 0)
+	if err != nil {
+		return nil, checkpoint{}, err
+	}
+	cp, readErr := readCheckpoint(meta)
+	if readErr == nil && identity != "" && (cp.Identity == identity ||
+		(cp.FileID == "" && cp.Identity == legacyURL)) {
+		if cp.FileID != "" {
+			if fileID, err := partialfile.Identity(f); err == nil && cp.FileID == fileID {
+				return f, cp, nil
+			}
+		} else if info, err := f.Stat(); err == nil && cp.Size == info.Size() {
+			// An older sidecar may guide read-only comparison. It cannot
+			// authorize writing or discarding the current file.
+			return f, cp, nil
+		}
+	}
+	_ = f.Close()
+	return nil, checkpoint{}, partialfile.Collision("an existing file has no matching download state")
+}
+
+func removePartial(part, meta, identity string) error {
+	f, cp, err := loadPartial(part, meta, identity, "")
+	if os.IsNotExist(err) {
+		return partialfile.RejectExisting(meta)
+	}
+	if err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if cp.FileID == "" {
+		return partialfile.Collision("legacy partial ownership could not be verified")
+	}
+	if err := os.Remove(part); err != nil {
+		return err
+	}
+	return os.Remove(meta)
+}
+
+func (j *job) createPartial(state checkpoint) (*os.File, string, error) {
+	if err := partialfile.RejectExisting(j.meta); err != nil {
+		return nil, "", err
+	}
+	f, err := partialfile.Open(j.part, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, "", err
+	}
+	state.FileID, err = partialfile.Identity(f)
+	if err == nil {
+		err = createCheckpoint(j.meta, state)
+	}
+	if err != nil {
+		_ = f.Close()
+		_ = os.Remove(j.part)
+		return nil, "", err
+	}
+	return f, state.FileID, nil
 }
 
 // commit verifies the closed .part file and renames it into place.
 func (j *job) commit() error {
-	if err := j.engine.sum.verify(j.part); err != nil {
+	f, _, err := loadPartial(j.part, j.meta, j.identity, j.url)
+	if err != nil {
+		return fmt.Errorf("open completed partial file: %w", err)
+	}
+	if err := j.engine.sum.verify(f); err != nil {
+		_ = f.Close()
 		if errors.Is(err, ErrChecksumMismatch) {
-			j.discard()
+			_ = j.discard()
 		}
 		return err
 	}
-	if err := os.Chmod(j.part, j.engine.cfg.FileMode); err != nil {
-		return fmt.Errorf("chmod completed file: %w", err)
+	if err := errors.Join(f.Chmod(j.engine.cfg.FileMode), f.Close()); err != nil {
+		return fmt.Errorf("finalize completed file: %w", err)
 	}
 	if err := j.place(); err != nil {
 		return err
@@ -320,10 +386,10 @@ func (j *job) place() error {
 			return nil
 		}
 		if errors.Is(err, fs.ErrExist) {
-			return fmt.Errorf("%w: %s", ErrDestinationExists, j.dest)
+			return ErrDestinationExists
 		}
 		if _, err := os.Lstat(j.dest); err == nil {
-			return fmt.Errorf("%w: %s", ErrDestinationExists, j.dest)
+			return ErrDestinationExists
 		}
 	}
 	if err := os.Rename(j.part, j.dest); err != nil {
@@ -422,7 +488,7 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 		}
 		return probeInfo{}, fatal(errors.New("probe returned 416 with invalid Content-Range"))
 	default:
-		return probeInfo{}, statusError("probe", req, resp)
+		return probeInfo{}, statusError("probe", resp)
 	}
 }
 
@@ -472,15 +538,10 @@ func identityEncoding(resp *http.Response) error {
 	return nil
 }
 
-func statusError(what string, req *http.Request, resp *http.Response) *attemptError {
+func statusError(what string, resp *http.Response) *attemptError {
 	msg := fmt.Sprintf("%s: HTTP %d", what, resp.StatusCode)
 	if reason := http.StatusText(resp.StatusCode); reason != "" {
 		msg += " " + reason
-	}
-	if !httporigin.MayCarryCredentials(req) && !httporigin.MayCarryCredentials(resp.Request) {
-		if text := errorBody(resp); text != "" {
-			msg += ": " + text
-		}
 	}
 	return &attemptError{
 		err:        &httporigin.StatusError{Code: resp.StatusCode, Diagnostic: msg},
@@ -489,41 +550,14 @@ func statusError(what string, req *http.Request, resp *http.Response) *attemptEr
 	}
 }
 
-// maxErrorBody caps the response text quoted in an error, in runes.
-const maxErrorBody = 200
-
-// errorBody returns a short, single-line excerpt of an error response. A
-// plain-text or JSON body often says why the request was refused; an HTML
-// page (a login wall or a bot check) only buries the status, so it is left
-// out.
-func errorBody(resp *http.Response) string {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-	contentType := resp.Header.Get("Content-Type")
-	var finalURL string
-	if resp.Request != nil {
-		finalURL = resp.Request.URL.String()
-	}
-	// Playlists can contain signed resource URLs even when the request is public.
-	if hls.Detect(contentType, finalURL, bytes.TrimSpace(body)) || isDASHManifest(contentType, finalURL) {
-		return ""
-	}
-	text := strings.Join(strings.Fields(string(body)), " ")
-	if text == "" || strings.Contains(strings.ToLower(contentType), "html") || strings.HasPrefix(text, "<") || !utf8.ValidString(text) {
-		return ""
-	}
-	if runes := []rune(text); len(runes) > maxErrorBody {
-		text = string(runes[:maxErrorBody]) + "…"
-	}
-	return text
-}
-
 // Remote describes a resource as the capability probe saw it.
 type Remote struct {
 	// Filename is the Content-Disposition file name, if the server sent one.
-	Filename    string
-	URL         string // after redirects
-	ContentType string
-	Size        int64 // -1 when unknown
+	Filename        string
+	URL             string // after redirects
+	ContentType     string
+	Size            int64 // -1 when unknown
+	AttachmentProof string
 }
 
 // Inspect probes rawURL without downloading it, for naming and type checks.
@@ -535,7 +569,30 @@ func (e *Engine) Inspect(ctx context.Context, rawURL string) (Remote, error) {
 	if err != nil {
 		return Remote{}, err
 	}
-	return Remote{URL: info.finalURL, ContentType: info.contentType, Size: info.size, Filename: dispositionName(info.disposition)}, nil
+	return Remote{URL: info.finalURL, ContentType: info.contentType, Size: info.size, Filename: dispositionName(info.disposition), AttachmentProof: info.attachmentProof(rawURL)}, nil
+}
+
+// attachmentProof mirrors the observed Chromium response metadata. Status alone
+// could represent a login page or another file. Always use the same bounded
+// engine probe and request headers that a task would use.
+func (info probeInfo) attachmentProof(rawURL string) string {
+	original, err := url.Parse(rawURL)
+	if err != nil || info.etag == "" || info.sourceScope != sourceScope(original) {
+		return ""
+	}
+	disposition := strings.TrimSpace(info.disposition)
+	kind, _, err := mime.ParseMediaType(disposition)
+	if err != nil || !strings.EqualFold(kind, "attachment") ||
+		hls.Detect(info.contentType, rawURL, nil) || isDASHManifest(info.contentType, rawURL) {
+		return ""
+	}
+	contentType := strings.ToLower(strings.TrimSpace(info.contentType))
+	if mediaType, _, _ := mime.ParseMediaType(contentType); mediaType == "text/html" {
+		return ""
+	}
+	data := strings.Join([]string{disposition, contentType, strconv.FormatInt(info.size, 10), info.etag}, "\n")
+	sum := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(sum[:])
 }
 
 // dispositionName reads the file name of a Content-Disposition header.

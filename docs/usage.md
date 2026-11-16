@@ -34,7 +34,7 @@ The `download` command runs the engine without the service:
 
 Completed files are marked as downloaded from the internet (the `com.apple.quarantine` attribute on macOS, a `Zone.Identifier` stream on Windows), so Gatekeeper and SmartScreen check downloaded programs as they would a browser download.
 
-While a transfer is active the engine keeps `OUTPUT.part`, `OUTPUT.part.meta`, and `OUTPUT.lock` (for HLS, finished segments in `OUTPUT.hls/`). The lock is an OS advisory lock, so a crashed or killed process never leaves a lock that blocks the next run. The engine checks free space and preallocates the file before downloading.
+While a transfer is active the engine keeps `OUTPUT.part`, `OUTPUT.part.meta`, and `OUTPUT.lock` (for HLS, finished segments in `OUTPUT.hls/`). The lock is an OS advisory lock, so a crashed or killed process never leaves a lock that blocks the next run. The engine checks free space and preallocates the file before downloading. If a partial path belongs to a different task or its ownership cannot be verified, NimGet leaves it in place and asks you to move or rename it before retrying.
 
 When parallel download and resume apply:
 
@@ -86,11 +86,14 @@ Client commands read the same token file and talk to `http://127.0.0.1:51000` un
 ./nimget settings get > settings.json
 ./nimget settings set settings.json
 ./nimget add --batch 'https://example.com/photos/img[001-120].jpg' --dir ~/Downloads/photos
-./nimget export queue.json                                   # unfinished downloads with credentials omitted
-./nimget import queue.json                                   # or a text file with one URL per line
+./nimget export queue-summary.json                            # share unfinished queue progress
+./nimget export --include-source-urls queue-backup.json       # save exact source links
+./nimget import queue-backup.json                             # or a text file with one URL per line
 ```
 
-Queue exports omit request headers, URL user information, query parameters, and fragments. Supply the current URL and request headers when re-adding an exported download that requires them.
+**Export queue summary** in the desktop menu and `nimget export` save unfinished-task states, progress, and numeric options for sharing. A summary contains no source or destination strings. For import, choose a source URL backup or supply a list of download links.
+
+**Back up queue with source URLs** and `nimget export --include-source-urls FILE` save exact links, destinations, and request options in plain text. Links and destinations can contain credentials. Request headers, website sessions, and partial bytes are omitted. Protected tasks may need refreshed links or a new website session. Destinations must be inside an allowed download root on the importing machine. Older queue exports may have omitted parts of source links. Review those links, then confirm the desktop prompt or use `nimget import --allow-legacy-urls FILE` to import the links as saved.
 
 Batch patterns expand left to right: `[1-10]`, zero-padded `[001-120]`, stepped `[0-100:5]`, letters `[a-z]`, and alternatives `{cd,dvd}`, up to 10,000 URLs.
 

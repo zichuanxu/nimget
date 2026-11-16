@@ -35,7 +35,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { Desktop, EventType, Item, Recovery, State, Status, message, type Event as DownloadEvent } from "./api";
+import { Desktop, Item, Recovery, State, Status, message } from "./api";
 import AddDialog, { type AddPrefill } from "./AddDialog";
 import BulkTaskActions from "./BulkTaskActions";
 import SettingsDialog from "./SettingsDialog";
@@ -44,10 +44,10 @@ import { CountdownDialog, DeleteDialog, ReauthDialog } from "./dialogs";
 import Sparkline from "./Sparkline";
 import { baseName, bytes, eta, fileKind, looksLikeCurl, looksLikeURL, speed, type FileKind } from "./format";
 import { I18n, resolveLang, translator, useI18n, type T } from "./i18n";
+import { useQueue } from "./useQueue";
 import { taskFailure } from "./taskFailure";
-import { Menu, type MenuEntry } from "./ui";
+import { Menu, Modal, type MenuEntry } from "./ui";
 
-type Sample = { at: number; done: number; bps: number };
 type Filter = "all" | "active" | "paused" | "completed" | "failed";
 type Toast = { kind: "ok" | "error"; text: string };
 type Action = Exclude<MenuEntry, "separator">;
@@ -111,7 +111,6 @@ export default function App() {
 function Shell() {
   const { t } = useI18n();
   const [state, setState] = useState<State | null>(null);
-  const [items, setItems] = useState<Map<string, Item>>(new Map());
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedTaskIDs, setSelectedTaskIDs] = useState<Set<string>>(() => new Set());
   const [bulkConfirming, setBulkConfirming] = useState<Item[] | null>(null);
@@ -122,12 +121,13 @@ function Shell() {
   const [retainAddDraft, setRetainAddDraft] = useState(false);
   const [addFormKey, setAddFormKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [legacyImportID, setLegacyImportID] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Item | null>(null);
   const [reauth, setReauth] = useState<Item | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [clip, setClip] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
-  const [history, setHistory] = useState<number[]>(() => Array(60).fill(0));
   const [canConvert, setCanConvert] = useState(false);
   const [converting, setConverting] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<{ action: string; left: number } | null>(null);
@@ -141,13 +141,6 @@ function Shell() {
       return "";
     }
   });
-  const samples = useRef(new Map<string, Sample>());
-  const queueSync = useRef({
-    snapshotSequence: 0,
-    eventSequence: 0,
-    pending: new Set<symbol>(),
-    changes: new Map<string, DownloadEvent>(),
-  });
   const listElement = useRef<HTMLDivElement>(null);
   const rowToFocus = useRef<string | null>(null);
   const newDownload = useRef<HTMLButtonElement>(null);
@@ -155,100 +148,26 @@ function Shell() {
   const focusSearch = useCallback(() => search.current?.focus({ preventScroll: true }), []);
   const { ref: pageControls } = useFocusFallbackOnRemove<HTMLElement>(focusSearch);
   const dragDepth = useRef(0);
-  const [, setTick] = useState(0);
 
   const fail = useCallback((err: unknown) => setToast({ kind: "error", text: message(err) }), []);
   const ok = useCallback((text: string) => setToast({ kind: "ok", text }), []);
 
-  const reload = useCallback(async () => {
-    const sync = queueSync.current;
-    const request = Symbol();
-    sync.pending.add(request);
-    try {
-      const { items: list, sequence } = await Desktop.QueueSnapshot();
-      if (!sync.pending.has(request) || sequence < sync.snapshotSequence) return;
-      const next = new Map((list ?? []).map((item) => [item.id, item]));
-      // A delayed response can overlap events on either side of its snapshot.
-      for (const [id, change] of sync.changes) {
-        if ((change.sequence ?? 0) <= sequence) continue;
-        if (change.type === EventType.EventDeleted) next.delete(id);
-        else next.set(id, change.item);
-      }
-      sync.snapshotSequence = sequence;
-      for (const id of samples.current.keys()) {
-        if (next.get(id)?.status !== Status.StatusRunning) samples.current.delete(id);
-      }
-      setItems(next);
-    } catch (err) {
-      if (sync.pending.has(request)) fail(err);
-    } finally {
-      sync.pending.delete(request);
-      if (!sync.pending.size) sync.changes.clear();
-    }
-  }, [fail]);
+  const { items, samples, history, reload } = useQueue(fail);
 
   useEffect(() => {
     Desktop.State().then(setState).catch(fail);
     Desktop.CanConvert().then(setCanConvert).catch(() => {});
-    reload();
-    const offDownload = Events.On("download", (ev) => {
-      const e = ev.data;
-      const sequence = e.sequence ?? 0;
-      const sync = queueSync.current;
-      if (sequence <= sync.snapshotSequence || sequence <= sync.eventSequence) return;
-      sync.eventSequence = sequence;
-      const item = e.item;
-      if (sync.pending.size) sync.changes.set(item.id, e);
-      if (e.type === EventType.EventDeleted) {
-        samples.current.delete(item.id);
-        setItems((prev) => {
-          const next = new Map(prev);
-          next.delete(item.id);
-          return next;
-        });
-        return;
-      }
-      const now = performance.now();
-      const last = samples.current.get(item.id);
-      if (item.status === Status.StatusRunning) {
-        if (last && now > last.at && item.completed >= last.done) {
-          const instant = ((item.completed - last.done) * 1000) / (now - last.at);
-          samples.current.set(item.id, { at: now, done: item.completed, bps: last.bps ? last.bps * 0.7 + instant * 0.3 : instant });
-        } else {
-          samples.current.set(item.id, { at: now, done: item.completed, bps: 0 });
-        }
-      } else {
-        samples.current.delete(item.id);
-      }
-      setItems((prev) => new Map(prev).set(item.id, item));
-    });
-    const offResync = Events.On("resync", () => reload());
     const offStopped = Events.On("stopped", () => Desktop.State().then(setState).catch(fail));
     const offClip = Events.On("clipboard", (ev) => setClip(ev.data));
     const offDone = Events.On("queue-done", (ev) => setCountdown({ action: ev.data, left: 30 }));
     const offUpdate = Events.On("update", () => Desktop.State().then(setState).catch(() => {}));
-    const timer = window.setInterval(() => {
-      const now = performance.now();
-      let total = 0;
-      for (const [id, s] of samples.current) {
-        if (now - s.at > 3000) samples.current.set(id, { ...s, bps: 0 });
-        total += s.bps;
-      }
-      setHistory((h) => [...h.slice(-59), total]);
-      setTick((n) => n + 1);
-    }, 1000);
     return () => {
-      queueSync.current.pending.clear();
-      queueSync.current.changes.clear();
-      offDownload();
-      offResync();
       offStopped();
       offClip();
       offDone();
       offUpdate();
-      window.clearInterval(timer);
     };
-  }, [reload, fail]);
+  }, [fail]);
 
   // The completion action runs when the countdown reaches zero unless cancelled.
   useEffect(() => {
@@ -268,18 +187,36 @@ function Shell() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  const reportImport = (res: Awaited<ReturnType<typeof Desktop.ImportQueue>>) => {
+    if (res.problem === "summary" || res.problem === "invalid" || res.problem === "unreadable" || res.problem === "expired") {
+      fail(t(`import.${res.problem}`));
+    } else if (res.failed?.length) {
+      const failed = res.failed.map((n) => t("import.entry", { n })).join("\n");
+      fail(t("toast.imported", { n: res.added, failed }));
+    } else if (res.added > 0) {
+      ok(t("import.added", { n: res.added }));
+    }
+  };
+
   const importQueue = async () => {
     try {
       const res = await Desktop.ImportQueue();
-      if (res.failed?.length) setToast({ kind: "error", text: t("toast.imported", { n: res.added, failed: res.failed.join("\n") }) });
+      if (res.legacyId) setLegacyImportID(res.legacyId);
+      else reportImport(res);
     } catch (err) {
       fail(err);
     }
   };
 
-  const exportQueue = async () => {
+  const finishLegacyImport = (confirm: boolean) => {
+    if (!legacyImportID) return;
+    setLegacyImportID(null);
+    Desktop.FinishLegacyImport(legacyImportID, confirm).then(reportImport).catch(fail);
+  };
+
+  const exportQueue = async (save: () => Promise<string>) => {
     try {
-      if (await Desktop.ExportQueue()) ok(t("toast.exported"));
+      if (await save()) ok(t("toast.exported"));
     } catch (err) {
       fail(err);
     }
@@ -340,7 +277,7 @@ function Shell() {
   const totalSpeed = history[history.length - 1] ?? 0;
   const details = detailsId ? items.get(detailsId) : undefined;
   const contextItem = context ? pageRows.find((item) => item.id === context.id) : undefined;
-  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming);
+  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming || backupOpen || legacyImportID);
   useEffect(() => {
     if (context && !contextItem) setContext(null);
   }, [context, contextItem]);
@@ -544,7 +481,8 @@ function Shell() {
               )}
               entries={[
                 { icon: FolderInput, label: t("header.import"), onSelect: importQueue },
-                { icon: FolderOutput, label: t("header.export"), onSelect: exportQueue },
+                { icon: FolderOutput, label: t("header.export"), onSelect: () => void exportQueue(Desktop.ExportQueue) },
+                { icon: KeyRound, label: t("header.backup"), onSelect: () => setBackupOpen(true) },
               ]}
             />
           </div>
@@ -712,6 +650,45 @@ function Shell() {
           }}
           onError={fail}
         />
+      )}
+      {legacyImportID && (
+        <Modal
+          icon={FolderInput}
+          tone="warn"
+          size="small"
+          title={t("import.legacyTitle")}
+          onClose={() => finishLegacyImport(false)}
+          focusFallback={focusSearch}
+          footer={
+            <>
+              <button type="button" data-initial-focus onClick={() => finishLegacyImport(false)}>{t("common.cancel")}</button>
+              <button type="button" className="primary" onClick={() => finishLegacyImport(true)}>{t("import.confirmLegacy")}</button>
+            </>
+          }
+        >
+          <p>{t("import.legacyWarning")}</p>
+        </Modal>
+      )}
+      {backupOpen && (
+        <Modal
+          icon={KeyRound}
+          tone="warn"
+          size="small"
+          title={t("backup.title")}
+          onClose={() => setBackupOpen(false)}
+          focusFallback={focusSearch}
+          footer={
+            <>
+              <button type="button" data-initial-focus onClick={() => setBackupOpen(false)}>{t("common.cancel")}</button>
+              <button type="button" className="primary" onClick={() => {
+                setBackupOpen(false);
+                void exportQueue(Desktop.BackupQueue);
+              }}>{t("backup.save")}</button>
+            </>
+          }
+        >
+          <p>{t("backup.warning")}</p>
+        </Modal>
       )}
       {settingsOpen && state && (
         <SettingsDialog

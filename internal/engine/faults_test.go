@@ -3,7 +3,6 @@ package engine
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -215,26 +214,4 @@ func TestConnectionCapRetiresExtraConnections(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireFile(t, dest, data)
-}
-
-func TestStatusErrorQuotesOnlyShortText(t *testing.T) {
-	for name, tc := range map[string]struct {
-		contentType, body, want string
-	}{
-		"html page":   {"text/html; charset=UTF-8", "<!DOCTYPE html><html><head><title>Just a moment...</title>", "probe: HTTP 403 Forbidden"},
-		"untyped tag": {"", "  <html><body>denied</body></html>", "probe: HTTP 403 Forbidden"},
-		"hls body":    {"application/vnd.apple.mpegurl", "key.bin?token=key-secret", "probe: HTTP 403 Forbidden"},
-		"untyped hls": {"text/plain", "  #EXTM3U\nkey.bin?token=key-secret", "probe: HTTP 403 Forbidden"},
-		"dash body":   {"application/dash+xml", "representation: video?token=segment-secret", "probe: HTTP 403 Forbidden"},
-		"plain text":  {"text/plain", "token expired\n  sign in again", "probe: HTTP 403 Forbidden: token expired sign in again"},
-		"long json":   {"application/json", `{"error":"` + strings.Repeat("x", 300) + `"}`, "probe: HTTP 403 Forbidden: " + (`{"error":"` + strings.Repeat("x", 300))[:maxErrorBody] + "…"},
-		"empty":       {"text/plain", "", "probe: HTTP 403 Forbidden"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			resp := &http.Response{Status: "403 Forbidden", StatusCode: http.StatusForbidden, Header: http.Header{"Content-Type": {tc.contentType}}, Body: io.NopCloser(strings.NewReader(tc.body))}
-			if got := statusError("probe", nil, resp).Error(); got != tc.want {
-				t.Fatalf("got %q\nwant %q", got, tc.want)
-			}
-		})
-	}
 }

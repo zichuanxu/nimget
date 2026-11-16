@@ -115,23 +115,6 @@ func strip(req *http.Request, previous *url.URL) {
 	req.URL.User = nil
 }
 
-// MayCarryCredentials identifies requests whose responses should never be
-// quoted in diagnostics. Services can reflect custom headers or URL values.
-func MayCarryCredentials(req *http.Request) bool {
-	if req == nil {
-		return false
-	}
-	if req.URL.User != nil || req.URL.RawQuery != "" {
-		return true
-	}
-	for name := range req.Header {
-		if !transportHeader(name) {
-			return true
-		}
-	}
-	return false
-}
-
 func transportHeader(name string) bool {
 	switch http.CanonicalHeaderKey(name) {
 	case "User-Agent", "Accept", "Accept-Language", "Accept-Encoding", "Range", "If-Range", "If-Match":

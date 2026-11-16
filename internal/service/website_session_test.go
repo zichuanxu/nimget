@@ -104,7 +104,7 @@ func TestWebsiteSessionHandoff(t *testing.T) {
 	if err := svc.Close(); err != nil {
 		t.Fatal(err)
 	}
-	exported, err := queuefile.Export(items, false)
+	exported, err := queuefile.ExportSummary(items)
 	if err != nil {
 		t.Fatal(err)
 	}

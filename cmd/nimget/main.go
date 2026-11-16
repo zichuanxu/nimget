@@ -237,12 +237,12 @@ func newAddCommand(cfg *cliConfig) *cobra.Command {
 // addAll queues every request, reports each result, and fails if any failed.
 func addAll[T any](cmd *cobra.Command, c *client.Client, inputs []T, request func(T) download.Request) error {
 	failed := 0
-	for _, in := range inputs {
+	for i, in := range inputs {
 		req := request(in)
 		item, err := c.Add(cmd.Context(), req)
 		if err != nil {
 			failed++
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", req.URL, err)
+			reportRejectedEntry(cmd, i)
 			continue
 		}
 		if err := writeJSON(cmd, item); err != nil {
@@ -255,13 +255,22 @@ func addAll[T any](cmd *cobra.Command, c *client.Client, inputs []T, request fun
 	return nil
 }
 
+func reportRejectedEntry(cmd *cobra.Command, index int) {
+	fmt.Fprintf(cmd.ErrOrStderr(), "Entry %d: Check the link, destination, and download options.\n", index+1)
+}
+
 func newExportCommand(cfg *cliConfig) *cobra.Command {
-	return &cobra.Command{
+	var includeSources bool
+	cmd := &cobra.Command{
 		Use:   "export [FILE]",
-		Short: "Write the unfinished downloads to a JSON file (standard output by default)",
-		Long:  "Write the unfinished downloads to a JSON file. Request headers such as cookies are never exported.",
+		Short: "Write an unfinished queue summary to a file or standard output",
+		Long:  "Write an unfinished queue summary. --include-source-urls saves exact source URLs and destinations to a file. They may contain credentials. Headers and website sessions are always omitted.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			toStdout := len(args) == 0 || args[0] == "-"
+			if includeSources && toStdout {
+				return errors.New("--include-source-urls requires a named output file")
+			}
 			c, err := cfg.client()
 			if err != nil {
 				return err
@@ -270,46 +279,76 @@ func newExportCommand(cfg *cliConfig) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			data, err := queuefile.Export(items, false)
+			encode := queuefile.ExportSummary
+			if includeSources {
+				encode = queuefile.ExportSources
+			}
+			data, err := encode(items)
 			if err != nil {
 				return err
 			}
-			data = append(data, '\n')
-			if len(args) == 0 || args[0] == "-" {
-				_, err = cmd.OutOrStdout().Write(data)
+			if toStdout {
+				_, err = cmd.OutOrStdout().Write(append(data, '\n'))
 				return err
 			}
-			return os.WriteFile(args[0], data, 0o600)
+			return queuefile.Write(args[0], data)
 		},
 	}
+	cmd.Flags().BoolVar(&includeSources, "include-source-urls", false, "back up exact source URLs to a named file (may include credentials)")
+	return cmd
 }
 
 func newImportCommand(cfg *cliConfig) *cobra.Command {
-	return &cobra.Command{
+	var allowLegacyURLs bool
+	cmd := &cobra.Command{
 		Use:   "import FILE",
-		Short: "Queue the downloads in an exported file or a list of URLs ('-' for standard input)",
+		Short: "Queue downloads from a source URL backup or a list of links ('-' for standard input)",
+		Long:  "Queue downloads from a source URL backup or a list of links. Older queue exports may contain incomplete links. Review the links before importing older queue files with --allow-legacy-urls.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := cfg.client()
-			if err != nil {
-				return err
-			}
 			var data []byte
+			var err error
 			if args[0] == "-" {
 				data, err = io.ReadAll(cmd.InOrStdin())
 			} else {
 				data, err = os.ReadFile(args[0])
 			}
 			if err != nil {
-				return err
+				return errors.New("could not read queue file")
 			}
-			reqs, err := queuefile.Import(data)
+			decode := queuefile.Import
+			if allowLegacyURLs {
+				decode = queuefile.ImportLegacyURLs
+			}
+			reqs, err := decode(data)
+			if errors.Is(err, queuefile.ErrLegacyURLs) {
+				return errors.New("older queue files may contain incomplete links; review the links, then use --allow-legacy-urls to import them")
+			}
 			if err != nil {
 				return err
 			}
-			return addAll(cmd, c, reqs, func(r download.Request) download.Request { return r })
+			c, err := cfg.client()
+			if err != nil {
+				return err
+			}
+			failed := 0
+			for i, req := range reqs {
+				if _, err := c.Add(cmd.Context(), req); err != nil {
+					failed++
+					reportRejectedEntry(cmd, i)
+				}
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Added %d of %d downloads.\n", len(reqs)-failed, len(reqs)); err != nil {
+				return err
+			}
+			if failed > 0 {
+				return fmt.Errorf("%d of %d downloads were not added", failed, len(reqs))
+			}
+			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&allowLegacyURLs, "allow-legacy-urls", false, "import an older queue file after reviewing its source URLs")
+	return cmd
 }
 
 func newSetCommand(cfg *cliConfig) *cobra.Command {

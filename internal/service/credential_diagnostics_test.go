@@ -22,6 +22,10 @@ import (
 
 func TestProtectedDownloadsKeepCredentialsOutOfDiagnosticsAndExports(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/public" {
+			http.Error(w, "See https://example.invalid/fixture-body-path-secret?token=fixture-body-query-secret", http.StatusForbidden)
+			return
+		}
 		if r.URL.Path == "/bad-redirect" {
 			w.Header().Set("Location", "http://[invalid/?ticket=fixture-location-secret")
 			w.WriteHeader(http.StatusFound)
@@ -74,6 +78,10 @@ func TestProtectedDownloadsKeepCredentialsOutOfDiagnosticsAndExports(t *testing.
 		}
 	}
 
+	if _, err := api.Add(ctx, download.Request{URL: source.URL + "/public"}); err != nil {
+		t.Fatal(err)
+	}
+
 	var items []download.Item
 	for {
 		list, err := api.List(ctx)
@@ -86,7 +94,7 @@ func TestProtectedDownloadsKeepCredentialsOutOfDiagnosticsAndExports(t *testing.
 				items = append(items, item)
 			}
 		}
-		if len(items) == 3 {
+		if len(items) == 4 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -99,7 +107,7 @@ func TestProtectedDownloadsKeepCredentialsOutOfDiagnosticsAndExports(t *testing.
 	if err := svc.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	export, err := queuefile.Export(items, false)
+	export, err := queuefile.ExportSummary(items)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +124,7 @@ func TestProtectedDownloadsKeepCredentialsOutOfDiagnosticsAndExports(t *testing.
 	for label, diagnostic := range diagnostics {
 		for _, secret := range []string{
 			"fixture-user", "fixture-password", "fixture-query-secret", "fixture-fragment",
-			"fixture-location-secret", "fixture-cookie-secret", "fixture-header-secret",
+			"fixture-location-secret", "fixture-cookie-secret", "fixture-header-secret", "fixture-body-path-secret", "fixture-body-query-secret",
 		} {
 			if strings.Contains(diagnostic, secret) {
 				t.Errorf("%s exposed %s", label, secret)

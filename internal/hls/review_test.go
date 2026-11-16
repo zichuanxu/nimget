@@ -56,9 +56,8 @@ func TestHeadersStayWithThePlaylistHost(t *testing.T) {
 	}
 }
 
-// Rotated query tokens do not discard finished segments, and the fresh
-// URLs are used for the rest.
-func TestResumeSurvivesRotatedTokens(t *testing.T) {
+// A changed query is a different request; fetch the entire new plan.
+func TestResumeRefetchesAfterQueryRotation(t *testing.T) {
 	s := newServer(t)
 	playlist := func(token string) {
 		var b strings.Builder
@@ -103,8 +102,8 @@ func TestResumeSurvivesRotatedTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFile(t, dest, want)
-	if n := s.count("/s0.ts"); n != 1 {
-		t.Fatalf("s0 fetched %d times; finished segments were discarded", n)
+	if n := s.count("/s0.ts"); n != 2 {
+		t.Fatalf("s0 fetched %d times; expected a fresh request after query rotation", n)
 	}
 }
 
@@ -120,10 +119,13 @@ func TestForeignWorkDirIsKept(t *testing.T) {
 	if err := os.WriteFile(mine, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(dest+".hls/state.json", []byte(`{"personal":"settings"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := Download(context.Background(), s.URL+"/media.m3u8", dest, fastOpts(), nil); err == nil {
 		t.Fatal("download reused a foreign directory")
 	}
-	if err := Discard(dest); err == nil {
+	if err := Discard(dest, s.URL+"/media.m3u8"); err == nil {
 		t.Fatal("Discard accepted a foreign directory")
 	}
 	if _, err := os.Stat(mine); err != nil {

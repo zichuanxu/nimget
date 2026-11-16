@@ -17,15 +17,18 @@ import (
 )
 
 type ExtensionHandoffs interface {
-	AcceptHandoff(ctx context.Context, pairingID, handoffID, pairingCredential string, req download.Request) (download.HandoffReceipt, error)
+	AcceptHandoff(ctx context.Context, pairingID, handoffID, pairingCredential string, req download.Request, captureProof string) (download.HandoffReceipt, error)
 	LookupHandoff(ctx context.Context, pairingID, handoffID string) (download.HandoffReceipt, error)
 }
 
 type extensionHandoffRequest struct {
 	HandoffID      string                   `json:"handoffId"`
 	URL            string                   `json:"url"`
+	CaptureProof   string                   `json:"captureProof,omitempty"`
 	WebsiteSession *download.WebsiteSession `json:"websiteSession,omitempty"`
 }
+
+var captureProofPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 var handoffIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
@@ -65,8 +68,13 @@ func (h *Handler) acceptExtensionHandoff(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if input.CaptureProof != "" && !captureProofPattern.MatchString(input.CaptureProof) {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid automatic capture metadata")
+		return
+	}
+
 	req := download.Request{URL: input.URL, WebsiteSession: input.WebsiteSession}
-	receipt, err := h.handoffs.AcceptHandoff(r.Context(), pairingID, input.HandoffID, extensionCredential(r), req)
+	receipt, err := h.handoffs.AcceptHandoff(r.Context(), pairingID, input.HandoffID, extensionCredential(r), req, input.CaptureProof)
 	h.writeHandoffReceipt(w, receipt, err)
 }
 
@@ -124,6 +132,8 @@ func (h *Handler) writeHandoffReceipt(w http.ResponseWriter, receipt download.Ha
 		writeError(w, http.StatusForbidden, "PAIRING_REQUIRED", err.Error())
 	case errors.Is(err, download.ErrHandoffConflict):
 		writeError(w, http.StatusConflict, "HANDOFF_CONFLICT", err.Error())
+	case errors.Is(err, download.ErrCaptureNotReplayable):
+		writeError(w, http.StatusBadRequest, "CAPTURE_NOT_REPLAYABLE", err.Error())
 	case errors.Is(err, download.ErrInvalidDownload):
 		writeError(w, http.StatusBadRequest, "HANDOFF_REJECTED", "NimGet could not queue this download with its current settings")
 	case err != nil:

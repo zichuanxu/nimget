@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/zichuanxu/nimget/internal/download"
+	"github.com/zichuanxu/nimget/internal/filelock"
 	"github.com/zichuanxu/nimget/internal/hls"
 )
 
@@ -40,7 +41,7 @@ func (r *Runner) Inspect(ctx context.Context, rawURL string, headers http.Header
 	if err != nil {
 		return download.Remote{}, err
 	}
-	return download.Remote{Filename: remote.Filename, URL: remote.URL, ContentType: remote.ContentType, Size: remote.Size}, nil
+	return download.Remote{Filename: remote.Filename, URL: remote.URL, ContentType: remote.ContentType, Size: remote.Size, AttachmentProof: remote.AttachmentProof}, nil
 }
 
 func (r *Runner) Download(ctx context.Context, spec download.Spec, progress func(download.Progress)) error {
@@ -74,6 +75,21 @@ func (r *Runner) Download(ctx context.Context, spec download.Spec, progress func
 
 // Discard removes the downloader's resumable partial state for destination,
 // including an HLS download's segment directory.
-func (r *Runner) Discard(destination string) error {
-	return hls.Discard(destination)
+func (r *Runner) Discard(spec download.Spec) error {
+	identity := spec.ResumeKey
+	if identity == "" {
+		identity = r.base.ResumeKey
+	}
+	if identity == "" {
+		identity = spec.URL
+	}
+	if err := hls.Discard(spec.Destination, identity); err != nil {
+		return err
+	}
+	release, err := filelock.Acquire(spec.Destination + ".lock")
+	if err != nil {
+		return err
+	}
+	defer release()
+	return removePartial(spec.Destination+".part", spec.Destination+".part.meta", identity)
 }

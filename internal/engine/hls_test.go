@@ -149,7 +149,10 @@ func TestHLSResumesAndDiscards(t *testing.T) {
 	if _, err := os.Stat(other + ".hls"); err != nil {
 		t.Fatalf("partial segment directory missing: %v", err)
 	}
-	if err := runner.Discard(other); err != nil {
+	if err := runner.Discard(download.Spec{URL: spec.URL, Destination: other, ResumeKey: "another-task"}); err == nil {
+		t.Fatal("another task discarded the retained HLS work")
+	}
+	if err := runner.Discard(download.Spec{URL: spec.URL, Destination: other}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(other + ".hls"); !errors.Is(err, os.ErrNotExist) {
@@ -194,4 +197,43 @@ func TestHLSIntoNewFolderAndThroughRedirect(t *testing.T) {
 	if got, _ := os.ReadFile(dest2); !bytes.Equal(got, bytes.Join(srv2.segments, nil)) {
 		t.Fatalf("redirected playlist saved as %q…", got[:min(20, len(got))])
 	}
+}
+
+func TestRenewOrdinarySourceAsHLSRequiresExplicitRestart(t *testing.T) {
+	old := (&fileServer{
+		data: []byte("ordinary request"), etag: `"old"`,
+		fault: func(w http.ResponseWriter, r *http.Request, start, end, requests int64) bool {
+			if end > start {
+				w.WriteHeader(http.StatusForbidden)
+				return true
+			}
+			return false
+		},
+	}).start(t)
+	cfg := testConfig()
+	cfg.ResumeKey = "renewed-task"
+	cfg.MaxAttempts = 1
+	dest := filepath.Join(t.TempDir(), "stream.ts")
+	if err := run(t, cfg, old.URL, dest); err == nil {
+		t.Fatal("first download succeeded before renewal")
+	}
+	previous, err := os.ReadFile(dest + ".part.meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, stream := newHLSServer(t, 2)
+	renewed := stream.URL + "/v/index.m3u8"
+	cfg.ValidateSource = true
+	if err := run(t, cfg, renewed, dest); !errors.Is(err, download.ErrRestartRequired) {
+		t.Fatalf("renewal did not offer explicit restart: %v", err)
+	}
+	requireFile(t, dest+".part.meta", previous)
+	if err := (&Runner{}).Discard(download.Spec{URL: renewed, Destination: dest, ResumeKey: cfg.ResumeKey}); err != nil {
+		t.Fatal(err)
+	}
+	cfg.ValidateSource = false
+	if err := run(t, cfg, renewed, dest); err != nil {
+		t.Fatal(err)
+	}
+	requireFile(t, dest, bytes.Join(fixture.segments, nil))
 }

@@ -198,7 +198,7 @@ export default function BulkTaskActions({
           onClose={() => onConfirm(null)}
           footer={
             <div className="bulk-confirm-actions">
-              <button autoFocus onClick={() => onConfirm(null)}>{t("common.cancel")}</button>
+              <button data-initial-focus onClick={() => onConfirm(null)}>{t("common.cancel")}</button>
               <button onClick={() => void run(TaskActionRemoveRecords, confirming, confirmedIDs)} disabled={disabled || !confirmedIDs.length}>{t("bulk.records")}</button>
               <button className="danger" onClick={() => void run(TaskActionRemoveFiles, confirming, confirmedIDs)} disabled={disabled || !confirmedIDs.length}>{t("bulk.files")}</button>
             </div>

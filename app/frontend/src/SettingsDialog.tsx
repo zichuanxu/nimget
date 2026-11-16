@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { CircleAlert, Clock, Download, Globe, Link2, Monitor, Moon, Plus, Settings as SettingsIcon, SlidersHorizontal, Sun, Trash2, Wrench, type LucideIcon } from "lucide-react";
 import BrowserPairings from "./BrowserPairings";
+import SiteSettings, { draftSite, siteSettingsErrors, siteValues, type SiteDraft } from "./SiteSettings";
 import { Desktop, ProxyMode, Settings, SpeedRule, State, message } from "./api";
 import { parseSpeed, speedText } from "./format";
 import { useI18n } from "./i18n";
@@ -38,12 +39,14 @@ export default function SettingsDialog({ state, onClose, onSaved }: Props) {
   const [s, setS] = useState<Settings | null>(null);
   const [limit, setLimit] = useState("");
   const [rules, setRules] = useState<{ from: string; to: string; limit: string }[]>([]);
-  const [sites, setSites] = useState("[]");
+  const [sites, setSites] = useState<SiteDraft[]>([]);
+  const [siteValidation, setSiteValidation] = useState(0);
   const [autostart, setAutostart] = useState(state.autostart);
   const [theme, setTheme] = useState<Theme>(loadTheme);
   const [whenDone, setWhenDone] = useState("");
   const [initialWhenDone, setInitialWhenDone] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     Promise.all([Desktop.Settings(), Desktop.WhenDone()])
@@ -53,20 +56,26 @@ export default function SettingsDialog({ state, onClose, onSaved }: Props) {
         setInitialWhenDone(action);
         setLimit(speedText(loaded.speedLimit));
         setRules((loaded.schedule.speedRules ?? []).map((r) => ({ from: r.from, to: r.to, limit: speedText(r.limit) })));
-        setSites(JSON.stringify(loaded.sites ?? [], null, 2));
+        setSites((loaded.sites ?? []).map((site, id) => draftSite(id, site)));
       })
       .catch((err) => setError(message(err)));
   }, []);
 
   async function save() {
-    if (!s) return;
+    if (!s || saving) return;
     setError("");
+    if (siteSettingsErrors(sites, t).size > 0) {
+      setSiteValidation((attempt) => attempt + 1);
+      setTab("network");
+      return;
+    }
+    setSaving(true);
     try {
       const next = new Settings({
         ...s,
         speedLimit: parseSpeed(limit),
         schedule: { ...s.schedule, speedRules: rules.map((r) => new SpeedRule({ from: r.from, to: r.to, limit: parseSpeed(r.limit) })) },
-        sites: JSON.parse(sites),
+        sites: siteValues(sites),
       });
       const saved = await Desktop.SaveSettings(next);
       if (whenDone !== initialWhenDone) await Desktop.SetWhenDone(whenDone);
@@ -78,21 +87,21 @@ export default function SettingsDialog({ state, onClose, onSaved }: Props) {
       onClose();
     } catch (err) {
       setError(message(err));
+    } finally {
+      setSaving(false);
     }
   }
 
   const footer = (
     <>
       {error && (
-        <p className="form-error grow">
-          <CircleAlert size={14} />
-          <span className="ellipsis" title={error}>
-            {error}
-          </span>
+        <p className="form-error grow settings-error" role="alert">
+          <CircleAlert size={14} aria-hidden="true" />
+          <span>{error}</span>
         </p>
       )}
       <button onClick={onClose}>{t("common.cancel")}</button>
-      <button className="primary" disabled={!s} onClick={save}>
+      <button className="primary" disabled={!s || saving} onClick={save}>
         {t("common.save")}
       </button>
     </>
@@ -246,11 +255,8 @@ export default function SettingsDialog({ state, onClose, onSaved }: Props) {
                   <input className="mono" placeholder="http://host:3128 · socks5://user:pass@host:1080" value={s.proxy.url ?? ""} onChange={(e) => set({ proxy: { ...s.proxy, url: e.target.value } })} spellCheck={false} />
                 </label>
               )}
-              <label className="field">
-                <span className="field-label">{t("settings.sites")}</span>
-                <textarea rows={9} className="mono" value={sites} onChange={(e) => setSites(e.target.value)} spellCheck={false} />
-                <span className="hint">{t("settings.sitesHint")}</span>
-              </label>
+              <SiteSettings sites={sites} onChange={setSites} focusInvalid={siteValidation}
+                errors={siteValidation ? siteSettingsErrors(sites, t) : new Map()} />
             </>
           )}
 

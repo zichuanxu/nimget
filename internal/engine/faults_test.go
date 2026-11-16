@@ -223,6 +223,9 @@ func TestStatusErrorQuotesOnlyShortText(t *testing.T) {
 	}{
 		"html page":   {"text/html; charset=UTF-8", "<!DOCTYPE html><html><head><title>Just a moment...</title>", "probe: HTTP 403 Forbidden"},
 		"untyped tag": {"", "  <html><body>denied</body></html>", "probe: HTTP 403 Forbidden"},
+		"hls body":    {"application/vnd.apple.mpegurl", "key.bin?token=key-secret", "probe: HTTP 403 Forbidden"},
+		"untyped hls": {"text/plain", "  #EXTM3U\nkey.bin?token=key-secret", "probe: HTTP 403 Forbidden"},
+		"dash body":   {"application/dash+xml", "representation: video?token=segment-secret", "probe: HTTP 403 Forbidden"},
 		"plain text":  {"text/plain", "token expired\n  sign in again", "probe: HTTP 403 Forbidden: token expired sign in again"},
 		"long json":   {"application/json", `{"error":"` + strings.Repeat("x", 300) + `"}`, "probe: HTTP 403 Forbidden: " + (`{"error":"` + strings.Repeat("x", 300))[:maxErrorBody] + "…"},
 		"empty":       {"text/plain", "", "probe: HTTP 403 Forbidden"},

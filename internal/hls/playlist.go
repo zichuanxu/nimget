@@ -29,22 +29,24 @@ type keyTag struct {
 }
 
 // parsePlaylist parses a playlist fetched from base. A master playlist yields
-// the URL of its best variant; a media playlist yields its items.
-//
-// ponytail: alternate renditions (EXT-X-MEDIA audio/subtitles) are ignored;
-// only the variant's own stream is downloaded.
+// the URL of its best variant if its tracks can be downloaded together.
+// A media playlist yields its items.
 func parsePlaylist(body []byte, base *url.URL) (variant string, items []item, err error) {
+	type renditionGroup struct{ kind, id string }
 	var (
-		lineNo           int
-		bestBW, bestArea int64 = -1, -1
-		streamInf        map[string]string
-		mediaSeq, segN   int64
-		sawInf, endList  bool
-		br               *[2]int64 // pending EXT-X-BYTERANGE {length, offset or -1}
-		prev             item      // previous media segment
-		key              *keyTag
-		curMap, lastMap  *item
-		errorf           = func(format string, a ...any) error {
+		lineNo             int
+		bestBW, bestArea   int64 = -1, -1
+		streamInf          map[string]string
+		bestStream         map[string]string
+		externalRenditions = make(map[renditionGroup]bool)
+		hasIFrameVariant   bool
+		mediaSeq, segN     int64
+		sawInf, endList    bool
+		br                 *[2]int64 // pending EXT-X-BYTERANGE {length, offset or -1}
+		prev               item      // previous media segment
+		key                *keyTag
+		curMap, lastMap    *item
+		errorf             = func(format string, a ...any) error {
 			return fmt.Errorf("playlist line %d: "+format, append([]any{lineNo}, a...)...)
 		}
 	)
@@ -64,20 +66,29 @@ func parsePlaylist(body []byte, base *url.URL) (variant string, items []item, er
 		case line == "":
 		case tag == "#EXT-X-STREAM-INF":
 			streamInf = parseAttrs(value)
+		case tag == "#EXT-X-MEDIA":
+			attrs := parseAttrs(value)
+			if attrs["URI"] != "" {
+				externalRenditions[renditionGroup{attrs["TYPE"], attrs["GROUP-ID"]}] = true
+			}
+		case tag == "#EXT-X-I-FRAME-STREAM-INF":
+			hasIFrameVariant = true
+		case tag == "#EXT-X-I-FRAMES-ONLY":
+			return "", nil, fmt.Errorf("%w: I-frame-only playlists", ErrUnsupported)
 		case tag == "#EXTINF":
 			dur, _, _ := strings.Cut(value, ",")
 			if d, err := strconv.ParseFloat(strings.TrimSpace(dur), 64); err != nil || d < 0 {
-				return "", nil, errorf("malformed EXTINF %q", value)
+				return "", nil, errorf("malformed EXTINF")
 			}
 			sawInf = true
 		case tag == "#EXT-X-MEDIA-SEQUENCE":
 			if mediaSeq, err = strconv.ParseInt(value, 10, 64); err != nil || mediaSeq < 0 {
-				return "", nil, errorf("malformed EXT-X-MEDIA-SEQUENCE %q", value)
+				return "", nil, errorf("malformed EXT-X-MEDIA-SEQUENCE")
 			}
 		case tag == "#EXT-X-BYTERANGE":
 			n, o, ok := parseByteRange(value)
 			if !ok {
-				return "", nil, errorf("malformed EXT-X-BYTERANGE %q", value)
+				return "", nil, errorf("malformed EXT-X-BYTERANGE")
 			}
 			br = &[2]int64{n, o}
 		case tag == "#EXT-X-KEY":
@@ -104,7 +115,7 @@ func parsePlaylist(body []byte, base *url.URL) (variant string, items []item, er
 			bw, _ := strconv.ParseInt(streamInf["BANDWIDTH"], 10, 64)
 			area := resolutionArea(streamInf["RESOLUTION"])
 			if bw > bestBW || bw == bestBW && area > bestArea {
-				variant, bestBW, bestArea = u.String(), bw, area
+				variant, bestBW, bestArea, bestStream = u.String(), bw, area, streamInf
 			}
 			streamInf = nil
 		default:
@@ -143,7 +154,20 @@ func parsePlaylist(body []byte, base *url.URL) (variant string, items []item, er
 		return "", nil, fmt.Errorf("read playlist: %w", err)
 	}
 	if variant != "" {
+		var separate []string
+		for _, kind := range []string{"AUDIO", "VIDEO", "SUBTITLES"} {
+			group := bestStream[kind]
+			if group != "" && externalRenditions[renditionGroup{kind, group}] {
+				separate = append(separate, "separate "+strings.ToLower(kind))
+			}
+		}
+		if len(separate) != 0 {
+			return "", nil, fmt.Errorf("%w: selected variant uses %s", ErrUnsupported, strings.Join(separate, ", "))
+		}
 		return variant, nil, nil
+	}
+	if hasIFrameVariant && segN == 0 {
+		return "", nil, fmt.Errorf("%w: I-frame-only playlists", ErrUnsupported)
 	}
 	if !endList {
 		return "", nil, ErrLive
@@ -155,15 +179,15 @@ func parsePlaylist(body []byte, base *url.URL) (variant string, items []item, er
 }
 
 func parseKey(attrs map[string]string, base *url.URL) (*keyTag, error) {
-	switch method := attrs["METHOD"]; method {
+	switch attrs["METHOD"] {
 	case "NONE":
 		return nil, nil
 	case "AES-128":
 	default:
-		return nil, fmt.Errorf("%w: EXT-X-KEY METHOD=%s", ErrUnsupported, method)
+		return nil, fmt.Errorf("%w: only AES-128 encryption is supported", ErrUnsupported)
 	}
 	if f := attrs["KEYFORMAT"]; f != "" && f != "identity" {
-		return nil, fmt.Errorf("%w: EXT-X-KEY KEYFORMAT=%q", ErrUnsupported, f)
+		return nil, fmt.Errorf("%w: only identity-format AES-128 encryption keys are supported", ErrUnsupported)
 	}
 	if attrs["URI"] == "" {
 		return nil, fmt.Errorf("EXT-X-KEY has no URI")
@@ -193,7 +217,7 @@ func parseMap(attrs map[string]string, base *url.URL, key *keyTag) (item, error)
 	if s, ok := attrs["BYTERANGE"]; ok {
 		n, o, ok := parseByteRange(s)
 		if !ok {
-			return item{}, fmt.Errorf("malformed EXT-X-MAP BYTERANGE %q", s)
+			return item{}, fmt.Errorf("malformed EXT-X-MAP BYTERANGE")
 		}
 		m.Len, m.Off = n, max(o, 0)
 	}
@@ -247,11 +271,11 @@ func parseByteRange(s string) (n, o int64, ok bool) {
 func parseIV(s string) ([]byte, error) {
 	h := strings.TrimPrefix(strings.TrimPrefix(s, "0x"), "0X")
 	if len(h) == 0 || len(h) > 32 {
-		return nil, fmt.Errorf("malformed IV %q", s)
+		return nil, fmt.Errorf("malformed IV")
 	}
 	iv, err := hex.DecodeString(strings.Repeat("0", 32-len(h)) + h)
 	if err != nil {
-		return nil, fmt.Errorf("malformed IV %q", s)
+		return nil, fmt.Errorf("malformed IV")
 	}
 	return iv, nil
 }

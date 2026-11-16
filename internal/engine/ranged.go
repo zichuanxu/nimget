@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/zichuanxu/nimget/internal/logging"
 )
 
 var (
@@ -323,10 +325,10 @@ func (r *rangedRun) fetch(ctx context.Context, seg *segment, buf []byte) (progre
 		if strings.Contains(err.Error(), "no application protocol") {
 			return false, fatal(errNeedsHTTP2)
 		}
-		return false, interrupted(err)
+		return false, interrupted(logging.HTTPError(err))
 	}
 	defer resp.Body.Close()
-	if aerr := r.validate(resp, start, end, ifRange); aerr != nil {
+	if aerr := r.validate(req, resp, start, end, ifRange); aerr != nil {
 		return false, aerr
 	}
 
@@ -366,7 +368,7 @@ func (r *rangedRun) fetch(ctx context.Context, seg *segment, buf []byte) (progre
 }
 
 // validate checks a range response against the probed representation.
-func (r *rangedRun) validate(resp *http.Response, start, end int64, ifRange string) *attemptError {
+func (r *rangedRun) validate(req *http.Request, resp *http.Response, start, end int64, ifRange string) *attemptError {
 	if err := identityEncoding(resp); err != nil {
 		return fatal(err)
 	}
@@ -386,14 +388,14 @@ func (r *rangedRun) validate(resp *http.Response, start, end int64, ifRange stri
 	case http.StatusPreconditionFailed, http.StatusRequestedRangeNotSatisfiable:
 		return fatal(ErrSourceChanged)
 	default:
-		return statusError(fmt.Sprintf("range %d-%d", start, end-1), resp)
+		return statusError(fmt.Sprintf("range %d-%d", start, end-1), req, resp)
 	}
 	if r.changed(resp) {
 		return fatal(ErrSourceChanged)
 	}
 	gotStart, gotEnd, total, ok := parseContentRange(resp.Header.Get("Content-Range"))
 	if !ok || gotStart != start || gotEnd != end-1 || total != r.info.size {
-		return fatal(fmt.Errorf("%w: unexpected Content-Range %q for bytes %d-%d", ErrSourceChanged, resp.Header.Get("Content-Range"), start, end-1))
+		return fatal(fmt.Errorf("%w: unexpected Content-Range for bytes %d-%d", ErrSourceChanged, start, end-1))
 	}
 	if resp.ContentLength >= 0 && resp.ContentLength != end-start {
 		return fatal(fmt.Errorf("range %d-%d has Content-Length %d", start, end-1, resp.ContentLength))

@@ -73,6 +73,76 @@ button:focus-visible {
   margin-inline-end: 6px;
 }
 
+#capture-settings-panel {
+  border-block-start: 1px solid color-mix(in srgb, CanvasText 28%, Canvas);
+  margin-block-start: 16px;
+  padding-block-start: 12px;
+}
+
+#capture-settings-title {
+  font-size: 1rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+#capture-settings-panel form {
+  margin-block-start: 12px;
+}
+
+#capture-settings-panel label {
+  font-weight: 600;
+}
+
+.capture-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.capture-check input {
+  margin: 0;
+}
+
+.capture-help {
+  margin: 3px 0 6px;
+}
+
+#capture-help {
+  margin-block-end: 10px;
+}
+
+#capture-settings-panel textarea {
+  box-sizing: border-box;
+  display: block;
+  inline-size: 100%;
+  margin-block-end: 10px;
+  padding: 5px 7px;
+  resize: vertical;
+  font: inherit;
+}
+
+#capture-settings-panel button {
+  margin-block-start: 0;
+}
+
+#capture-handoffs {
+  padding-inline-start: 20px;
+}
+
+#capture-handoffs li + li {
+  margin-block-start: 10px;
+}
+
+#capture-handoffs p {
+  margin: 3px 0;
+}
+
+#capture-handoffs button {
+  margin-block-start: 4px;
+  margin-inline-end: 6px;
+}
+
 .website-session-page {
   inline-size: auto;
 }

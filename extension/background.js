@@ -1,3 +1,4 @@
+import "./capture.js";
 import { readCredential } from "./pairing.js";
 import { lookupHandoffReceipt, manualHandoffPrefix, manualHandoffResult, submitHandoffWithReceipt, supportsHandoff } from "./handoff.js";
 import {

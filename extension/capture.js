@@ -2,7 +2,7 @@ import {
   captureHandoffPrefix, capturePermissions, captureResultKey, captureSettingsKey,
   readCaptureSessionOrigins, readCaptureSettings,
 } from "./capture-settings.js";
-import { lookupHandoffReceipt, submitHandoffWithReceipt, supportsHandoff } from "./handoff.js";
+import { deliverHandoffReceipt, sha256Hex, supportsHandoff, updateHandoffBadge } from "./handoff.js";
 import { readCredential } from "./pairing.js";
 import {
   hasWebsiteSessionPermission, readWebsiteSession, readWebsiteSessionSnapshot,
@@ -76,32 +76,50 @@ function observeNavigation(details) {
   trackNavigation(details, true);
 }
 
+function observeRequestHeaders(details) {
+  const request = trackNavigation(details);
+  if (!request || !details.requestHeaders) return;
+  // Only classify Cookie presence. The value from general traffic observation
+  // is never retained. Chromium can hide other authentication headers.
+  request.sentCookie = details.requestHeaders.some(({ name }) => name.toLowerCase() === "cookie");
+}
+
 function observeResponse(details) {
   const { method, responseHeaders, statusCode, timeStamp } = details;
   const request = trackNavigation(details);
   if (!request || request.method !== "GET" || method !== "GET" ||
-      request.ambiguous || request.endedAt !== undefined || statusCode !== 200) return;
-  const attachment = responseHeaders?.some(({ name, value }) =>
-    name.toLowerCase() === "content-disposition" && /^\s*attachment(?:\s*;|\s*$)/i.test(value ?? ""));
-  if (attachment) {
-    request.attachmentAt = timeStamp;
-    request.requiresContext = responseHeaders.some(({ name, value }) => {
-      switch (name.toLowerCase()) {
-        case "vary":
-          return /(?:^|,)\s*(?:cookie|authorization|\*)\s*(?:,|$)/i.test(value ?? "");
-        case "cache-control":
-          return /(?:^|,)\s*private(?:\s*(?:=|,|$))/i.test(value ?? "");
-        default:
-          return false;
-      }
-    });
+      request.ambiguous || request.endedAt !== undefined || statusCode !== 200 || !responseHeaders) return;
+  function header(key) {
+    return responseHeaders.find(({ name }) => name.toLowerCase() === key)?.value?.trim() ?? "";
   }
+  const disposition = header("content-disposition");
+  const encoding = header("content-encoding").toLowerCase();
+  if (!/^attachment(?:\s*;|$)/i.test(disposition) || (encoding && encoding !== "identity")) return;
+  const length = header("content-length");
+  const size = /^\d+$/.test(length) && Number.isSafeInteger(Number(length)) ? String(Number(length)) : "-1";
+  const etag = header("etag");
+  request.attachmentAt = timeStamp;
+  request.attachmentProof = sha256Hex([
+    disposition, header("content-type").toLowerCase(), size,
+    etag.length >= 2 && etag.startsWith('"') && etag.endsWith('"') ? etag : "",
+  ].join("\n")).catch(() => null);
+  request.requiresContext = responseHeaders.some(({ name, value }) => {
+    switch (name.toLowerCase()) {
+      case "vary":
+        return /(?:^|,)\s*(?:cookie|authorization|\*)\s*(?:,|$)/i.test(value ?? "");
+      case "cache-control":
+        return /(?:^|,)\s*private(?:\s*(?:=|,|$))/i.test(value ?? "");
+      default:
+        return false;
+    }
+  });
 }
 
 function observeRedirect(details) {
   const request = trackNavigation(details);
   if (request) {
     delete request.attachmentAt;
+    delete request.attachmentProof;
     request.endedAt = details.timeStamp;
   }
   // The next hop shares the request ID and may look like a fresh GET.
@@ -143,6 +161,7 @@ function downloadNamed(item, suggest) {
 function registerCaptureListeners() {
   if (!chrome.downloads || !chrome.webRequest || chrome.downloads.onCreated.hasListener(downloadCreated)) return;
   chrome.webRequest.onBeforeRequest.addListener(observeWhenEnabled(observeNavigation), navigations);
+  chrome.webRequest.onSendHeaders.addListener(observeWhenEnabled(observeRequestHeaders), navigations, ["requestHeaders", "extraHeaders"]);
   chrome.webRequest.onHeadersReceived.addListener(observeWhenEnabled(observeResponse), navigations, ["responseHeaders"]);
   chrome.webRequest.onBeforeRedirect.addListener(observeWhenEnabled(observeRedirect), navigations);
   chrome.webRequest.onCompleted.addListener(observeWhenEnabled(navigationEnded), navigations);
@@ -204,7 +223,7 @@ async function captureDownload(item, key) {
       return;
     }
     const { hostname, origin } = new URL(item.url);
-    const useSession = (await readCaptureSessionOrigins()).includes(origin);
+    const useSession = navigation.sentCookie === true && (await readCaptureSessionOrigins()).includes(origin);
     let websiteSession;
     if (navigation.requiresContext && !useSession) {
       await showResult("captureSessionUnavailable");
@@ -221,9 +240,14 @@ async function captureDownload(item, key) {
         return;
       }
     }
+    const captureProof = await navigation.attachmentProof;
+    if (!captureProof) {
+      await showResult("captureUnsupported");
+      return;
+    }
     const record = {
-      request: { handoffId: crypto.randomUUID(), url: item.url },
-      scope: await credentialDigest(credential),
+      request: { handoffId: crypto.randomUUID(), url: item.url, captureProof },
+      scope: await sha256Hex(credential),
       createdAt: Date.now(),
       host: hostname,
       ...(useSession && { useSession }),
@@ -237,27 +261,21 @@ async function captureDownload(item, key) {
       if (websiteSession) await removeWebsiteSessionSnapshot(record.request.handoffId);
       throw err;
     }
-    await deliver(key, record, credential, item.id, websiteSession);
+    await deliver(key, record, credential, item.id, websiteSession, navigation.sentCookie);
   } finally {
     inFlight.delete(key);
   }
 }
 
-async function credentialDigest(credential) {
-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(credential));
-  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function deliver(key, record, credential, browserId, session) {
+async function deliver(key, record, credential, browserId, session, sentCookie) {
   let receipt;
   try {
-    receipt = record.useSession && !session
-      ? await lookupHandoffReceipt(record.request.handoffId, credential)
-      : await submitHandoffWithReceipt(session ? { ...record.request, websiteSession: session } : record.request, credential);
+    receipt = await deliverHandoffReceipt(record.request, credential, record.useSession, session);
   } catch (error) {
     const rejected = {
       EXTENSION_CREDENTIAL_REQUIRED: "capturePairingRequired",
       PAIRING_REQUIRED: "capturePairingRequired",
+      CAPTURE_NOT_REPLAYABLE: sentCookie && !session ? "captureSessionUnavailable" : "captureUnsupported",
       HANDOFF_REJECTED: "captureRejected",
       INVALID_HANDOFF_ID: "captureRejected",
       INVALID_REQUEST: "captureRejected",
@@ -334,7 +352,7 @@ async function updatePendingHandoff(key, type) {
     }
     if (!record.request) return;
     const credential = await readCredential();
-    if (!credential || await credentialDigest(credential) !== record.scope) {
+    if (!credential || await sha256Hex(credential) !== record.scope) {
       await showResult("capturePairingChanged");
       return;
     }
@@ -352,15 +370,9 @@ async function updatePendingHandoff(key, type) {
 
 async function showResult(result, badge = "!") {
   await chrome.storage.local.set({ [captureResultKey]: result });
-  await updateBadge(result, badge);
-}
-
-async function updateBadge(result, badge) {
-  await chrome.action.setBadgeBackgroundColor({ color: badge === "✓" ? "#25723B" : "#A54025" });
-  await chrome.action.setBadgeText({ text: badge });
-  await chrome.action.setTitle({ title: chrome.i18n.getMessage(result) });
+  await updateHandoffBadge(result, badge);
 }
 
 function showLocalFailure() {
-  return showResult("captureLocalFailure").catch(() => updateBadge("captureLocalFailure", "!").catch(() => {}));
+  return showResult("captureLocalFailure").catch(() => updateHandoffBadge("captureLocalFailure", "!").catch(() => {}));
 }

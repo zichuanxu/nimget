@@ -14,7 +14,7 @@ func Open(path string, flag int, mode fs.FileMode) (*os.File, error) {
 	info, err := os.Lstat(path)
 	if err == nil {
 		if !info.Mode().IsRegular() || isReparsePoint(info) {
-			return nil, unsafeCollision(path, "expected a regular file")
+			return nil, Collision("expected a regular file")
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, err
@@ -38,7 +38,7 @@ func CheckDirectory(path string) error {
 		return err
 	}
 	if !info.IsDir() || isReparsePoint(info) {
-		return unsafeCollision(path, "expected a directory without links")
+		return Collision("expected a directory without links")
 	}
 	return nil
 }
@@ -58,6 +58,16 @@ func RequireAbsent(paths ...string) error {
 	return nil
 }
 
-func unsafeCollision(path, reason string) error {
-	return fmt.Errorf("unsafe partial path %q (%s), remove or rename the partial path and retry", path, reason)
+// RejectExisting refuses an unowned partial instead of modifying it.
+func RejectExisting(paths ...string) error {
+	if err := RequireAbsent(paths...); errors.Is(err, ErrExists) {
+		return Collision("an existing file has no matching download state")
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
+func Collision(reason string) error {
+	return fmt.Errorf("unsafe partial path (%s), remove or rename the partial path and retry", reason)
 }

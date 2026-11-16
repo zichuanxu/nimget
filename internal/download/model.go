@@ -175,9 +175,10 @@ type Remote struct {
 	// Filename is the Content-Disposition name, if any.
 	Filename string
 	// URL is the final URL after redirects.
-	URL         string
-	ContentType string
-	Size        int64 // -1 when unknown
+	URL             string
+	ContentType     string
+	Size            int64  // -1 when unknown
+	AttachmentProof string // hash of replayable attachment metadata at the requested URL
 }
 
 type Runner interface {

@@ -56,7 +56,7 @@ func (j *job) ranged(ctx context.Context, info probeInfo) error {
 		Version: checkpointVersion, Identity: j.identity, Size: info.size,
 		SourceScope: info.sourceScope, ETag: info.etag, LastModified: info.lastModified,
 	}
-	f, remaining, err := j.openPart(ctx, info, want)
+	f, remaining, err := j.openPart(ctx, info, &want)
 	if err != nil {
 		return err
 	}
@@ -122,17 +122,18 @@ func (j *job) ranged(ctx context.Context, info probeInfo) error {
 
 // openPart resumes a compatible checkpoint or creates a preallocated .part
 // file. Workers write through this same validated handle.
-func (j *job) openPart(ctx context.Context, source probeInfo, want checkpoint) (*os.File, []interval, error) {
+func (j *job) openPart(ctx context.Context, source probeInfo, want *checkpoint) (*os.File, []interval, error) {
 	validateSource := j.engine.cfg.ValidateSource
-	f, err := partialfile.Open(j.part, os.O_RDWR, 0)
+	f, cp, err := loadPartial(j.part, j.meta, j.identity, j.url)
 	if err == nil {
 		info, statErr := f.Stat()
 		if statErr != nil {
 			_ = f.Close()
 			return nil, nil, fmt.Errorf("stat partial file: %w", statErr)
 		}
-		if cp, err := readCheckpoint(j.meta); err == nil && info.Size() == want.Size {
-			expected := want
+		if info.Size() == want.Size {
+			expected := *want
+			want.FileID = cp.FileID
 			if !validateSource && cp.Identity == j.url {
 				// Checkpoints made before task IDs were used are valid for
 				// the original URL. Successful runs rewrite them with the ID.
@@ -169,29 +170,22 @@ func (j *job) openPart(ctx context.Context, source probeInfo, want checkpoint) (
 		if err := partialfile.RequireAbsent(j.part, j.meta); err != nil {
 			return nil, nil, err
 		}
-	} else {
-		j.discard()
+	} else if err := j.discard(); err != nil {
+		return nil, nil, err
 	}
 	if free, err := freeSpace(filepath.Dir(j.part)); err == nil && free < want.Size+freeSpaceMargin {
 		return nil, nil, fmt.Errorf("%w: need %d bytes plus margin, %d available", ErrInsufficientSpace, want.Size, free)
 	}
-	f, err = partialfile.Open(j.part, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	remaining := []interval{{0, want.Size}}
+	want.Remaining = remaining
+	f, want.FileID, err = j.createPartial(*want)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create partial file: %w", err)
 	}
 	if err := preallocate(f, want.Size); err != nil {
 		_ = f.Close()
-		j.discard()
+		_ = j.discard()
 		return nil, nil, err
-	}
-	remaining := []interval{{0, want.Size}}
-	if want.ETag != "" || want.LastModified != "" {
-		want.Remaining = remaining
-		if err := writeCheckpoint(j.meta, want); err != nil {
-			_ = f.Close()
-			j.discard()
-			return nil, nil, err
-		}
 	}
 	return f, remaining, nil
 }
@@ -462,7 +456,7 @@ func (r *rangedRun) validate(req *http.Request, resp *http.Response, start, end 
 	case http.StatusPreconditionFailed, http.StatusRequestedRangeNotSatisfiable:
 		return fatal(ErrSourceChanged)
 	default:
-		return statusError(fmt.Sprintf("range %d-%d", start, end-1), req, resp)
+		return statusError(fmt.Sprintf("range %d-%d", start, end-1), resp)
 	}
 	if r.changed(resp) {
 		return fatal(ErrSourceChanged)

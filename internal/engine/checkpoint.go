@@ -4,9 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"time"
+
+	"github.com/zichuanxu/nimget/internal/partialfile"
 )
 
 const checkpointVersion = 2
@@ -17,6 +22,7 @@ type checkpoint struct {
 	Version      int        `json:"version"`
 	Identity     string     `json:"identity"`
 	Size         int64      `json:"size"`
+	FileID       string     `json:"fileId,omitempty"`
 	SourceScope  string     `json:"sourceScope,omitempty"`
 	ETag         string     `json:"etag,omitempty"`
 	LastModified string     `json:"lastModified,omitempty"`
@@ -32,6 +38,26 @@ func (c checkpoint) resumable(want checkpoint) bool {
 	return c.Version == checkpointVersion && c.Identity == want.Identity && c.Size == want.Size &&
 		(c.SourceScope == "" || c.SourceScope == want.SourceScope) &&
 		c.ETag == want.ETag && c.LastModified == want.LastModified
+}
+
+// createCheckpoint reserves the sidecar without overwriting another file.
+func createCheckpoint(path string, state checkpoint) error {
+	if err := state.validate(); err != nil {
+		return err
+	}
+	f, err := partialfile.Open(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(f).Encode(state); err != nil {
+		_ = f.Close()
+		return err
+	}
+	err = errors.Join(f.Sync(), f.Close())
+	if err == nil {
+		syncDir(filepath.Dir(path))
+	}
+	return err
 }
 
 func writeCheckpoint(path string, state checkpoint) error {
@@ -60,7 +86,7 @@ func writeCheckpoint(path string, state checkpoint) error {
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close checkpoint: %w", err)
 	}
-	if err := os.Rename(temporary, path); err != nil {
+	if err := replaceCheckpoint(temporary, path); err != nil {
 		return fmt.Errorf("replace checkpoint: %w", err)
 	}
 	cleanup = false
@@ -68,14 +94,32 @@ func writeCheckpoint(path string, state checkpoint) error {
 	return nil
 }
 
+// Windows can transiently reject a replacement while a reader closes the
+// previous checkpoint. Keep the synced replacement available for a short retry.
+func replaceCheckpoint(temporary, path string) error {
+	err := os.Rename(temporary, path)
+	if runtime.GOOS == "windows" {
+		for i := 0; i < 4 && errors.Is(err, os.ErrPermission); i++ {
+			time.Sleep(5 * time.Millisecond)
+			err = os.Rename(temporary, path)
+		}
+	}
+	return err
+}
+
 func readCheckpoint(path string) (checkpoint, error) {
-	data, err := os.ReadFile(path)
+	f, err := partialfile.Open(path, os.O_RDONLY, 0)
+	if err != nil {
+		return checkpoint{}, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, 1<<20))
 	if err != nil {
 		return checkpoint{}, err
 	}
 	var state checkpoint
 	if err := json.Unmarshal(data, &state); err != nil {
-		return checkpoint{}, fmt.Errorf("decode checkpoint: %w", err)
+		return checkpoint{}, errors.New("invalid partial download checkpoint")
 	}
 	if err := state.validate(); err != nil {
 		return checkpoint{}, err
@@ -87,7 +131,7 @@ func (c checkpoint) validate() error {
 	if c.Version != checkpointVersion {
 		return fmt.Errorf("unsupported checkpoint version %d", c.Version)
 	}
-	if c.Identity == "" || c.Size <= 0 {
+	if c.Identity == "" || (c.Size <= 0 && !(c.Size == 0 && c.FileID != "" && len(c.Remaining) == 0)) {
 		return errors.New("checkpoint has no identity or size")
 	}
 	remaining := append([]interval(nil), c.Remaining...)

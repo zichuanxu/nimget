@@ -11,18 +11,6 @@ import (
 	"time"
 )
 
-func copyFile(t *testing.T, from, to string) bool {
-	t.Helper()
-	data, err := os.ReadFile(from)
-	if err != nil {
-		return false
-	}
-	if err := os.WriteFile(to, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return true
-}
-
 // cancelAfter runs a download and cancels it once the server has sent at
 // least n bytes.
 func cancelAfter(t *testing.T, cfg Config, srv *fileServer, url, dest string, n int64) error {
@@ -79,8 +67,8 @@ func TestNoValidatorRestartsFromZeroAcrossSessions(t *testing.T) {
 	server := srv.start(t)
 	dest := filepath.Join(t.TempDir(), "out.bin")
 	_ = cancelAfter(t, testConfig(), srv, server.URL, dest, 1<<20)
-	if _, err := os.Stat(dest + ".part.meta"); err == nil {
-		t.Fatal("a checkpoint was written without any validator")
+	if cp, err := readCheckpoint(dest + ".part.meta"); err != nil || totalSize(cp.Remaining) != int64(len(data)) {
+		t.Fatalf("expected ownership only without a validator: %+v, %v", cp, err)
 	}
 	before := srv.sent.Load()
 	if err := run(t, testConfig(), server.URL, dest); err != nil {
@@ -92,10 +80,8 @@ func TestNoValidatorRestartsFromZeroAcrossSessions(t *testing.T) {
 	}
 }
 
-// TestRandomizedCrashResume snapshots the partial file and its checkpoint at
-// a random moment, as a crash would leave them (metadata first, so the data
-// copy holds at least what the metadata claims), then resumes from the
-// snapshot and requires a byte-exact result, 100 times.
+// TestRandomizedCrashResume restores an earlier durable checkpoint on the
+// original partial file to emulate a crash between checkpoint writes.
 func TestRandomizedCrashResume(t *testing.T) {
 	data := randomData(t, 2<<20)
 	srv := &fileServer{data: data, etag: `"v1"`, piece: 32 << 10, pause: 3 * time.Millisecond}
@@ -130,21 +116,26 @@ func TestRandomizedCrashResume(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 
-		crash := filepath.Join(dir, "crashed.bin")
-		taken := copyFile(t, dest+".part.meta", crash+".part.meta") && copyFile(t, dest+".part", crash+".part")
+		snapshot, snapshotErr := os.ReadFile(dest + ".part.meta")
 		cancel()
-		<-done
-		if !taken {
+		stopErr := <-done
+		if stopErr != nil && !errors.Is(stopErr, context.Canceled) {
+			t.Fatalf("iteration %d: stop before restoring checkpoint: %v", i, stopErr)
+		}
+		if snapshotErr != nil || stopErr == nil {
 			continue // the download had not started or had already finished
 		}
+		if err := os.WriteFile(dest+".part.meta", snapshot, 0o600); err != nil {
+			t.Fatal(err)
+		}
 		snapshots++
-		if cp, err := readCheckpoint(crash + ".part.meta"); err == nil && totalSize(cp.Remaining) < int64(len(data)) && len(cp.Remaining) > 0 {
+		if cp, err := readCheckpoint(dest + ".part.meta"); err == nil && totalSize(cp.Remaining) < int64(len(data)) && len(cp.Remaining) > 0 {
 			midway++
 		}
-		if err := run(t, cfg, server.URL, crash); err != nil {
+		if err := run(t, cfg, server.URL, dest); err != nil {
 			t.Fatalf("iteration %d: resume from crash snapshot: %v", i, err)
 		}
-		requireFile(t, crash, data)
+		requireFile(t, dest, data)
 	}
 	if snapshots < 60 || midway < 50 {
 		t.Fatalf("%d snapshots, %d with partial progress; the test is not exercising resume", snapshots, midway)

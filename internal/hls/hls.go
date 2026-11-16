@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -117,12 +118,15 @@ func Download(ctx context.Context, rawURL, dest string, opts Options, progress f
 	}
 	defer release()
 	if _, err := os.Lstat(dest); err == nil {
-		return fmt.Errorf("%w: %s", ErrDestinationExists, dest)
+		return ErrDestinationExists
 	}
 
 	work := dest + ".hls"
+	if err := partialfile.RejectExisting(dest+".part", dest+".part.meta"); err != nil {
+		return err
+	}
 	if opts.RequireFresh {
-		if err := partialfile.RequireAbsent(work, dest+".part", dest+".part.meta"); err != nil {
+		if err := partialfile.RequireAbsent(work); err != nil {
 			return err
 		}
 	}
@@ -134,7 +138,7 @@ func Download(ctx context.Context, rawURL, dest string, opts Options, progress f
 	if err != nil {
 		return err
 	}
-	if err := prepareWorkDir(work, items); err != nil {
+	if err := prepareWorkDir(work, rawURL, opts, items); err != nil {
 		return err
 	}
 	d.prog.segments = len(items)
@@ -156,23 +160,14 @@ func Download(ctx context.Context, rawURL, dest string, opts Options, progress f
 	return commit(work, dest, len(items))
 }
 
-// Discard removes the partial state kept for dest.
+// Discard removes the owned segment directory kept for dest.
 func Discard(dest string) error {
 	release, err := lock(dest)
 	if err != nil {
 		return err
 	}
 	defer release()
-	if err := removeWorkDir(dest + ".hls"); err != nil {
-		return err
-	}
-	var errs []error
-	for _, path := range []string{dest + ".part", dest + ".part.meta"} {
-		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return removeWorkDir(dest + ".hls")
 }
 
 // Detect reports whether a response looks like an HLS playlist, judging by its
@@ -194,7 +189,7 @@ func Detect(contentType, rawURL string, head []byte) bool {
 func lock(dest string) (func() error, error) {
 	release, err := filelock.Acquire(dest + ".lock")
 	if errors.Is(err, filelock.ErrLocked) {
-		return nil, fmt.Errorf("%w: %s", ErrLocked, dest)
+		return nil, ErrLocked
 	}
 	return release, err
 }
@@ -349,62 +344,89 @@ func decryptFile(in *os.File, out io.Writer, size int64, key, iv []byte) error {
 
 func segPath(work string, i int) string { return filepath.Join(work, fmt.Sprintf("%06d.seg", i)) }
 
-// prepareWorkDir keeps the work dir only if it belongs to the same playlist.
-// The fingerprint leaves out query strings, which often carry expiring
-// tokens: a re-fetched playlist with fresh tokens still resumes, and its
-// fresh URLs are used for the remaining segments.
-func prepareWorkDir(work string, items []item) error {
-	if err := partialfile.CheckDirectory(work); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	stable := make([]item, len(items))
-	for i, it := range items {
-		it.URI, it.KeyURI = withoutQuery(it.URI), withoutQuery(it.KeyURI)
-		stable[i] = it
-	}
-	raw, err := json.Marshal(stable)
+// prepareWorkDir keeps cached segments only for the same playlist plan.
+func prepareWorkDir(work, playlistURL string, opts Options, items []item) error {
+	raw, err := json.Marshal(struct {
+		Playlist  string
+		UserAgent string
+		Headers   http.Header
+		Items     []item
+	}{playlistURL, opts.UserAgent, opts.Headers, items})
 	if err != nil {
 		return err
 	}
+	// Exact segment and key request URLs distinguish query-selected bytes.
+	// Persist only their fingerprint.
 	sum := sha256.Sum256(raw)
-	state, _ := json.Marshal(map[string]string{"fingerprint": hex.EncodeToString(sum[:])})
-	statePath := filepath.Join(work, "state.json")
-	got, err := os.ReadFile(statePath)
-	if err == nil && bytes.Equal(got, state) {
+	state := workState{Version: 1, Fingerprint: hex.EncodeToString(sum[:])}
+	existing, err := readWorkState(work)
+	if err == nil && existing == state {
 		return nil
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
 	if err := removeWorkDir(work); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(work, 0o755); err != nil {
+	if err := os.Mkdir(work, 0o755); err != nil {
 		return fmt.Errorf("create work dir: %w", err)
 	}
-	return writeFileSynced(statePath, state)
+	encoded, _ := json.Marshal(state)
+	return writeFileSynced(filepath.Join(work, "state.json"), encoded)
 }
 
-// removeWorkDir deletes work only if it is nimget's: it holds state.json.
+type workState struct {
+	Version     int    `json:"version,omitempty"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+func readWorkState(work string) (workState, error) {
+	if err := partialfile.CheckDirectory(work); err != nil {
+		return workState{}, err
+	}
+	invalid := errors.New("unrecognized HLS work directory; rename it and retry")
+	stateFile, err := partialfile.Open(filepath.Join(work, "state.json"), os.O_RDONLY, 0)
+	if err != nil {
+		return workState{}, invalid
+	}
+	defer stateFile.Close()
+	data, err := io.ReadAll(io.LimitReader(stateFile, 1024))
+	var state workState
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err != nil || decoder.Decode(&state) != nil || decoder.Decode(new(any)) != io.EOF {
+		return workState{}, invalid
+	}
+	if hash, err := hex.DecodeString(state.Fingerprint); err != nil || len(hash) != sha256.Size ||
+		(state.Version != 0 && state.Version != 1) {
+		return workState{}, invalid
+	}
+	return state, nil
+}
+
+var workArtifact = regexp.MustCompile(`^(state\.json|[0-9]{6,}\.seg|\.(dl|dec|tmp|assembly)-[0-9]+)$`)
+
+// Only recognized work directories containing download artifacts can be removed.
 func removeWorkDir(work string) error {
-	if err := partialfile.CheckDirectory(work); errors.Is(err, fs.ErrNotExist) {
+	if _, err := readWorkState(work); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	} else if err != nil {
 		return err
 	}
-	if _, err := os.Lstat(filepath.Join(work, "state.json")); err != nil {
-		return fmt.Errorf("%s exists and is not a nimget download directory", work)
+	entries, err := os.ReadDir(work)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !workArtifact.MatchString(entry.Name()) {
+			return errors.New("HLS work directory contains unrecognized files; rename it and retry")
+		}
 	}
 	if err := os.RemoveAll(work); err != nil {
 		return fmt.Errorf("discard stale work dir: %w", err)
 	}
 	return nil
-}
-
-func withoutQuery(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	u.RawQuery, u.Fragment = "", ""
-	return u.String()
 }
 
 // writeFileSynced writes path atomically: temp file, fsync, rename.
@@ -430,23 +452,21 @@ func writeFileSynced(path string, data []byte) error {
 	return nil
 }
 
-// commit concatenates the items into dest.part and places it at dest.
+// commit assembles the items in a fresh file inside the work directory.
 //
 // ponytail: the work dir doubles disk use until this concat; to avoid it,
 // append items to .part in order as they finish and persist an in-order
 // watermark instead of keeping per-segment files.
 func commit(work, dest string, n int) error {
-	part := dest + ".part"
-	f, err := partialfile.Open(part, os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.CreateTemp(work, ".assembly-*")
 	if err != nil {
 		return fmt.Errorf("open partial file: %w", err)
 	}
+	part := f.Name()
+	defer os.Remove(part)
 	defer f.Close()
-	if err := f.Truncate(0); err != nil {
-		return fmt.Errorf("truncate partial file: %w", err)
-	}
 	for i := range n {
-		seg, err := os.Open(segPath(work, i))
+		seg, err := partialfile.Open(segPath(work, i), os.O_RDONLY, 0)
 		if err != nil {
 			return err
 		}
@@ -466,7 +486,7 @@ func commit(work, dest string, n int) error {
 		return err
 	}
 	syncDir(filepath.Dir(dest))
-	_ = os.RemoveAll(work) // dest is committed; leftovers are harmless
+	_ = removeWorkDir(work) // dest is committed; leftovers are harmless
 	return nil
 }
 
@@ -479,10 +499,10 @@ func place(part, dest string) error {
 		return nil
 	}
 	if errors.Is(err, fs.ErrExist) {
-		return fmt.Errorf("%w: %s", ErrDestinationExists, dest)
+		return ErrDestinationExists
 	}
 	if _, err := os.Lstat(dest); err == nil {
-		return fmt.Errorf("%w: %s", ErrDestinationExists, dest)
+		return ErrDestinationExists
 	}
 	if err := os.Rename(part, dest); err != nil {
 		return fmt.Errorf("rename completed file: %w", err)

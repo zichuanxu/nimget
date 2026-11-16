@@ -60,15 +60,22 @@ func (d *Desktop) ExpandBatch(pattern string) ([]string, error) {
 	return batch.Expand(pattern)
 }
 
-// ExportQueue saves the unfinished downloads to a file the user picks. Request
-// headers are left out; they often hold session cookies. It returns the
-// path, or "" when the user cancels.
+// ExportQueue saves a summary of unfinished tasks to a file the user picks.
 func (d *Desktop) ExportQueue() (string, error) {
+	return d.exportQueue("nimget-queue-summary.json", queuefile.ExportSummary)
+}
+
+// BackupQueue saves exact source URLs and queue options without headers or sessions.
+func (d *Desktop) BackupQueue() (string, error) {
+	return d.exportQueue("nimget-source-backup.json", queuefile.ExportSources)
+}
+
+func (d *Desktop) exportQueue(filename string, encode func([]download.Item) ([]byte, error)) (string, error) {
 	m, err := d.manager()
 	if err != nil {
 		return "", err
 	}
-	path, err := d.app.Dialog.SaveFile().SetFilename("nimget-queue.json").CanCreateDirectories(true).PromptForSingleSelection()
+	path, err := d.app.Dialog.SaveFile().SetFilename(filename).CanCreateDirectories(true).PromptForSingleSelection()
 	if err != nil || path == "" {
 		return "", err
 	}
@@ -76,17 +83,21 @@ func (d *Desktop) ExportQueue() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := queuefile.Export(items, false)
+	data, err := encode(items)
 	if err != nil {
 		return "", err
 	}
-	return path, os.WriteFile(path, append(data, '\n'), 0o600)
+	if err := queuefile.Write(path, data); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // ImportResult reports an import.
 type ImportResult struct {
-	Added  int      `json:"added"`
-	Failed []string `json:"failed"`
+	Added   int    `json:"added"`
+	Failed  []int  `json:"failed"`
+	Problem string `json:"problem,omitempty"`
 }
 
 // ImportQueue queues the downloads in an exported file or a list of URLs the
@@ -102,21 +113,28 @@ func (d *Desktop) ImportQueue() (ImportResult, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ImportResult{}, err
+		return ImportResult{Problem: "unreadable"}, nil
 	}
+	return importQueue(context.Background(), data, m.Add), nil
+}
+
+func importQueue(ctx context.Context, data []byte, add func(context.Context, download.Request) (download.Item, error)) ImportResult {
 	reqs, err := queuefile.Import(data)
-	if err != nil {
-		return ImportResult{}, err
+	if errors.Is(err, queuefile.ErrSummary) {
+		return ImportResult{Problem: "summary"}
 	}
-	res := ImportResult{Failed: []string{}}
-	for _, req := range reqs {
-		if _, err := m.Add(context.Background(), req); err != nil {
-			res.Failed = append(res.Failed, req.URL+": "+err.Error())
+	if err != nil {
+		return ImportResult{Problem: "invalid"}
+	}
+	res := ImportResult{Failed: []int{}}
+	for i, req := range reqs {
+		if _, err := add(ctx, req); err != nil {
+			res.Failed = append(res.Failed, i+1)
 			continue
 		}
 		res.Added++
 	}
-	return res, nil
+	return res
 }
 
 // SetWhenDone chooses what happens once no download is queued or running:

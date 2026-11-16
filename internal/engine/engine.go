@@ -234,6 +234,9 @@ func (e *Engine) downloadFile(ctx context.Context, rawURL, dest string, onProgre
 		if err != nil {
 			return err
 		}
+		if isDASHManifest(info.contentType, info.finalURL) {
+			return fmt.Errorf("%w: DASH manifests are unsupported. %s", download.ErrUnsupportedMedia, supportedMediaSource)
+		}
 		// The final URL catches a redirect to an .m3u8 served as a generic type.
 		if hls.Detect(info.contentType, info.finalURL, nil) {
 			return errPlaylist // handled after the lock is released
@@ -336,6 +339,15 @@ type probeInfo struct {
 	sourceScope  string
 	// For Inspect.
 	disposition, contentType, finalURL string
+}
+
+func isDASHManifest(contentType, rawURL string) bool {
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+	if mediaType == "application/dash+xml" {
+		return true
+	}
+	u, err := url.Parse(rawURL)
+	return err == nil && strings.EqualFold(filepath.Ext(u.Path), ".mpd")
 }
 
 func (e *Engine) probe(ctx context.Context, rawURL string) (probeInfo, error) {

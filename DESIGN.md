@@ -189,19 +189,19 @@ type Source interface {
 }
 ```
 
-Implementations: `httpRange`, `hlsSegments`. **DASH is deferred**: its audio and video
-tracks are separate and need a muxer.
+Implementations are `httpRange` and `hlsSegments`. A DASH manifest produces an
+unsupported-media failure.
 
 HLS resume granularity is **whole segments**. AES-128 key fetch and decryption are
 included. MPEG-TS segments are concatenated byte-for-byte into a playable `.ts`; fMP4
 segments are concatenated after their init segment. Segments stream to disk (never
 whole in memory) and finished ones are kept in a `dest.hls/` directory, fingerprinted by
 the playlist without query strings, so a playlist re-fetched with fresh CDN tokens still
-resumes; a structurally changed playlist restarts the download. Request headers go only
-to the playlist's host; segment and key hosts named by the playlist get portable headers
-only. The engine hands a URL ending in `.m3u8`, or a
-probe answered with an HLS `Content-Type`, to the HLS source. Separate audio and
-subtitle renditions (`EXT-X-MEDIA`) are not downloaded.
+resumes. A structurally changed playlist restarts the download. Sensitive headers stay
+within the playlist's security origin. The engine hands a URL ending in `.m3u8`, or a
+probe answered with an HLS `Content-Type`, to the HLS source. The selected variant
+produces an unsupported-media failure if it references a separate audio, video, or
+subtitle playlist (`EXT-X-MEDIA`).
 
 ### 3.8 Integrity
 

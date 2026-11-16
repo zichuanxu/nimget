@@ -25,7 +25,7 @@ func classifyFailure(err error) download.Failure {
 		return download.FailureNetwork
 	case errors.Is(err, fs.ErrPermission):
 		return download.FailureFilesystemPermission
-	case errors.Is(err, hls.ErrLive), errors.Is(err, hls.ErrUnsupported):
+	case errors.Is(err, hls.ErrLive), errors.Is(err, hls.ErrUnsupported), errors.Is(err, download.ErrUnsupportedMedia):
 		return download.FailureUnsupportedMedia
 	default:
 		return ""

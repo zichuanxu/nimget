@@ -67,9 +67,12 @@ export default function BulkTaskActions({
     if (selectAll.current) selectAll.current.indeterminate = picked > 0 && !allPicked;
   }, [picked, allPicked]);
 
-  const run = async (action: TaskAction, targets: Item[]) => {
+  const run = async (
+    action: TaskAction,
+    targets: Item[],
+    ids = targets.filter((item) => eligible(item, action)).map((item) => item.id),
+  ) => {
     if (busy || disabled) return;
-    const ids = targets.filter((item) => eligible(item, action)).map((item) => item.id);
     if (!ids.length) return;
     const applicable = new Set(ids);
     setBusy(true);
@@ -122,7 +125,8 @@ export default function BulkTaskActions({
     report.action === TaskActionRemoveFiles ? "bulk.files" :
     actions.find((action) => action.action === report.action)?.label
   );
-  const removable = confirming?.filter((item) => eligible(item, TaskActionRemoveRecords)).length ?? 0;
+  const removable = confirming ? new Set(selected.filter((item) => eligible(item, TaskActionRemoveRecords)).map((item) => item.id)) : null;
+  const confirmedIDs = confirming?.filter((item) => eligible(item, TaskActionRemoveRecords) && removable?.has(item.id)).map((item) => item.id) ?? [];
 
   return (
     <>
@@ -195,12 +199,12 @@ export default function BulkTaskActions({
           footer={
             <div className="bulk-confirm-actions">
               <button autoFocus onClick={() => onConfirm(null)}>{t("common.cancel")}</button>
-              <button onClick={() => void run(TaskActionRemoveRecords, confirming)} disabled={disabled}>{t("bulk.records")}</button>
-              <button className="danger" onClick={() => void run(TaskActionRemoveFiles, confirming)} disabled={disabled}>{t("bulk.files")}</button>
+              <button onClick={() => void run(TaskActionRemoveRecords, confirming, confirmedIDs)} disabled={disabled || !confirmedIDs.length}>{t("bulk.records")}</button>
+              <button className="danger" onClick={() => void run(TaskActionRemoveFiles, confirming, confirmedIDs)} disabled={disabled || !confirmedIDs.length}>{t("bulk.files")}</button>
             </div>
           }
         >
-          <p>{t("bulk.confirmCount", { n: removable, total: confirming.length })}</p>
+          <p>{t("bulk.confirmCount", { n: confirmedIDs.length, total: confirming.length })}</p>
           <p>{t("bulk.confirmHelp")}</p>
         </Modal>
       )}

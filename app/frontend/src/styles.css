@@ -357,7 +357,7 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .pct { font-size: 12px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; transition: opacity 0.12s; }
 .completed .pct { font-weight: 400; color: var(--text-3); }
 .row-actions { display: flex; gap: 2px; opacity: 0; pointer-events: none; transition: opacity 0.12s; }
-.row:hover .row-actions, .row.selected .row-actions { opacity: 1; pointer-events: auto; }
+.row:hover .row-actions, .row.selected .row-actions, .row:focus-within .row-actions { opacity: 1; pointer-events: auto; }
 .row:hover .pct, .row.selected .pct { opacity: 0; }
 .row-actions button.icon { width: 28px; height: 28px; }
 .row-actions button.icon:hover:not(:disabled) { background: var(--pressed); }
@@ -450,6 +450,10 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .modal-body p { margin: 0; }
 .modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); background: var(--bg); flex: none; }
 .modal.wide .modal-body { padding: 0; }
+.task-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; }
+.task-facts dt { color: var(--text-2); }
+.task-facts dd { margin: 0; overflow-wrap: anywhere; }
+.task-options { display: grid; gap: 12px; }
 
 .filename { font-weight: 600; word-break: break-all; padding: 10px 12px; border-radius: var(--r); background: var(--track); }
 .form-error { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--red); font-size: 12.5px; min-width: 0; user-select: text; }

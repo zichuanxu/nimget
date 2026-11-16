@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-const port = 19245;
+const port = Number(process.env.NIMGET_TEST_PORT || 19245);
 const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({

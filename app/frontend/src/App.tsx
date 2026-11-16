@@ -19,6 +19,7 @@ import {
   Gauge,
   Hourglass,
   Inbox,
+  Info,
   KeyRound,
   Layers,
   Package,
@@ -37,6 +38,7 @@ import {
 import { Desktop, EventType, Item, Recovery, State, Status, message } from "./api";
 import AddDialog, { type AddPrefill } from "./AddDialog";
 import SettingsDialog from "./SettingsDialog";
+import TaskDetailsDialog from "./TaskDetailsDialog";
 import { CountdownDialog, DeleteDialog, ReauthDialog } from "./dialogs";
 import Sparkline from "./Sparkline";
 import { baseName, bytes, eta, fileKind, looksLikeCurl, looksLikeURL, speed, type FileKind } from "./format";
@@ -117,6 +119,7 @@ function Shell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleting, setDeleting] = useState<Item | null>(null);
   const [reauth, setReauth] = useState<Item | null>(null);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [clip, setClip] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [history, setHistory] = useState<number[]>(() => Array(60).fill(0));
@@ -259,7 +262,8 @@ function Shell() {
   const rows = all.filter((i) => matches(i, filter) && (!q || baseName(i.destination).toLowerCase().includes(q) || i.url.toLowerCase().includes(q)));
   const current = selected ? items.get(selected) : undefined;
   const totalSpeed = history[history.length - 1] ?? 0;
-  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown);
+  const details = detailsId ? items.get(detailsId) : undefined;
+  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details);
 
   const actions = (item: Item): Action[] => {
     const list: Action[] = [];
@@ -465,6 +469,7 @@ function Shell() {
                 converting={converting === item.id}
                 actions={actions(item)}
                 onSelect={() => setSelected(item.id)}
+                onDetails={() => setDetailsId(item.id)}
                 onOpen={run(() => (item.status === Status.StatusCompleted ? Desktop.Open(item.id) : Desktop.Reveal(item.id)))}
                 onContext={(x, y) => {
                   setSelected(item.id);
@@ -476,7 +481,14 @@ function Shell() {
         </div>
       </section>
 
-      {context && contextItem && <ContextMenu x={context.x} y={context.y} entries={actions(contextItem)} onClose={closeContext} />}
+      {context && contextItem && (
+        <ContextMenu
+          x={context.x}
+          y={context.y}
+          entries={[{ icon: Info, label: t("details.title"), onSelect: () => setDetailsId(contextItem.id) }, ...actions(contextItem)]}
+          onClose={closeContext}
+        />
+      )}
 
       {dragging && (
         <div className="dropzone">
@@ -560,6 +572,7 @@ function Shell() {
         />
       )}
       {deleting && <DeleteDialog item={items.get(deleting.id) ?? deleting} onClose={() => setDeleting(null)} onError={fail} />}
+      {details && <TaskDetailsDialog key={details.id} item={details} onClose={() => setDetailsId(null)} />}
       {reauth && <ReauthDialog item={items.get(reauth.id) ?? reauth} onClose={() => setReauth(null)} />}
     </div>
   );
@@ -572,6 +585,7 @@ function Row({
   converting,
   actions,
   onSelect,
+  onDetails,
   onOpen,
   onContext,
 }: {
@@ -581,6 +595,7 @@ function Row({
   converting: boolean;
   actions: Action[];
   onSelect: () => void;
+  onDetails: () => void;
   onOpen: () => void;
   onContext: (x: number, y: number) => void;
 }) {
@@ -601,7 +616,7 @@ function Row({
         e.preventDefault();
         onContext(e.clientX, e.clientY);
       }}
-      title={item.url}
+      title={name}
     >
       <div className={`kind ${kind}`}>
         <Icon size={18} strokeWidth={1.8} />
@@ -633,6 +648,17 @@ function Row({
               {a.icon && <a.icon size={15} />}
             </button>
           ))}
+          <button
+            className="icon ghost"
+            title={t("details.title")}
+            aria-label={t("details.for", { name })}
+            onClick={onDetails}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+            }}
+          >
+            <Info size={15} />
+          </button>
           <button className="icon ghost" title={t("header.more")} aria-label={t("header.more")} onClick={(e) => onContext(e.clientX, e.clientY)}>
             <Ellipsis size={15} />
           </button>

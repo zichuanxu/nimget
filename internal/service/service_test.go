@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zichuanxu/nimget/internal/client"
 	"github.com/zichuanxu/nimget/internal/download"
 	"github.com/zichuanxu/nimget/internal/secrets"
 	"github.com/zichuanxu/nimget/internal/service"
@@ -103,6 +104,64 @@ func TestServiceRequiresItsTokenAndStopsOnCancel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("service did not stop after its context was canceled")
 	}
+}
+
+func TestBatchEntriesKeepAcceptedTasksWhenAnEntryIsRejected(t *testing.T) {
+	svc, tokenPath, _ := startService(t)
+	token, err := service.ReadToken(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := client.New("http://"+svc.Address(), token, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	const firstURL = "https://example.test/first.zip"
+	const lastURL = "https://example.test/last.zip"
+	const correctedURL = "https://example.test/corrected.zip"
+
+	add := func(rawURL string) download.Item {
+		t.Helper()
+		item, err := c.Add(ctx, download.Request{URL: rawURL})
+		if err != nil || item.ID == "" || item.URL != rawURL {
+			t.Fatalf("Add(%q) = %+v, %v; want an accepted task", rawURL, item, err)
+		}
+		return item
+	}
+	assertTasks := func(want ...download.Item) {
+		t.Helper()
+		items, err := c.List(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) != len(want) {
+			t.Fatalf("List returned %d tasks; want %d", len(items), len(want))
+		}
+		urlByID := make(map[string]string, len(items))
+		for _, item := range items {
+			urlByID[item.ID] = item.URL
+		}
+		for _, item := range want {
+			if urlByID[item.ID] != item.URL {
+				t.Errorf("List is missing accepted task %s for %s", item.ID, item.URL)
+			}
+		}
+	}
+
+	first := add(firstURL)
+	if _, err := c.Add(ctx, download.Request{URL: "invalid URL"}); err == nil {
+		t.Fatal("invalid URL was accepted")
+	}
+	last := add(lastURL)
+	assertTasks(first, last)
+
+	corrected := add(correctedURL)
+	assertTasks(first, last, corrected)
+
+	duplicate := add(firstURL)
+	if duplicate.ID == first.ID || duplicate.Destination == first.Destination {
+		t.Fatalf("intentional duplicate reused task identity or destination: first=%+v duplicate=%+v", first, duplicate)
+	}
+	assertTasks(first, last, corrected, duplicate)
 }
 
 func TestLoadOrCreateTokenIsStable(t *testing.T) {

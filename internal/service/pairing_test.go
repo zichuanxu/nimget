@@ -19,11 +19,12 @@ const (
 )
 
 type extensionReply struct {
-	TaskID string                `json:"taskId"`
-	ID     string                `json:"id"`
-	Status string                `json:"status"`
-	Code   string                `json:"code"`
-	Error  struct{ Code string } `json:"error"`
+	WebsiteSessionPersistence string                `json:"websiteSessionPersistence"`
+	TaskID                    string                `json:"taskId"`
+	ID                        string                `json:"id"`
+	Status                    string                `json:"status"`
+	Code                      string                `json:"code"`
+	Error                     struct{ Code string } `json:"error"`
 }
 
 func extensionPost(t *testing.T, addr, path, origin, token, body string, wantStatus int) extensionReply {

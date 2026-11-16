@@ -118,7 +118,7 @@ Distribute Windows installers and extension artifacts through GitHub Releases wi
 | Accessibility | Open, operate, and close dialogs using the keyboard; focus stays within the dialog and returns to its trigger. Task selection and relevant actions are exposed to assistive technology. |
 | Queue usability | Exercise a representative large persisted queue while events update progress. Record queue size and observed responsiveness; do not declare an arbitrary performance threshold already agreed. |
 | HLS limitations | Existing supported HLS fixtures remain valid. Unsupported media combinations are surfaced instead of presented as complete audiovisual downloads. |
-| Installation | On clean Windows 10 and 11 environments, install and launch without Go/Node.js. Verify documented runtime prerequisites, upgrade preservation, uninstall behavior, version metadata, and artifact checksums. |
+| Installation | On Windows 11, install and launch without Go/Node.js. Verify documented runtime prerequisites, upgrade preservation, uninstall behavior, version metadata, and artifact checksums. The user explicitly waived Windows 10 runtime acceptance on 2026-11-16; compatible targeting is not evidence of a Windows 10 test run. |
 | Browser acceptance | Exercise the released extension artifact on supported Chrome and Edge versions, recording the exact versions and manual-install steps. |
 
 - Run the relevant Go regression tests, then the repository-wide test/vet/build checks and applicable race tests. Build the desktop frontend, validate generated bindings when interfaces change, and exercise the desktop module's relevant tests.
@@ -140,6 +140,7 @@ Distribute Windows installers and extension artifacts through GitHub Releases wi
 
 ## Further Notes
 
+- On 2026-11-16, the user explicitly directed implementation to skip Windows 10 runtime testing and use Windows 11 for acceptance. This supersedes the earlier two-version runtime acceptance requirement, including corresponding child-ticket criteria.
 - Product scope and the testing seams above were confirmed in the conversation on 2026-11-16. Wire formats, exact schemas, packaging technology, performance targets, and a final implementation schedule were not separately approved and must not be portrayed as settled decisions.
 - Suggested delivery order: safety and recovery fixes; browser authorization and handoff; desktop interaction improvements; packaging and complete acceptance. This is an implementation recommendation, not a report of completed work.
 - The earlier source-only and browser-deferred policies are superseded for this planned milestone. Update conflicting project documentation with implementation so that shipped capabilities and limitations remain accurate.

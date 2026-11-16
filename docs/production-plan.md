@@ -4,6 +4,7 @@ Status: product scope and test boundaries synthesized in [the production specifi
 
 ## Confirmed scope (2026-11-16)
 
+- Runtime acceptance uses Windows 11; the user explicitly waived Windows 10 runtime testing during implementation. Existing Windows 10 compatibility targeting may remain, without a claim that it was tested.
 - Prioritize Windows 10/11 with Chrome and Edge. Preserve existing macOS and Linux capabilities; defer other browser integrations.
 - Cover HTTP(S) files, authenticated downloads, reliable resume, queue scheduling, browser handoff, desktop usability, and existing HLS functionality.
 - Exclude DRM and payment restriction bypass from this scope.

@@ -139,3 +139,37 @@ test("requires an explicit record-only or file deletion choice and refreshes par
   expect(actions[1][1]).toEqual(expect.arrayContaining(["locked", "removed"]));
   expect(actions[1][1]).toHaveLength(2);
 });
+
+test("keeps removal scoped to tasks still visible and eligible after confirmation opens", async ({ page }) => {
+  const finished = task("finished-during-confirmation", "queued");
+  const waiting = task("waiting", "queued");
+  const running = task("running", "running");
+  const items = [finished, waiting, running];
+  const actions: unknown[][] = [];
+  await mockDesktop(page, {
+    List: () => items,
+    ApplyTaskAction: (action, ids) => {
+      actions.push([action, ids]);
+      return (ids as string[]).map((id) => ({ id }));
+    },
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Active/ }).click();
+  await page.getByRole("checkbox", { name: "Select all visible tasks" }).check();
+  await page.getByRole("button", { name: "Remove (2 of 3)" }).click();
+  const dialog = page.getByRole("dialog", { name: "Remove selected downloads?" });
+
+  finished.status = "completed";
+  running.status = "queued";
+  await page.evaluate((updated) => {
+    const { _wails } = window as typeof window & { _wails: { dispatchWailsEvent(event: unknown): void } };
+    for (const item of updated) {
+      _wails.dispatchWailsEvent({ name: "download", data: { type: "updated", item } });
+    }
+  }, [finished, running]);
+
+  await expect(dialog).toContainText("1 of 3 selected tasks");
+  await dialog.getByRole("button", { name: "Remove records and delete files" }).click();
+  await expect(page.getByRole("region", { name: "Bulk action results" })).toContainText("1 succeeded, 0 failed, 2 skipped");
+  expect(actions).toEqual([["remove-files", [waiting.id]]]);
+});

@@ -27,6 +27,7 @@ import (
 	"github.com/zichuanxu/nimget/internal/filelock"
 	"github.com/zichuanxu/nimget/internal/httporigin"
 	"github.com/zichuanxu/nimget/internal/logging"
+	"github.com/zichuanxu/nimget/internal/partialfile"
 )
 
 var (
@@ -344,6 +345,9 @@ func segPath(work string, i int) string { return filepath.Join(work, fmt.Sprintf
 // tokens: a re-fetched playlist with fresh tokens still resumes, and its
 // fresh URLs are used for the remaining segments.
 func prepareWorkDir(work string, items []item) error {
+	if err := partialfile.CheckDirectory(work); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	stable := make([]item, len(items))
 	for i, it := range items {
 		it.URI, it.KeyURI = withoutQuery(it.URI), withoutQuery(it.KeyURI)
@@ -371,8 +375,10 @@ func prepareWorkDir(work string, items []item) error {
 
 // removeWorkDir deletes work only if it is nimget's: it holds state.json.
 func removeWorkDir(work string) error {
-	if _, err := os.Lstat(work); errors.Is(err, fs.ErrNotExist) {
+	if err := partialfile.CheckDirectory(work); errors.Is(err, fs.ErrNotExist) {
 		return nil
+	} else if err != nil {
+		return err
 	}
 	if _, err := os.Lstat(filepath.Join(work, "state.json")); err != nil {
 		return fmt.Errorf("%s exists and is not a nimget download directory", work)
@@ -422,11 +428,14 @@ func writeFileSynced(path string, data []byte) error {
 // watermark instead of keeping per-segment files.
 func commit(work, dest string, n int) error {
 	part := dest + ".part"
-	f, err := os.OpenFile(part, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	f, err := partialfile.Open(part, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("create partial file: %w", err)
+		return fmt.Errorf("open partial file: %w", err)
 	}
 	defer f.Close()
+	if err := f.Truncate(0); err != nil {
+		return fmt.Errorf("truncate partial file: %w", err)
+	}
 	for i := range n {
 		seg, err := os.Open(segPath(work, i))
 		if err != nil {

@@ -85,6 +85,7 @@ type Config struct {
 	Token             string
 	Logger            *slog.Logger
 	ExtensionPairings ExtensionPairings
+	ExtensionHandoffs ExtensionHandoffs
 }
 
 type Handler struct {
@@ -93,6 +94,7 @@ type Handler struct {
 	token     string
 	log       *slog.Logger
 	pairings  ExtensionPairings
+	handoffs  ExtensionHandoffs
 }
 
 func NewHandler(downloads Downloads, broker *Broker, cfg Config) http.Handler {
@@ -102,7 +104,7 @@ func NewHandler(downloads Downloads, broker *Broker, cfg Config) http.Handler {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	h := &Handler{downloads: downloads, broker: broker, token: cfg.Token, log: cfg.Logger, pairings: cfg.ExtensionPairings}
+	h := &Handler{downloads: downloads, broker: broker, token: cfg.Token, log: cfg.Logger, pairings: cfg.ExtensionPairings, handoffs: cfg.ExtensionHandoffs}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/ping", h.ping)
 	mux.HandleFunc("GET /v1/downloads", h.list)
@@ -116,6 +118,7 @@ func NewHandler(downloads Downloads, broker *Broker, cfg Config) http.Handler {
 	extension := http.NewServeMux()
 	extension.HandleFunc("POST /v1/extension/pairing", h.requestExtensionPairing)
 	extension.HandleFunc("POST /v1/extension/pairing/status", h.readExtensionPairing)
+	extension.HandleFunc("POST /v1/extension/handoffs", h.acceptExtensionHandoff)
 	return h.guard(mux, h.guardExtension(extension))
 }
 

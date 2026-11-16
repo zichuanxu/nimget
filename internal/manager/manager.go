@@ -225,6 +225,12 @@ func (m *Manager) saveSettings(ctx context.Context, s settings.Settings) error {
 }
 
 func (m *Manager) Add(ctx context.Context, req download.Request) (download.Item, error) {
+	return m.add(ctx, req, m.opts.InspectTimeout, func(ctx context.Context, item download.Item) (bool, error) {
+		return true, m.repo.Create(ctx, item)
+	})
+}
+
+func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout time.Duration, persist func(context.Context, download.Item) (bool, error)) (download.Item, error) {
 	invalid := func(err error) (download.Item, error) {
 		return download.Item{}, fmt.Errorf("%w: %w", download.ErrInvalidDownload, err)
 	}
@@ -248,7 +254,7 @@ func (m *Manager) Add(ctx context.Context, req download.Request) (download.Item,
 		if dir != "" && !filepath.IsAbs(dir) {
 			return invalid(errors.New("directory must be an absolute path"))
 		}
-		name := m.resolveName(ctx, rawURL, m.headers(hostOf(rawURL), req.Headers))
+		name := m.resolveName(ctx, rawURL, m.headers(hostOf(rawURL), req.Headers), inspectTimeout)
 		if dir == "" {
 			dir = filepath.Join(m.roots[0], category(name))
 		}
@@ -265,6 +271,9 @@ func (m *Manager) Add(ctx context.Context, req download.Request) (download.Item,
 	now := m.opts.Now().UTC()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return download.Item{}, err
+	}
 	// Two items sharing a destination would share .part files, and deleting
 	// one with its files would destroy the other's data.
 	items, err := m.repo.List(ctx)
@@ -293,7 +302,8 @@ func (m *Manager) Add(ctx context.Context, req download.Request) (download.Item,
 		Checksum: strings.TrimSpace(req.Checksum), Headers: req.Headers,
 		CreatedAt: now, UpdatedAt: now,
 	}
-	if err := m.repo.Create(ctx, item); err != nil {
+	created, err := persist(ctx, item)
+	if err != nil || !created {
 		return download.Item{}, err
 	}
 	m.log.Info("download added", "id", id, "url", logging.RedactURL(rawURL))
@@ -796,8 +806,8 @@ func validateOptions(priority, conns *int, speedLimit *int64) error {
 
 // resolveName probes the URL for a server-supplied name, falling back to the
 // URL when the probe fails; the download itself reports real errors later.
-func (m *Manager) resolveName(ctx context.Context, rawURL string, headers http.Header) string {
-	ctx, cancel := context.WithTimeout(ctx, m.opts.InspectTimeout)
+func (m *Manager) resolveName(ctx context.Context, rawURL string, headers http.Header, timeout time.Duration) string {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	remote, err := m.runner.Inspect(ctx, rawURL, headers)
 	if err != nil {

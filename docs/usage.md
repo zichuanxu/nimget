@@ -86,11 +86,14 @@ Client commands read the same token file and talk to `http://127.0.0.1:51000` un
 ./nimget settings get > settings.json
 ./nimget settings set settings.json
 ./nimget add --batch 'https://example.com/photos/img[001-120].jpg' --dir ~/Downloads/photos
-./nimget export queue.json                                   # unfinished downloads with credentials omitted
-./nimget import queue.json                                   # or a text file with one URL per line
+./nimget export queue-summary.json                            # share unfinished queue progress
+./nimget export --include-source-urls queue-backup.json       # save exact source links
+./nimget import queue-backup.json                             # or a text file with one URL per line
 ```
 
-Queue exports omit request headers, URL user information, query parameters, and fragments. Supply the current URL and request headers when re-adding an exported download that requires them.
+**Export queue summary** in the desktop menu and `nimget export` save unfinished-task states, progress, and numeric options for sharing. A summary contains no source or destination strings. For import, choose a source URL backup or supply a list of download links.
+
+**Back up queue with source URLs** and `nimget export --include-source-urls FILE` save exact links, destinations, and request options in plain text. Links and destinations can contain credentials. Request headers, website sessions, and partial bytes are omitted. Protected tasks may need refreshed links or a new website session. Destinations must be inside an allowed download root on the importing machine. Older JSON queue files remain readable. Older exports may have omitted parts of source links, so update those links before reuse.
 
 Batch patterns expand left to right: `[1-10]`, zero-padded `[001-120]`, stepped `[0-100:5]`, letters `[a-z]`, and alternatives `{cd,dvd}`, up to 10,000 URLs.
 

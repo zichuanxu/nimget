@@ -208,5 +208,35 @@
   },
   "capturePendingLimit": {
     "message": "The browser kept this download. Resolve or dismiss earlier capture notices to capture more."
+  },
+  "captureSessionOrigins": {
+    "message": "Websites allowed to share sessions"
+  },
+  "captureSessionOriginsHelp": {
+    "message": "For automatic capture, enter exact origins such as https://example.com or https://example.com:8443. NimGet can use cookies for same-origin downloads from these sites."
+  },
+  "captureSessionSave": {
+    "message": "Save website-session access"
+  },
+  "captureSessionInvalidOrigins": {
+    "message": "Enter complete HTTP or HTTPS origins without a path, query, or fragment."
+  },
+  "captureSessionPermissionDenied": {
+    "message": "The browser declined website-session access. Your saved list is unchanged."
+  },
+  "captureSessionUnavailable": {
+    "message": "The browser kept this download because its website session couldn’t be used. To try in NimGet, send the link with its website session from the browser menu."
+  },
+  "captureSessionExpired": {
+    "message": "The saved website session has expired, and NimGet has no receipt for this handoff. The browser kept the download."
+  },
+  "captureAcceptedMemoryOnly": {
+    "message": "NimGet accepted the task and the browser download was canceled. NimGet may need renewed website access after it restarts."
+  },
+  "captureReconciledMemoryOnly": {
+    "message": "NimGet accepted the task. The browser may also have downloaded it, and NimGet may need renewed website access after it restarts."
+  },
+  "captureCancelFailedMemoryOnly": {
+    "message": "NimGet accepted the task, but both apps may download the file. NimGet may need renewed website access after it restarts."
   }
 }

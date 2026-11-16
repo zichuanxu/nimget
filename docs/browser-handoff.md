@@ -10,7 +10,7 @@ The extension stores the selected link in its profile while a handoff is unresol
 
 ## Downloads that require a website session
 
-Sign in to the site in the paired browser profile. Use the website session command on the link. NimGet opens a tab explaining the requested access. **Use website session** asks Chrome or Edge for cookie access to the target hostname. Browser cookie permissions apply across ports on that hostname. HTTPS downloads ask for both schemes so the browser can supply Secure and non-Secure cookies. If you decline, select **Send without session** to send a public link, or continue in the browser. Browser permission grants can remain in your extension's site access settings. Each protected handoff still requires you to choose **Use website session** for that download.
+Sign in to the site in the paired browser profile. Use the website session command on the link. NimGet opens a tab explaining the requested access. **Use website session** asks Chrome or Edge for cookie access to the target hostname. Browser cookie permissions apply across ports on that hostname. HTTPS downloads ask for both schemes so the browser can supply Secure and non-Secure cookies. If you decline, select **Send without session** to send a public link, or continue in the browser. Browser permission grants can remain in your extension's site access settings. For each manual handoff that needs cookies, choose **Use website session**.
 
 NimGet uses the originating tab's browser cookie store. It asks the browser only for cookies matching the target link and excludes partitioned cookies. Secure cookies travel only on HTTPS links. Strict SameSite cookies require the page and any clicked frame to have the same origin as the target. For that same-origin case, NimGet also sends the origin as a referrer. The browser user agent accompanies the session. The cookies do not follow a redirect or media request to a different scheme, hostname, or port. Sites that require a custom authentication header, a full referrer, or an unsupported browser request can still be downloaded in the browser.
 
@@ -19,6 +19,18 @@ Website cookies live only in browser extension memory while a handoff is unresol
 The desktop encrypts website sessions using its existing OS-backed key. The expiry for starting a download attempt is the earliest of the transferred cookies' known expirations and 24 hours after collection. The desktop removes the stored session when the task completes, is deleted, or has its source or headers replaced. If the keyring is unavailable, NimGet can use the cookies now but shows a warning that authorization may need to be renewed after a NimGet restart. Website sessions are omitted from logs and queue exports.
 
 If the site rejects the session or NimGet cannot recover it, sign in again and send the link using a fresh website session, or use **Refresh download link** on the existing desktop task to supply fresh request context. Acknowledgement means NimGet saved the task. Check the desktop task for download completion.
+
+## Automatic capture
+
+Open the NimGet extension popup and expand **Automatic capture**. Check **Send eligible downloads to NimGet**, save, and allow the optional browser permissions. Automatic capture starts off in each profile. Clear the checkbox and save to stop it and release its browser download and broad website permissions.
+
+Enter excluded hostnames to keep downloads to or from those sites in the browser. Each entry includes its subdomains. For file-type exclusions, enter extensions such as `.iso` and `.tar.gz`. The extension checks the URL filename and the name provided by the browser. Settings are stored in the current browser profile.
+
+NimGet hands off direct HTTP(S) attachments when Chromium exposes an unambiguous GET navigation and the download is eligible. Redirects, POSTs, browser-generated files, and downloads without enough request information continue in the browser. The extension uses short-lived navigation metadata in memory to make that decision. Ordinary navigation history, request bodies, and request header values are not saved.
+
+Public capture needs no cookie permission. To share a website session automatically, add the complete origin under **Websites allowed to share sessions** and save that list separately. A different scheme, subdomain, or port needs its own entry. NimGet only attempts to use that session for a same-origin download when access is already granted. If the session is unavailable, or the server marks the response as private or varying by credentials and the site lacks your consent, the browser keeps the download. Removing an origin from the list stops automatic session access for that origin. For other protected downloads, use **Download with NimGet using website session…** from the browser menu.
+
+The browser download is canceled only after NimGet returns a durable task receipt. A rejection, timeout, unconfirmed reply, or unavailable desktop leaves the browser downloading. Check the popup for a retry or an explanation. **Retry in NimGet** reuses the original identity and leaves the browser download alone. Check NimGet's queue and the browser downloads list before retrying, since both apps may already be downloading the file. A cancellation failure leaves the accepted NimGet task and a warning in the extension popup.
 
 ## Loopback API
 

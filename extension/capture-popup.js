@@ -1,7 +1,9 @@
 import {
-  captureHandoffPrefix, capturePermissions, captureResultKey, captureSettingsKey,
-  normalizeExcludedSite, normalizeExcludedType, parseCaptureExclusions, readCaptureSettings,
+  captureHandoffPrefix, capturePermissions, captureResultKey, captureSessionOriginsKey, captureSettingsKey,
+  normalizeExcludedSite, normalizeExcludedType, normalizeSessionOrigin, parseCaptureExclusions,
+  readCaptureSessionOrigins, readCaptureSettings,
 } from "./capture-settings.js";
+import { websiteSessionPermission } from "./website-session.js";
 
 const get = (id) => document.getElementById(id);
 const t = (key, substitutions) => chrome.i18n.getMessage(key, substitutions);
@@ -11,6 +13,10 @@ const sites = get("capture-sites");
 const types = get("capture-types");
 const save = get("capture-save");
 const settingsResult = get("capture-settings-result");
+const sessionForm = get("capture-session-settings");
+const sessionOrigins = get("capture-session-origins");
+const sessionSave = get("capture-session-save");
+const sessionResult = get("capture-session-result");
 const result = get("capture-result");
 const pending = get("capture-handoffs");
 
@@ -23,6 +29,9 @@ for (const [id, key] of [
   ["capture-types-label", "captureTypes"],
   ["capture-types-help", "captureTypesHelp"],
   ["capture-save", "captureSave"],
+  ["capture-session-origins-label", "captureSessionOrigins"],
+  ["capture-session-origins-help", "captureSessionOriginsHelp"],
+  ["capture-session-save", "captureSessionSave"],
 ]) get(id).textContent = t(key);
 
 async function initialize() {
@@ -32,12 +41,14 @@ async function initialize() {
     sites.value = settings.sites.join("\n");
     types.value = settings.types.join(", ");
     save.disabled = false;
+    sessionOrigins.value = (await readCaptureSessionOrigins()).join("\n");
+    sessionSave.disabled = false;
   } catch {
     settingsResult.textContent = t("captureSettingsFailed");
   }
 }
 
-for (const input of [sites, types]) {
+for (const input of [sites, types, sessionOrigins]) {
   input.addEventListener("input", () => input.setCustomValidity(""));
 }
 
@@ -64,6 +75,30 @@ form.addEventListener("submit", async (event) => {
     settingsResult.textContent = t("captureSettingsFailed");
   } finally {
     save.disabled = false;
+  }
+});
+
+sessionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const origins = parseCaptureExclusions(sessionOrigins.value, normalizeSessionOrigin);
+  sessionOrigins.setCustomValidity(origins ? "" : t("captureSessionInvalidOrigins"));
+  if (!sessionForm.reportValidity()) return;
+
+  sessionSave.disabled = true;
+  sessionResult.textContent = "";
+  try {
+    const permissionOrigins = [...new Set(origins.flatMap((origin) => websiteSessionPermission(origin).origins))];
+    if (permissionOrigins.length > 0 && !await chrome.permissions.request({ permissions: ["cookies"], origins: permissionOrigins })) {
+      sessionResult.textContent = t("captureSessionPermissionDenied");
+      return;
+    }
+    await chrome.storage.local.set({ [captureSessionOriginsKey]: origins });
+    sessionOrigins.value = origins.join("\n");
+    sessionResult.textContent = t("captureSettingsSaved");
+  } catch {
+    sessionResult.textContent = t("captureSettingsFailed");
+  } finally {
+    sessionSave.disabled = false;
   }
 });
 

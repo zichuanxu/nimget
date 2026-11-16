@@ -208,5 +208,35 @@
   },
   "capturePendingLimit": {
     "message": "下载将由浏览器处理。请处理或忽略之前的接管通知后再接管更多下载。"
+  },
+  "captureSessionOrigins": {
+    "message": "允许共享会话的网站"
+  },
+  "captureSessionOriginsHelp": {
+    "message": "为自动接管输入完整来源，例如 https://example.com 或 https://example.com:8443。NimGet 可为这些网站的同源下载使用 Cookie。"
+  },
+  "captureSessionSave": {
+    "message": "保存网站会话访问权限"
+  },
+  "captureSessionInvalidOrigins": {
+    "message": "输入完整的 HTTP 或 HTTPS 来源，无需路径、查询参数或片段。"
+  },
+  "captureSessionPermissionDenied": {
+    "message": "浏览器拒绝了网站会话访问权限。已保存的列表保持不变。"
+  },
+  "captureSessionUnavailable": {
+    "message": "无法使用此网站会话，下载将由浏览器处理。如需使用 NimGet，请从浏览器菜单选择携带网站会话发送链接。"
+  },
+  "captureSessionExpired": {
+    "message": "保存的网站会话已过期，NimGet 没有此次传送的回执。下载仍由浏览器处理。"
+  },
+  "captureAcceptedMemoryOnly": {
+    "message": "NimGet 已接受任务，浏览器下载已取消。NimGet 重启后可能需要重新获取网站访问权限。"
+  },
+  "captureReconciledMemoryOnly": {
+    "message": "NimGet 已接受任务。浏览器可能也已下载该文件，NimGet 重启后可能需要重新获取网站访问权限。"
+  },
+  "captureCancelFailedMemoryOnly": {
+    "message": "NimGet 已接受任务，但两个应用都可能下载该文件。NimGet 重启后可能需要重新获取网站访问权限。"
   }
 }

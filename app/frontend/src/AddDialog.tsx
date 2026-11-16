@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ArrowDownToLine, ChevronRight, CircleAlert, Cookie, Folder, Layers, Link2, X } from "lucide-react";
 import { Desktop, Request, message } from "./api";
 import { baseName, joinPath, looksLikeCurl, looksLikeURL, parseSpeed } from "./format";
@@ -6,6 +6,10 @@ import { useI18n } from "./i18n";
 import { Field, Modal, Segmented } from "./ui";
 
 export type AddPrefill = { text?: string };
+
+type BatchEntry = { url: string } & (
+  { status: "pending" } | { status: "accepted"; id: string } | { status: "rejected"; error: string }
+);
 
 function hostOf(url: string): string {
   try {
@@ -16,16 +20,18 @@ function hostOf(url: string): string {
 }
 
 type Props = {
-  prefill: AddPrefill;
+  prefill: AddPrefill | null;
+  hasNewPrefill: boolean;
   defaultDirectory: string;
-  onClose: () => void;
+  onClose: (keepDraft: boolean) => void;
+  onStartNew: () => void;
   onError: (err: unknown) => void;
 };
 
 /** AddDialog queues one download per URL line, or one from a cURL command. */
-export default function AddDialog({ prefill, defaultDirectory, onClose, onError }: Props) {
+export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, onClose, onStartNew, onError }: Props) {
   const { t } = useI18n();
-  const [text, setText] = useState(prefill.text ?? "");
+  const [text, setText] = useState(prefill?.text ?? "");
   const [headers, setHeaders] = useState<Record<string, string>>({});
   // Imported headers (cookies) are sent only to the host they came from.
   const [headerHost, setHeaderHost] = useState("");
@@ -38,19 +44,34 @@ export default function AddDialog({ prefill, defaultDirectory, onClose, onError 
   const [showOptions, setShowOptions] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  const [batch, setBatch] = useState<BatchEntry[] | null>(null);
+  const resultId = useId();
+  const resultStatus = useRef<HTMLParagraphElement>(null);
+  const showResults = prefill !== null && batch !== null;
+
+  useEffect(() => {
+    if (showResults && !busy) resultStatus.current?.focus();
+  }, [showResults, busy]);
 
   // A pasted cURL command becomes a URL plus its headers.
+  const isCurl = looksLikeCurl(text);
   useEffect(() => {
-    if (!looksLikeCurl(text)) return;
+    if (!isCurl) return;
+    let current = true;
     Desktop.ParseCurl(text)
       .then((req) => {
+        if (!current) return;
         setText(req.url);
         setHeaders((req.headers as Record<string, string>) ?? {});
         setHeaderHost(hostOf(req.url));
         setError("");
       })
-      .catch((err) => setError(message(err)));
-  }, [text]);
+      .catch((err) => current && setError(message(err)));
+    return () => {
+      current = false;
+    };
+  }, [text, isCurl]);
 
   useEffect(() => {
     Desktop.Settings()
@@ -62,26 +83,33 @@ export default function AddDialog({ prefill, defaultDirectory, onClose, onError 
   }, []);
 
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const [expanded, setExpanded] = useState<string[] | null>(null);
-  const [batchError, setBatchError] = useState("");
-  const isPattern = lines.length === 1 && /\[[^\]]+-[^\]]+\]|\{[^}]*,[^}]*\}/.test(lines[0]);
-  // A single line with [1-10] or {a,b} groups is a batch pattern; a stale
-  // expansion must not overwrite the result for newer text.
+  const pattern = !isCurl && lines.length === 1 && /\[[^\]]+-[^\]]+\]|\{[^}]*,[^}]*\}/.test(lines[0]) ? lines[0] : "";
+  const [expansion, setExpansion] = useState<{ pattern: string; urls?: string[]; error?: string }>();
   useEffect(() => {
-    setExpanded(null);
-    setBatchError("");
-    if (!isPattern) return;
+    setExpansion(undefined);
+    if (!pattern) return;
     let current = true;
-    Desktop.ExpandBatch(lines[0])
-      .then((list) => current && setExpanded(list ?? []))
-      .catch((err) => current && setBatchError(message(err)));
+    Desktop.ExpandBatch(pattern)
+      .then((list) => current && setExpansion({ pattern, urls: list ?? [] }))
+      .catch((err) => current && setExpansion({ pattern, error: message(err) }));
     return () => {
       current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text]);
+  }, [pattern]);
+  const expanded = expansion?.pattern === pattern ? expansion.urls : undefined;
+  const batchError = expansion?.pattern === pattern ? expansion.error : undefined;
   const urls = expanded ?? lines;
-  const valid = urls.length > 0 && urls.every(looksLikeURL) && (!isPattern || expanded !== null);
+  const isBatch = batch !== null || urls.length > 1;
+  const accepted = batch?.filter((entry) => entry.status === "accepted").length ?? 0;
+  const rejected = batch?.filter((entry) => entry.status === "rejected").length ?? 0;
+  const valid = batch !== null
+    ? rejected > 0 && batch.every((entry) => entry.status !== "rejected" || entry.url.trim())
+    : urls.length > 0 && !isCurl && (!pattern || !!expanded) && (isBatch || looksLikeURL(urls[0]));
+
+  function close() {
+    if (submitting.current && batch === null) return;
+    onClose(batch !== null && (submitting.current || rejected > 0));
+  }
 
   async function pick() {
     try {
@@ -93,6 +121,8 @@ export default function AddDialog({ prefill, defaultDirectory, onClose, onError 
   }
 
   async function submit() {
+    if (!valid || submitting.current) return;
+    submitting.current = true;
     setBusy(true);
     setError("");
     try {
@@ -102,68 +132,146 @@ export default function AddDialog({ prefill, defaultDirectory, onClose, onError 
         speedLimit: parseSpeed(limit),
         checksum: checksum.trim(),
       };
-      for (const url of urls) {
+      function requestFor(url: string) {
         const req = new Request({ ...base, url });
         if (Object.keys(headers).length && hostOf(url) === headerHost) req.headers = headers;
-        if (fileName.trim() && urls.length === 1) {
+        if (fileName.trim() && !isBatch) {
           req.destination = joinPath(directory || defaultDirectory, fileName.trim());
         } else if (directory) {
           req.directory = directory;
         }
-        await Desktop.Add(req);
+        return req;
       }
-      onClose();
+      if (isBatch) {
+        const entries: BatchEntry[] = batch ?? urls.map((url) => ({ url, status: "pending" }));
+        setBatch(entries);
+        const results: BatchEntry[] = [];
+        for (const entry of entries) {
+          if (entry.status === "accepted") {
+            results.push(entry);
+            continue;
+          }
+          const url = entry.url.trim();
+          try {
+            const item = await Desktop.Add(requestFor(url));
+            results.push({ url, status: "accepted", id: item.id });
+          } catch (err) {
+            results.push({ url, status: "rejected", error: message(err) });
+          }
+        }
+        setBatch(results);
+      } else {
+        await Desktop.Add(requestFor(urls[0]));
+        onClose(false);
+      }
     } catch (err) {
       setError(message(err));
       onError(err);
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
 
   const headerCount = Object.keys(headers).length;
-  const otherHosts = headerCount > 0 && urls.some((u) => hostOf(u) !== headerHost);
+  const pendingURLs = batch?.filter((entry) => entry.status !== "accepted").map((entry) => entry.url) ?? urls;
+  const otherHosts = headerCount > 0 && pendingURLs.some((url) => hostOf(url) !== headerHost);
   const optionsSet = priority !== 0 || !!connections || !!limit || !!checksum;
+  const finished = batch !== null && !busy && rejected === 0;
+  if (!prefill) return null;
+
   return (
     <Modal
       icon={ArrowDownToLine}
       title={t("add.title")}
-      onClose={onClose}
+      onClose={close}
       footer={
         <>
-          <button onClick={onClose}>{t("common.cancel")}</button>
-          <button className="primary" disabled={!valid || busy} onClick={submit}>
-            <ArrowDownToLine size={14} />
-            {urls.length > 1 ? t("add.submitMany", { n: urls.length }) : t("add.submit")}
+          {batch && !busy && (
+            <button type="button" className="ghost" onClick={onStartNew}>
+              {t(hasNewPrefill ? "add.startNewWithLink" : "add.startNew")}
+            </button>
+          )}
+          <button type="button" disabled={busy && !batch} onClick={close}>
+            {batch ? t("common.close") : t("common.cancel")}
           </button>
+          {!finished && (
+            <button type="button" className="primary" disabled={!valid || busy} onClick={submit}>
+              <ArrowDownToLine size={14} />
+              {batch ? t("add.retryRejected") : isBatch ? t("add.submitMany", { n: urls.length }) : t("add.submit")}
+            </button>
+          )}
         </>
       }
     >
-      <Field label={t("add.urls")} hint={t("add.urlsHint")}>
-        <div className="input-icon top">
-          <Link2 size={15} />
-          <textarea
-            className="urls"
-            rows={3}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && valid && !busy) submit();
-            }}
-            placeholder="https://example.com/file.zip"
-            autoFocus
-            spellCheck={false}
-          />
-        </div>
-      </Field>
+      {batch ? (
+        <>
+          <p role="status" tabIndex={-1} ref={resultStatus}>
+            {busy ? t("add.submitting") : t("add.batchResults", { accepted, rejected })}
+          </p>
+          <ol className="batch-results">
+            {batch.map((entry, index) => (
+              <li key={index}>
+                {entry.status === "accepted" ? (
+                  <>
+                    <strong>{t("add.accepted")}</strong>
+                    <div className="batch-url">{entry.url}</div>
+                    <small className="batch-task">{t("add.acceptedTask", { id: entry.id })}</small>
+                  </>
+                ) : entry.status === "rejected" ? (
+                  <>
+                    <Field label={t("add.rejectedLink", { n: index + 1 })}>
+                      <input
+                        type="text"
+                        value={entry.url}
+                        disabled={busy}
+                        aria-describedby={`${resultId}-error-${index}`}
+                        spellCheck={false}
+                        onChange={(event) => {
+                          const url = event.target.value;
+                          setBatch((previous) => previous?.map((result, i) => i === index ? { ...result, url } : result) ?? null);
+                        }}
+                      />
+                    </Field>
+                    <p className="form-error" id={`${resultId}-error-${index}`}>{entry.error}</p>
+                  </>
+                ) : (
+                  <div className="batch-url">{entry.url}</div>
+                )}
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : (
+        <Field label={t("add.urls")} hint={t("add.urlsHint")}>
+          <div className="input-icon top">
+            <Link2 size={15} />
+            <textarea
+              className="urls"
+              rows={3}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              placeholder="https://example.com/file.zip"
+              autoFocus
+              spellCheck={false}
+            />
+          </div>
+        </Field>
+      )}
 
-      {batchError && (
+      {!batch && batchError && (
         <div className="chip danger">
           <CircleAlert size={14} />
           {t("add.batchError", { error: batchError })}
         </div>
       )}
-      {expanded && expanded.length > 0 && (
+      {!batch && expanded && expanded.length > 0 && (
         <div className="chip">
           <Layers size={14} />
           <span className="ellipsis">{t("add.batch", { n: expanded.length, first: baseName(expanded[0]), last: baseName(expanded[expanded.length - 1]) })}</span>
@@ -199,7 +307,7 @@ export default function AddDialog({ prefill, defaultDirectory, onClose, onError 
         </div>
       </Field>
 
-      {urls.length <= 1 && (
+      {!isBatch && (
         <Field label={t("add.fileName")}>
           <input value={fileName} onChange={(e) => setFileName(e.target.value)} placeholder={t("add.fileNameHint")} spellCheck={false} />
         </Field>

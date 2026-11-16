@@ -82,10 +82,10 @@ func (b *Broker) sequence() int64 {
 }
 
 type Config struct {
-	// Token authorizes every endpoint except /v1/ping. An empty token rejects
-	// all authorized requests.
-	Token  string
-	Logger *slog.Logger
+	// Token authorizes the administrative routes. An empty token rejects them.
+	Token             string
+	Logger            *slog.Logger
+	ExtensionPairings ExtensionPairings
 }
 
 type Handler struct {
@@ -93,6 +93,7 @@ type Handler struct {
 	broker    *Broker
 	token     string
 	log       *slog.Logger
+	pairings  ExtensionPairings
 }
 
 func NewHandler(downloads Downloads, broker *Broker, cfg Config) http.Handler {
@@ -102,7 +103,7 @@ func NewHandler(downloads Downloads, broker *Broker, cfg Config) http.Handler {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	h := &Handler{downloads: downloads, broker: broker, token: cfg.Token, log: cfg.Logger}
+	h := &Handler{downloads: downloads, broker: broker, token: cfg.Token, log: cfg.Logger, pairings: cfg.ExtensionPairings}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/ping", h.ping)
 	mux.HandleFunc("GET /v1/downloads", h.list)
@@ -113,11 +114,14 @@ func NewHandler(downloads Downloads, broker *Broker, cfg Config) http.Handler {
 	mux.HandleFunc("GET /v1/settings", h.getSettings)
 	mux.HandleFunc("PUT /v1/settings", h.putSettings)
 	mux.HandleFunc("GET /v1/events", h.events)
-	return h.guard(mux)
+	extension := http.NewServeMux()
+	extension.HandleFunc("POST /v1/extension/pairing", h.requestExtensionPairing)
+	extension.HandleFunc("POST /v1/extension/pairing/status", h.readExtensionPairing)
+	return h.guard(mux, h.guardExtension(extension))
 }
 
 // guard enforces the local authorization rules of DESIGN.md section 5.1.
-func (h *Handler) guard(next http.Handler) http.Handler {
+func (h *Handler) guard(next, extension http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.Host)
 		if err != nil {
@@ -129,9 +133,11 @@ func (h *Handler) guard(next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "FORBIDDEN_HOST", "Host is not a loopback name")
 			return
 		}
-		// Browsers attach Origin to cross-origin requests; no browser origin is
-		// trusted until extension pairing exists.
-		if r.Header.Get("Origin") != "" {
+		if strings.HasPrefix(r.URL.Path, "/v1/extension/") {
+			extension.ServeHTTP(w, r)
+			return
+		}
+		if len(r.Header.Values("Origin")) > 0 {
 			writeError(w, http.StatusForbidden, "FORBIDDEN_ORIGIN", "Browser origins are not allowed")
 			return
 		}
@@ -140,15 +146,20 @@ func (h *Handler) guard(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "A valid service token is required")
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-			if err != nil || mediaType != "application/json" {
-				writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "Commands require Content-Type: application/json")
-				return
-			}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && !requireJSON(w, r) {
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func requireJSON(w http.ResponseWriter, r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "Commands require Content-Type: application/json")
+		return false
+	}
+	return true
 }
 
 func (h *Handler) authorized(r *http.Request) bool {

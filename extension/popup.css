@@ -1,0 +1,57 @@
+:root {
+  color-scheme: light dark;
+  font: 14px/1.45 system-ui, sans-serif;
+  color: CanvasText;
+  background: Canvas;
+}
+
+body {
+  inline-size: 280px;
+  margin: 0;
+}
+
+main {
+  padding: 18px;
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: 1.3rem;
+}
+
+#status {
+  margin: 0;
+  font-weight: 650;
+}
+
+#details,
+#request-id,
+#code-label {
+  margin: 6px 0 0;
+}
+
+#confirmation {
+  margin-block-start: 14px;
+  padding: 8px 12px 12px;
+  border: 1px solid color-mix(in srgb, CanvasText 28%, Canvas);
+  border-radius: 6px;
+}
+
+#code {
+  display: block;
+  margin-block-start: 4px;
+  font: 650 1.4rem ui-monospace, monospace;
+  letter-spacing: 0.14em;
+}
+
+button {
+  margin-block-start: 14px;
+  padding: 7px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 2px;
+}

@@ -1,0 +1,56 @@
+{
+  "manifestDescription": {
+    "message": "将此浏览器与 NimGet 桌面应用配对。"
+  },
+  "checking": {
+    "message": "正在检查连接…"
+  },
+  "disconnected": {
+    "message": "未连接"
+  },
+  "disconnectedDetail": {
+    "message": "请在此电脑上打开 NimGet 并请求配对。"
+  },
+  "pending": {
+    "message": "等待批准"
+  },
+  "pendingDetail": {
+    "message": "在 NimGet 中打开“设置 → 浏览器扩展”。核对请求编号，然后输入批准码。"
+  },
+  "connected": {
+    "message": "已连接"
+  },
+  "connectedDetail": {
+    "message": "可在 NimGet 的“浏览器扩展”设置中管理此连接。"
+  },
+  "denied": {
+    "message": "配对已拒绝"
+  },
+  "deniedDetail": {
+    "message": "桌面应用拒绝了此请求。你可以发起新请求。"
+  },
+  "revoked": {
+    "message": "访问权限已撤销"
+  },
+  "revokedDetail": {
+    "message": "桌面应用撤销了此连接。若要恢复访问，请重新请求配对。"
+  },
+  "unreachable": {
+    "message": "无法连接 NimGet。请打开桌面应用，然后重试。"
+  },
+  "failed": {
+    "message": "NimGet 无法完成请求。请确认桌面应用和扩展均为最新版本。"
+  },
+  "pairingLimit": {
+    "message": "等待批准的请求过多。请在 NimGet 中拒绝不需要的请求，然后重试。"
+  },
+  "requestId": {
+    "message": "请求 $1"
+  },
+  "approvalCode": {
+    "message": "批准码"
+  },
+  "pair": {
+    "message": "请求配对"
+  }
+}

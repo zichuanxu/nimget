@@ -1,13 +1,13 @@
 const serviceURL = new URL("http://127.0.0.1:51000/v1/extension/");
 const storageKey = "pairingCredential";
 
-async function readCredential() {
+export async function readCredential() {
   await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
   const stored = await chrome.storage.local.get(storageKey);
   return stored[storageKey];
 }
 
-class ExtensionRequestError extends Error {
+export class ExtensionRequestError extends Error {
   constructor(code) {
     super(code);
     this.code = code;

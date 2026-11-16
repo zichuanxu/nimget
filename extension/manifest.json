@@ -5,8 +5,12 @@
   "description": "__MSG_manifestDescription__",
   "default_locale": "en",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqmT5Xd9VfnZE7vX7FSC8qJbdTz07I98SqLpNQaNUcEdk9kPUXkosYJkYl8pNPb+OgEaNr9oFCl8hIbq8oC/jHuPHfLh5QWntcJVBzR5E+3Ddx1DxTcEHACvoZBr3l41/aV1z6D9sm8Mp3HcnW6PM9IFgirxtxMGOv98v8CMIj5sPczslj/rvy0flDh4gdoKea0tkkdCzDu4IpK/eCUEgjtSVT/58vazxXeDwTIVwwifacXmeouVD3hjj2wKbxC3lfbB2DnctFvq+Fo0r5GkrfZWh2OJjP8k/QZzesCcgUGvIfbBv2uWyIfckKDo+IHF9gNMucF4p2pxcFr+VBwDR5wIDAQAB",
-  "permissions": ["storage"],
+  "permissions": ["storage", "contextMenus"],
   "host_permissions": ["http://127.0.0.1:51000/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "action": {
     "default_title": "NimGet",
     "default_popup": "popup.html"

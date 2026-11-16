@@ -36,8 +36,8 @@ var (
 	ErrSourceChanged     = errors.New("remote resource changed while downloading")
 	ErrRangeUnsupported  = errors.New("remote server stopped honoring range requests")
 	ErrLocked            = errors.New("destination is locked by another download")
-	ErrStalled           = errors.New("connection stalled")
-	ErrInsufficientSpace = errors.New("not enough free disk space")
+	ErrStalled           = download.ErrStalled
+	ErrInsufficientSpace = download.ErrDiskSpace
 )
 
 const (
@@ -469,7 +469,11 @@ func statusError(what string, req *http.Request, resp *http.Response) *attemptEr
 			msg += ": " + text
 		}
 	}
-	return &attemptError{err: errors.New(msg), retryable: retryableStatus(resp.StatusCode), retryAfter: resp.Header.Get("Retry-After")}
+	return &attemptError{
+		err:        &httporigin.StatusError{Code: resp.StatusCode, Diagnostic: msg},
+		retryable:  retryableStatus(resp.StatusCode),
+		retryAfter: resp.Header.Get("Retry-After"),
+	}
 }
 
 // maxErrorBody caps the response text quoted in an error, in runes.

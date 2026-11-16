@@ -9,7 +9,7 @@ Repeat the steps for each browser profile you want to connect. Existing connecti
 
 The browser shows **Disconnected** before pairing or while it cannot reach NimGet, **Awaiting approval** during a pending request, **Connected** after approval, and **Pairing denied** or **Access revoked** after the corresponding desktop action. A **Connected** desktop record means the profile remains authorized. The extension verifies desktop reachability when its popup is open. Closing the desktop window to the tray keeps the service running. Quitting the desktop stops it. Pairing does not require an account.
 
-The browser permission to contact `http://127.0.0.1:51000/*` lets the extension reach the local service. Pairing uses extension storage for its credential. Website access is optional and is requested only through the protected download command. See [manual handoff and website sessions](browser-handoff.md) to send a download link after pairing.
+The browser permission to contact `http://127.0.0.1:51000/*` lets the extension reach the local service. Pairing uses extension storage for its credential. Manual handoff works with this local connection. Chrome or Edge asks for additional permissions when you enable automatic capture or grant access to a website session. See [browser handoff](browser-handoff.md) for both options.
 
 ## Loopback API
 

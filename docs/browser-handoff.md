@@ -10,7 +10,7 @@ The extension stores the selected link in its profile while a handoff is unresol
 
 ## Downloads that require a website session
 
-Sign in to the site in the paired browser profile. Use the website session command on the link. NimGet opens a tab explaining the requested access. **Use website session** asks Chrome or Edge for cookie access to the target hostname. Browser cookie permissions apply across ports on that hostname. HTTPS downloads ask for both schemes so the browser can supply Secure and non-Secure cookies. If you decline, select **Send without session** to send a public link, or continue in the browser. Browser permission grants can remain in your extension's site access settings. Each protected handoff still requires you to choose **Use website session** for that download.
+Sign in to the site in the paired browser profile. Use the website session command on the link. NimGet opens a tab explaining the requested access. **Use website session** asks Chrome or Edge for cookie access to the target hostname. Browser cookie permissions apply across ports on that hostname. HTTPS downloads ask for both schemes so the browser can supply Secure and non-Secure cookies. If you decline, select **Send without session** to send a public link, or continue in the browser. Browser permission grants can remain in your extension's site access settings. For each manual handoff that needs cookies, choose **Use website session**.
 
 NimGet uses the originating tab's browser cookie store. It asks the browser only for cookies matching the target link and excludes partitioned cookies. Secure cookies travel only on HTTPS links. Strict SameSite cookies require the page and any clicked frame to have the same origin as the target. For that same-origin case, NimGet also sends the origin as a referrer. The browser user agent accompanies the session. The cookies do not follow a redirect or media request to a different scheme, hostname, or port. Sites that require a custom authentication header, a full referrer, or an unsupported browser request can still be downloaded in the browser.
 
@@ -19,6 +19,26 @@ Website cookies live only in browser extension memory while a handoff is unresol
 The desktop encrypts website sessions using its existing OS-backed key. The expiry for starting a download attempt is the earliest of the transferred cookies' known expirations and 24 hours after collection. The desktop removes the stored session when the task completes, is deleted, or has its source or headers replaced. If the keyring is unavailable, NimGet can use the cookies now but shows a warning that authorization may need to be renewed after a NimGet restart. Website sessions are omitted from logs and queue exports.
 
 If the site rejects the session or NimGet cannot recover it, sign in again and send the link using a fresh website session, or use **Refresh download link** on the existing desktop task to supply fresh request context. Acknowledgement means NimGet saved the task. Check the desktop task for download completion.
+
+## Automatic capture
+
+Open the NimGet extension popup and expand **Automatic capture**. Check **Send eligible downloads to NimGet**, save, and allow the optional browser permissions. Automatic capture starts off in each profile. Clear the checkbox and save to stop it and release its browser download and broad website permissions.
+
+Enter excluded hostnames to keep downloads to or from those sites in the browser. Each entry includes its subdomains. For file-type exclusions, enter extensions such as `.iso` and `.tar.gz`. The extension checks the URL filename and the name provided by the browser. Settings are stored in the current browser profile.
+
+NimGet hands off eligible direct HTTP(S) attachments when the extension observes a single matching GET navigation. Chromium's download events omit the HTTP method and web request ID, so the extension correlates downloads with nearby navigation events by URL and time. Observed competing requests to the same URL, redirects, POSTs, browser-generated files, and downloads without enough request information stay in the browser. The extension keeps bounded navigation metadata in memory, including recent requests that could make a match ambiguous. Ordinary navigation history, request bodies, and request header values are not saved.
+
+Public capture needs no cookie permission. To share a website session automatically, add the complete origin under **Websites allowed to share sessions** and save that list separately. A different scheme, subdomain, or port needs its own entry. NimGet only attempts to use that session for a same-origin download when access is already granted. If the session is unavailable, or the server marks the response as private or varying by credentials and the site lacks your consent, the browser keeps the download. Removing an origin from the list stops automatic session access for that origin. For other protected downloads, use **Download with NimGet using website session…** from the browser menu.
+
+The browser download is canceled only after NimGet returns a durable task receipt. A rejection, timeout, unconfirmed reply, or unavailable desktop leaves the browser downloading. Check the popup for a retry or an explanation. **Retry in NimGet** reuses the original identity and leaves the browser download alone. Check NimGet's queue and the browser downloads list before retrying, since both apps may already be downloading the file. A cancellation failure leaves the accepted NimGet task and a warning in the extension popup.
+
+### Automatic capture acceptance
+
+On Windows 11 25H2 (build 26200.9974), Google Chrome 157.0.8103.51 and Microsoft Edge 157.0.4341.60 ran the unpacked extension with isolated browser profiles and NimGet databases. Both browsers completed a download on a fresh installation, displayed the opt-in permission prompt, and kept downloads excluded by hostname or by the server-provided filename. POST, redirected, and private responses without session consent stayed in the browser. Public handoffs omitted cookies, and the allowed same-origin fixture downloaded the expected protected bytes. The saved setting and exclusions survived browser restart. The test harness reinstalled the unpacked extension after restart, so optional browser grants had to be restored. Both browsers displayed the paused state until renewed access.
+
+The browser left a download active while the acknowledgement was held and canceled it after the receipt arrived. A loopback acceptance fixture in front of the Go service injected a dropped connection, rejection, storage-error response, malformed acknowledgement, timeout, and a response lost after durable acceptance. These cases kept the browser download. Retry after restarting the service reused the same identity and verified the original task and file. An injected browser cancellation error kept the accepted task, let the browser finish, and displayed the duplicate-download warning.
+
+Run the service and extension receipt regressions with `go test ./internal/service ./internal/api` and `node --test tests/extension/*.test.mjs`.
 
 ## Loopback API
 

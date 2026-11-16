@@ -226,6 +226,49 @@ export enum Status {
     StatusFailed = "failed",
 };
 
+/**
+ * TaskAction is an operation applied independently to each selected task.
+ * File deletion requires an explicit action distinct from record removal.
+ */
+export enum TaskAction {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    TaskActionPause = "pause",
+    TaskActionResume = "resume",
+    TaskActionRetry = "retry",
+    TaskActionRemoveRecords = "remove-records",
+    TaskActionRemoveFiles = "remove-files",
+};
+
+/**
+ * TaskActionResult reports the outcome of one operation. Removal can delete
+ * the record even if a subsequent attempt to delete its files fails.
+ */
+export class TaskActionResult {
+    "id": string;
+    "error"?: string;
+
+    /** Creates a new TaskActionResult instance. */
+    constructor($$source: Partial<TaskActionResult> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TaskActionResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TaskActionResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TaskActionResult($$parsedSource as Partial<TaskActionResult>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = Item.createFrom;
 const $$createType1 = $Create.Map($Create.Any, $Create.Any);

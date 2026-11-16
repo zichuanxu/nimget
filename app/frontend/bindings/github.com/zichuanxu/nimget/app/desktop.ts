@@ -31,6 +31,12 @@ export function Add(req: download$0.Request): $CancellablePromise<download$0.Ite
     });
 }
 
+export function ApplyTaskAction(action: download$0.TaskAction, ids: string[]): $CancellablePromise<download$0.TaskActionResult[]> {
+    return $Call.ByID(3020296759, action, ids).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 export function ApproveExtensionPairing(id: string, code: string): $CancellablePromise<void> {
     return $Call.ByID(562305078, id, code);
 }
@@ -64,7 +70,7 @@ export function DenyExtensionPairing(id: string): $CancellablePromise<void> {
  */
 export function ExpandBatch(pattern: string): $CancellablePromise<string[]> {
     return $Call.ByID(4127690252, pattern).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType3($result);
     });
 }
 
@@ -79,7 +85,7 @@ export function ExportQueue(): $CancellablePromise<string> {
 
 export function ExtensionPairings(): $CancellablePromise<pairing$0.Record[]> {
     return $Call.ByID(1446732200).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
     });
 }
 
@@ -89,13 +95,13 @@ export function ExtensionPairings(): $CancellablePromise<pairing$0.Record[]> {
  */
 export function ImportQueue(): $CancellablePromise<$models.ImportResult> {
     return $Call.ByID(3375714468).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType6($result);
     });
 }
 
 export function List(): $CancellablePromise<download$0.Item[]> {
     return $Call.ByID(507861228).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType7($result);
     });
 }
 
@@ -111,7 +117,7 @@ export function Open(id: string): $CancellablePromise<void> {
  */
 export function ParseCurl(command: string): $CancellablePromise<download$0.Request> {
     return $Call.ByID(3295307761, command).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType8($result);
     });
 }
 
@@ -185,7 +191,7 @@ export function RevokeExtensionPairing(id: string): $CancellablePromise<void> {
 
 export function SaveSettings(s: settings$0.Settings): $CancellablePromise<settings$0.Settings> {
     return $Call.ByID(884926860, s).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType9($result);
     });
 }
 
@@ -214,13 +220,13 @@ export function SetWhenDone(action: string): $CancellablePromise<void> {
 
 export function Settings(): $CancellablePromise<settings$0.Settings> {
     return $Call.ByID(3894829833).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType9($result);
     });
 }
 
 export function State(): $CancellablePromise<$models.State> {
     return $Call.ByID(3152233241).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType10($result);
     });
 }
 
@@ -237,11 +243,13 @@ export function WhenDone(): $CancellablePromise<string> {
 
 // Private type creation functions
 const $$createType0 = download$0.Item.createFrom;
-const $$createType1 = $Create.Array($Create.Any);
-const $$createType2 = pairing$0.Record.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = $models.ImportResult.createFrom;
-const $$createType5 = $Create.Array($$createType0);
-const $$createType6 = download$0.Request.createFrom;
-const $$createType7 = settings$0.Settings.createFrom;
-const $$createType8 = $models.State.createFrom;
+const $$createType1 = download$0.TaskActionResult.createFrom;
+const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = $Create.Array($Create.Any);
+const $$createType4 = pairing$0.Record.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $models.ImportResult.createFrom;
+const $$createType7 = $Create.Array($$createType0);
+const $$createType8 = download$0.Request.createFrom;
+const $$createType9 = settings$0.Settings.createFrom;
+const $$createType10 = $models.State.createFrom;

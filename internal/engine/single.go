@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/zichuanxu/nimget/internal/logging"
 	"github.com/zichuanxu/nimget/internal/partialfile"
 )
 
@@ -80,7 +81,7 @@ func (j *job) singleOnce(ctx context.Context, info probeInfo) *attemptError {
 	}
 	resp, err := e.cfg.ProbeClient.Do(req)
 	if err != nil {
-		return interrupted(err)
+		return interrupted(logging.HTTPError(err))
 	}
 	defer resp.Body.Close()
 	if err := identityEncoding(resp); err != nil {
@@ -91,7 +92,7 @@ func (j *job) singleOnce(ctx context.Context, info probeInfo) *attemptError {
 	case http.StatusPreconditionFailed:
 		return fatal(ErrSourceChanged)
 	default:
-		return statusError("download", resp)
+		return statusError("download", req, resp)
 	}
 	if info.etag != "" && strongETag(resp.Header.Get("ETag")) != info.etag {
 		return fatal(ErrSourceChanged)

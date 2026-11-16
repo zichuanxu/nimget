@@ -229,7 +229,7 @@ func TestStatusErrorQuotesOnlyShortText(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			resp := &http.Response{Status: "403 Forbidden", StatusCode: http.StatusForbidden, Header: http.Header{"Content-Type": {tc.contentType}}, Body: io.NopCloser(strings.NewReader(tc.body))}
-			if got := statusError("probe", resp).Error(); got != tc.want {
+			if got := statusError("probe", nil, resp).Error(); got != tc.want {
 				t.Fatalf("got %q\nwant %q", got, tc.want)
 			}
 		})

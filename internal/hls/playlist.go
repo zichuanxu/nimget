@@ -99,7 +99,7 @@ func parsePlaylist(body []byte, base *url.URL) (variant string, items []item, er
 		case streamInf != nil:
 			u, err := base.Parse(line)
 			if err != nil {
-				return "", nil, errorf("bad variant URI %q: %v", line, err)
+				return "", nil, errorf("invalid variant URI")
 			}
 			bw, _ := strconv.ParseInt(streamInf["BANDWIDTH"], 10, 64)
 			area := resolutionArea(streamInf["RESOLUTION"])
@@ -109,11 +109,11 @@ func parsePlaylist(body []byte, base *url.URL) (variant string, items []item, er
 			streamInf = nil
 		default:
 			if !sawInf {
-				return "", nil, errorf("segment %q has no EXTINF", line)
+				return "", nil, errorf("segment has no EXTINF")
 			}
 			u, err := base.Parse(line)
 			if err != nil {
-				return "", nil, errorf("bad segment URI %q: %v", line, err)
+				return "", nil, errorf("invalid segment URI")
 			}
 			it := item{URI: u.String(), Len: -1}
 			if br != nil {
@@ -170,7 +170,7 @@ func parseKey(attrs map[string]string, base *url.URL) (*keyTag, error) {
 	}
 	u, err := base.Parse(attrs["URI"])
 	if err != nil {
-		return nil, fmt.Errorf("bad key URI: %v", err)
+		return nil, fmt.Errorf("invalid key URI")
 	}
 	k := &keyTag{uri: u.String()}
 	if s, ok := attrs["IV"]; ok {
@@ -187,7 +187,7 @@ func parseMap(attrs map[string]string, base *url.URL, key *keyTag) (item, error)
 	}
 	u, err := base.Parse(attrs["URI"])
 	if err != nil {
-		return item{}, fmt.Errorf("bad EXT-X-MAP URI: %v", err)
+		return item{}, fmt.Errorf("invalid EXT-X-MAP URI")
 	}
 	m := item{URI: u.String(), Len: -1}
 	if s, ok := attrs["BYTERANGE"]; ok {

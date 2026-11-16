@@ -3,7 +3,7 @@
 **`github.com/zichuanxu/nimget`** · Apache-2.0 · Go 1.25 · open source, free
 
 A fast, cross-platform download manager. The core engine, service, CLI, and desktop GUI
-target feature parity with Internet Download Manager. The browser extension is deferred.
+target feature parity with Internet Download Manager. NimGet supports pairing a Chrome or Edge extension.
 
 Revision 2 (2026-09-27) records the scope review in section 14. Where it conflicts with
 revision 1, this document wins.
@@ -30,7 +30,7 @@ accounts, update servers, or hosted services. Free CI for public repositories is
 library that runs in one of two hosts:
 
 - **GUI host** — the Wails app embeds the service in-process, owns the tray icon, and
-  still listens on the loopback API so the CLI (and later the extension) can reach it.
+  still listens on the loopback API so the CLI and paired extensions can reach it.
 - **Headless host** — `nimget service` runs the same service without a GUI, for Linux,
   servers, and CI.
 
@@ -39,7 +39,7 @@ Clients:
 - Wails/React GUI — calls the service through Wails bindings and receives events on the
   Wails event bus, fed by the same manager event stream. It does not use loopback HTTP.
 - `nimget` CLI — loopback HTTP + SSE.
-- MV3 browser extension — **deferred** (section 6).
+- MV3 browser extension — pairs with the desktop app over loopback (section 6).
 
 Autostart-at-login is a settings toggle, not an OS-registered service (no launchd job,
 no Windows service).
@@ -358,27 +358,27 @@ send a CORS-simple `text/plain` POST or use DNS rebinding. Therefore, on every r
   excluded from logging.
 - `Host` must be `127.0.0.1:<port>` or `localhost:<port>` (DNS-rebinding defense).
 - Commands require `Content-Type: application/json`.
-- Requests carrying an `Origin` header are rejected until extension pairing exists.
+- CLI routes reject requests carrying an `Origin` header. The separate browser routes accept only the bundled NimGet extension origin.
 - `destination` must resolve inside the configured download root (or a directory the
   user picked in the GUI), and never inside known autostart locations.
 
-### 5.2 Extension pairing — deferred
+### 5.2 Extension pairing
 
-The revision 1 pairing flow (6-digit code, Bearer token, `chrome-extension://` Origin
-allowlist) lands with the extension.
+Each browser profile uses its own randomly generated bearer credential. Desktop approval requires the code shown in the browser. The desktop can list, deny, and revoke pairing requests. See the [pairing contract and credential lifecycle](docs/browser-pairing.md#loopback-api).
 
 ---
 
-## 6. Browser extension — deferred
+## 6. Browser extension
 
-Without an extension, authenticated downloads are added by:
+Load the unpacked extension in Chrome or Edge and request desktop approval using the [pairing instructions](docs/browser-pairing.md). The popup reports pairing status.
+
+Authenticated downloads can be added by:
 
 - **cURL import** — paste a request copied with the browser's DevTools
   "Copy as cURL"; the URL, cookies, referer, user agent, and headers are captured.
 - **Clipboard monitor** — detects copied URLs and cURL commands and offers to add them.
 
-Deferred with the extension: automatic capture, the video overlay, and "download all
-links on page".
+The production plan tracks automatic capture. The video overlay and "download all links on page" are deferred.
 
 ---
 
@@ -508,7 +508,7 @@ is checked against local source builds using `docs/desktop-checklist.md`.
 the desktop build on macOS and Windows, current bindings); the manual checklist
 (`docs/desktop-checklist.md`) still has to be run on macOS and Windows.
 
-Deferred beyond v1.0: browser extension and pairing, DASH, bundled ffmpeg, PAC,
+Deferred beyond v1.0: DASH, bundled ffmpeg, PAC,
 global hotkey, download-all-links, code signing, Linux GUI.
 
 ---
@@ -522,8 +522,7 @@ global hotkey, download-all-links, code signing, Linux GUI.
 
 Closed by revision 2: repository ownership (moved from `amemiya02` to `zichuanxu`;
 module path `github.com/zichuanxu/nimget`), notarization and signing certificates (not pursued), minimal
-ffmpeg build script (ffmpeg is not bundled), "v1 spans all four feature bundles" (the
-extension and video extras are deferred).
+ffmpeg build script (ffmpeg is not bundled), and "v1 spans all four feature bundles".
 
 ---
 

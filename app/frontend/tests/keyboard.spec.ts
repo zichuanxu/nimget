@@ -110,6 +110,27 @@ test("returns to New download when the clipboard download trigger is consumed", 
   await expect(fallback).toBeFocused();
 });
 
+test("keeps the action menu operable when the focused action disappears", async ({ page }) => {
+  await mockDesktop(page, { List: () => [task] });
+  await page.goto("/");
+  const more = page.getByRole("button", { name: "More actions for report.zip" });
+  await more.press("Enter");
+  await page.keyboard.press("ArrowDown");
+  const menu = page.getByRole("menu", { name: "More actions for report.zip" });
+  await expect(menu.getByRole("menuitem", { name: "Pause" })).toBeFocused();
+
+  await page.evaluate((item) => {
+    const { _wails } = window as typeof window & { _wails: { dispatchWailsEvent(event: unknown): void } };
+    _wails.dispatchWailsEvent({ name: "download", data: { type: "updated", item } });
+  }, { ...task, status: "completed", completed: task.total });
+
+  await expect(menu.getByRole("menuitem", { name: "Open", exact: true })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Download details" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(more).toBeFocused();
+});
+
 test("exposes task selection and actions without intercepting keys in search", async ({ page }) => {
   const requests: string[] = [];
   await mockDesktop(page, {

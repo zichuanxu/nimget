@@ -878,6 +878,12 @@ function ContextMenu({ id, label, x, y, trigger, entries, onClose }: {
     setPos({ left: Math.min(x, window.innerWidth - el.offsetWidth - 8), top: Math.min(y, window.innerHeight - el.offsetHeight - 8) });
     el.querySelector("button")?.focus({ preventScroll: true });
   }, [x, y, trigger]);
+  useLayoutEffect(() => {
+    // A download update can remove the focused action without moving focus.
+    if (document.activeElement === document.body) {
+      ref.current?.querySelector("button")?.focus({ preventScroll: true });
+    }
+  });
   useEffect(() => {
     const close = (e: MouseEvent) => {
       if (!(e.target instanceof Node) || ref.current?.contains(e.target)) return;
@@ -904,7 +910,7 @@ function ContextMenu({ id, label, x, y, trigger, entries, onClose }: {
       role="menu"
       aria-label={label}
       onBlur={(event) => {
-        if (event.relatedTarget !== trigger && !event.currentTarget.contains(event.relatedTarget)) onClose();
+        if (event.relatedTarget && event.relatedTarget !== trigger && !event.currentTarget.contains(event.relatedTarget)) onClose();
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape" || event.key === "Tab") {

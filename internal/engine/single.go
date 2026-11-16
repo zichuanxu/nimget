@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/zichuanxu/nimget/internal/logging"
+	"github.com/zichuanxu/nimget/internal/partialfile"
 )
 
 // single downloads over one plain GET for servers without ranges or a known
@@ -43,11 +46,14 @@ func (j *job) single(ctx context.Context, info probeInfo) error {
 
 func (j *job) singleOnce(ctx context.Context, info probeInfo) *attemptError {
 	e := j.engine
-	f, err := os.OpenFile(j.part, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	f, err := partialfile.Open(j.part, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fatal(fmt.Errorf("open partial file: %w", err))
 	}
 	defer f.Close()
+	if err := f.Truncate(0); err != nil {
+		return fatal(fmt.Errorf("truncate partial file: %w", err))
+	}
 	j.progress.completed.Store(0)
 	j.progress.total.Store(info.size)
 	if info.size == 0 {
@@ -75,7 +81,7 @@ func (j *job) singleOnce(ctx context.Context, info probeInfo) *attemptError {
 	}
 	resp, err := e.cfg.ProbeClient.Do(req)
 	if err != nil {
-		return interrupted(err)
+		return interrupted(logging.HTTPError(err))
 	}
 	defer resp.Body.Close()
 	if err := identityEncoding(resp); err != nil {
@@ -86,7 +92,7 @@ func (j *job) singleOnce(ctx context.Context, info probeInfo) *attemptError {
 	case http.StatusPreconditionFailed:
 		return fatal(ErrSourceChanged)
 	default:
-		return statusError("download", resp)
+		return statusError("download", req, resp)
 	}
 	if info.etag != "" && strongETag(resp.Header.Get("ETag")) != info.etag {
 		return fatal(ErrSourceChanged)

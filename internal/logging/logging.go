@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
-	"strings"
 )
 
 // New returns a JSON logger. Callers must never pass request headers, cookies,
@@ -15,35 +14,15 @@ func New(w io.Writer, level slog.Level) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level}))
 }
 
-// sensitiveFragments marks query parameters whose values are credentials, such
-// as X-Amz-Signature, X-Goog-Credential, token, sig, or api_key.
-var sensitiveFragments = []string{"sig", "token", "key", "secret", "password", "credential", "auth", "session"}
-
-const redacted = "REDACTED"
-
-// RedactURL removes user info and the values of credential-like query
-// parameters so signed URLs can be logged and pasted into public issues.
+// RedactURL removes user info, query parameters and the fragment. Query
+// parameter names cannot reliably distinguish download options from secrets.
 func RedactURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "[unparseable URL]"
 	}
-	if u.User != nil {
-		u.User = url.User(redacted)
-	}
-	query := u.Query()
-	for name, values := range query {
-		lower := strings.ToLower(name)
-		for _, fragment := range sensitiveFragments {
-			if strings.Contains(lower, fragment) {
-				for i := range values {
-					values[i] = redacted
-				}
-				break
-			}
-		}
-	}
-	u.RawQuery = query.Encode()
-	u.Fragment = ""
+	u.User = nil
+	u.RawQuery, u.Fragment, u.RawFragment = "", "", ""
+	u.ForceQuery = false
 	return u.String()
 }

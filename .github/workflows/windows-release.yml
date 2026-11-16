@@ -88,6 +88,7 @@ jobs:
         working-directory: app/frontend
         env:
           NIMGET_TEST_BROWSER: msedge
+          NIMGET_TEST_PREVIEW: '1'
         run: npm test
 
       - name: Verify the assets for upload

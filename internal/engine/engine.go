@@ -469,7 +469,10 @@ func statusError(what string, req *http.Request, resp *http.Response) *attemptEr
 			msg += ": " + text
 		}
 	}
-	return &attemptError{err: errors.New(msg), retryable: retryableStatus(resp.StatusCode), retryAfter: resp.Header.Get("Retry-After")}
+	return &attemptError{
+		err:       &httporigin.StatusError{Code: resp.StatusCode, Message: msg},
+		retryable: retryableStatus(resp.StatusCode), retryAfter: resp.Header.Get("Retry-After"),
+	}
 }
 
 // maxErrorBody caps the response text quoted in an error, in runes.

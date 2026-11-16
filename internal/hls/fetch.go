@@ -230,7 +230,7 @@ func statusError(label string, resp *http.Response) *attemptError {
 	code := resp.StatusCode
 	retry := code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
 	return &attemptError{
-		err:        fmt.Errorf("GET %s: HTTP %d %s", label, code, http.StatusText(code)),
+		err:        &httporigin.StatusError{Code: code, Message: fmt.Sprintf("GET %s: HTTP %d %s", label, code, http.StatusText(code))},
 		retryable:  retry,
 		retryAfter: resp.Header.Get("Retry-After"),
 	}

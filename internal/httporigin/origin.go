@@ -3,6 +3,7 @@ package httporigin
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -51,6 +52,11 @@ func same(a, b *url.URL) bool {
 		strings.EqualFold(a.Scheme, b.Scheme) &&
 		hostname(a) == hostname(b) &&
 		effectivePort(a) == effectivePort(b)
+}
+
+// Key returns the normalized HTTP security origin of u.
+func Key(u *url.URL) string {
+	return strings.ToLower(u.Scheme) + "://" + net.JoinHostPort(hostname(u), effectivePort(u))
 }
 
 func hostname(u *url.URL) string {

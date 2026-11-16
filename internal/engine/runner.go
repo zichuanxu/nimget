@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
-	"os"
 
 	"github.com/zichuanxu/nimget/internal/download"
 	"github.com/zichuanxu/nimget/internal/hls"
@@ -52,13 +50,18 @@ func (r *Runner) Download(ctx context.Context, spec download.Spec, progress func
 	}
 	cfg.Headers = spec.Headers
 	cfg.Checksum = spec.Checksum
+	if spec.ResumeKey != "" {
+		cfg.ResumeKey = spec.ResumeKey
+	}
+	cfg.ValidateSource = spec.ValidateSource
 	cfg.Limiters = spec.Limiters
 	e, err := New(cfg)
 	if err != nil {
 		return err
 	}
 	err = e.Download(ctx, spec.URL, spec.Destination, func(current Progress) {
-		if progress != nil {
+		// A failed or canceled probe has not inspected the saved bytes yet.
+		if progress != nil && !(spec.ValidateSource && current == (Progress{Total: -1})) {
 			progress(download.Progress{Completed: current.Completed, Total: current.Total})
 		}
 	})
@@ -72,15 +75,5 @@ func (r *Runner) Download(ctx context.Context, spec download.Spec, progress func
 // Discard removes the downloader's resumable partial state for destination,
 // including an HLS download's segment directory.
 func (r *Runner) Discard(destination string) error {
-	err := hls.Discard(destination)
-	if errors.Is(err, hls.ErrLocked) {
-		return err // another process is still writing these files
-	}
-	errs := []error{err}
-	for _, path := range []string{destination + ".part", destination + ".part.meta"} {
-		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return hls.Discard(destination)
 }

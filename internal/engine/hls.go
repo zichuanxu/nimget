@@ -13,6 +13,8 @@ import (
 // errPlaylist reports that the probed resource is an HLS playlist.
 var errPlaylist = errors.New("resource is an HLS playlist")
 
+const supportedMediaSource = "Try a direct media file or an on-demand HLS link with the required tracks in one stream."
+
 // downloadHLS fetches a playlist's segments into dest with the engine's
 // client, headers, retries, and limiters. Resume works per segment.
 func (e *Engine) downloadHLS(ctx context.Context, rawURL, dest string, onProgress func(Progress)) error {
@@ -49,6 +51,8 @@ func (e *Engine) downloadHLS(ctx context.Context, rawURL, dest string, onProgres
 		return fmt.Errorf("%w: %s", ErrLocked, dest)
 	case errors.Is(err, hls.ErrDestinationExists):
 		return fmt.Errorf("%w: %s", ErrDestinationExists, dest)
+	case errors.Is(err, hls.ErrLive), errors.Is(err, hls.ErrUnsupported):
+		return fmt.Errorf("%w. %s", err, supportedMediaSource)
 	}
 	return err
 }

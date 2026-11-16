@@ -124,7 +124,7 @@ func TestParseErrors(t *testing.T) {
 		contains   string
 	}{
 		{"live", "#EXTM3U\n#EXTINF:4,\ns.ts\n", ErrLive, ""},
-		{"sample-aes", "#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"k\"\n#EXTINF:4,\ns.ts\n#EXT-X-ENDLIST\n", ErrUnsupported, "SAMPLE-AES"},
+		{"sample-aes", "#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"k\"\n#EXTINF:4,\ns.ts\n#EXT-X-ENDLIST\n", ErrUnsupported, "only AES-128 encryption"},
 		{"keyformat", "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"k\",KEYFORMAT=\"com.apple.streamingkeydelivery\"\n", ErrUnsupported, ""},
 		{"encrypted map without IV", "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"k\"\n#EXT-X-MAP:URI=\"i.mp4\"\n", ErrUnsupported, ""},
 		{"malformed EXTINF", "#EXTM3U\n#EXTINF:abc,\ns.ts\n#EXT-X-ENDLIST\n", nil, "line 2: malformed EXTINF"},

@@ -297,7 +297,7 @@ func TestKeyFetchFailures(t *testing.T) {
 			s.set("/k.key", key)
 			dest := destPath(t)
 			err := Download(context.Background(), s.URL+"/media.m3u8", dest, fastOpts(), nil)
-			if err == nil || !strings.Contains(err.Error(), "k.key") {
+			if err == nil || !strings.Contains(err.Error(), "HLS key") {
 				t.Fatalf("err = %v, want a key error", err)
 			}
 			if n := s.count("/k.key"); n != 1 {
@@ -548,5 +548,61 @@ func TestLimiter(t *testing.T) {
 	// The playlist body is throttled too.
 	if l.total < len(want) || l.maxReq > 1000 {
 		t.Fatalf("limiter saw %d bytes (max %d per wait), want >= %d", l.total, l.maxReq, len(want))
+	}
+}
+
+func TestSelectedHLSRenditions(t *testing.T) {
+	for _, tt := range []struct {
+		name, media, selection, wantError string
+	}{
+		{"separate audio", "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"English\",URI=\"audio.m3u8?sig=audio-secret\"\n", ",AUDIO=\"a\"", "separate audio"},
+		{"separate subtitles", "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"s\",NAME=\"English\",URI=\"subtitles.m3u8?sig=subtitle-secret\"\n", ",SUBTITLES=\"s\"", "separate subtitles"},
+		{"separate video", "#EXT-X-MEDIA:TYPE=VIDEO,GROUP-ID=\"v\",NAME=\"Alternate view\",URI=\"other.m3u8\"\n", ",VIDEO=\"v\"", "separate video"},
+		{"embedded audio", "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"English\"\n", ",AUDIO=\"a\"", ""},
+		{"external audio on another variant", "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"English\",URI=\"audio.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=1000,AUDIO=\"a\"\nlow.m3u8\n", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newServer(t)
+			want := clearStream(s, 1)
+			// The selected variant appears before the rendition declarations.
+			s.set("/master.m3u8", []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000"+tt.selection+"\nmedia.m3u8?sig=variant-secret\n"+tt.media))
+			dest := destPath(t)
+			err := Download(context.Background(), s.URL+"/master.m3u8?sig=master-secret", dest, fastOpts(), nil)
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertFile(t, dest, want)
+				return
+			}
+			if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("download error = %v, want unsupported %s", err, tt.wantError)
+			}
+			if strings.Contains(err.Error(), "-secret") {
+				t.Fatalf("download error includes signed parameters: %v", err)
+			}
+			if _, err := os.Stat(dest); !errors.Is(err, os.ErrNotExist) || s.count("/media.m3u8") != 0 {
+				t.Fatalf("unsupported variant must stop before fetching its playlist or writing output: %v", err)
+			}
+		})
+	}
+}
+
+func TestHLSIFrameOnlyIsUnsupported(t *testing.T) {
+	for _, playlist := range []string{
+		"#EXTM3U\n#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=1000,URI=\"iframe.m3u8\"\n",
+		"#EXTM3U\n#EXT-X-I-FRAMES-ONLY\n#EXTINF:4,\niframe.ts\n#EXT-X-ENDLIST\n",
+	} {
+		s := newServer(t)
+		s.set("/media.m3u8", []byte(playlist))
+		s.set("/iframe.ts", []byte("a single frame"))
+		dest := destPath(t)
+		err := Download(context.Background(), s.URL+"/media.m3u8", dest, fastOpts(), nil)
+		if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "I-frame-only") {
+			t.Fatalf("download error = %v, want unsupported I-frame-only", err)
+		}
+		if _, err := os.Stat(dest); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("unsupported playlist left output: %v", err)
+		}
 	}
 }

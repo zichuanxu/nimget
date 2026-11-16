@@ -32,8 +32,6 @@ The `download` command runs the engine without the service:
 ./nimget download --resume-key 'bucket/object/version-42' SIGNED_URL OUTPUT
 ```
 
-An HLS playlist, recognised by a `.m3u8` URL or an HLS `Content-Type`, is downloaded segment by segment into one MPEG-TS file (fMP4 streams get their init segment first). A master playlist picks its highest-bandwidth variant; live streams and SAMPLE-AES are refused. Separate audio and subtitle renditions are not downloaded, and an fMP4 stream keeps the `.ts` name chosen before its playlist is read (convert it to MP4 for players that trust extensions). Cookies and other request headers are sent only to the playlist's host.
-
 Completed files are marked as downloaded from the internet (the `com.apple.quarantine` attribute on macOS, a `Zone.Identifier` stream on Windows), so Gatekeeper and SmartScreen check downloaded programs as they would a browser download.
 
 While a transfer is active the engine keeps `OUTPUT.part`, `OUTPUT.part.meta`, and `OUTPUT.lock` (for HLS, finished segments in `OUTPUT.hls/`). The lock is an OS advisory lock, so a crashed or killed process never leaves a lock that blocks the next run. The engine checks free space and preallocates the file before downloading.
@@ -46,6 +44,14 @@ When parallel download and resume apply:
 | Ranges, known size, `Last-Modified` only | yes | yes |
 | Ranges, known size, no validator | yes | no, restarts from zero |
 | No ranges, or unknown size | single connection | no, restarts from zero |
+
+### Streaming media
+
+NimGet downloads on-demand HLS from a `.m3u8` URL or HLS content type, including clear streams and AES-128 with identity keys. It assembles MPEG-TS segments or fragmented MP4 with initialization sections. A master playlist selects its highest-bandwidth variant, breaking ties by resolution. Sensitive request headers stay within the playlist's security origin.
+
+NimGet fails the task if the selected variant supplies audio, video, or subtitles through separate playlists. Live HLS, I-frame-only playlists, DASH manifests, and encryption such as SAMPLE-AES also produce an unsupported-media failure. Check **Download details** for guidance or inspect the task error through the local API. Try a direct video file or an on-demand HLS link with all required tracks in the same stream.
+
+For finished HLS downloads named `.ts`, the desktop app offers **Convert to MP4** when ffmpeg is installed on PATH or configured in settings. This can also help players that rely on the extension open an fMP4 download initially named `.ts`.
 
 ## Background service and CLI client
 

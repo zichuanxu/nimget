@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -234,6 +235,9 @@ func (e *Engine) downloadFile(ctx context.Context, rawURL, dest string, onProgre
 		if err != nil {
 			return err
 		}
+		if isDASHManifest(info.contentType, info.finalURL) {
+			return fmt.Errorf("%w: DASH manifests are unsupported. %s", download.ErrUnsupportedMedia, supportedMediaSource)
+		}
 		// The final URL catches a redirect to an .m3u8 served as a generic type.
 		if hls.Detect(info.contentType, info.finalURL, nil) {
 			return errPlaylist // handled after the lock is released
@@ -336,6 +340,15 @@ type probeInfo struct {
 	sourceScope  string
 	// For Inspect.
 	disposition, contentType, finalURL string
+}
+
+func isDASHManifest(contentType, rawURL string) bool {
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+	if mediaType == "application/dash+xml" {
+		return true
+	}
+	u, err := url.Parse(rawURL)
+	return err == nil && strings.EqualFold(filepath.Ext(u.Path), ".mpd")
 }
 
 func (e *Engine) probe(ctx context.Context, rawURL string) (probeInfo, error) {
@@ -485,8 +498,17 @@ const maxErrorBody = 200
 // out.
 func errorBody(resp *http.Response) string {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	contentType := resp.Header.Get("Content-Type")
+	var finalURL string
+	if resp.Request != nil {
+		finalURL = resp.Request.URL.String()
+	}
+	// Playlists can contain signed resource URLs even when the request is public.
+	if hls.Detect(contentType, finalURL, bytes.TrimSpace(body)) || isDASHManifest(contentType, finalURL) {
+		return ""
+	}
 	text := strings.Join(strings.Fields(string(body)), " ")
-	if text == "" || strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "html") || strings.HasPrefix(text, "<") || !utf8.ValidString(text) {
+	if text == "" || strings.Contains(strings.ToLower(contentType), "html") || strings.HasPrefix(text, "<") || !utf8.ValidString(text) {
 		return ""
 	}
 	if runes := []rune(text); len(runes) > maxErrorBody {

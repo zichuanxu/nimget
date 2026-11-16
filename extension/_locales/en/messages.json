@@ -1,0 +1,56 @@
+{
+  "manifestDescription": {
+    "message": "Pair this browser with the NimGet desktop app."
+  },
+  "checking": {
+    "message": "Checking connection…"
+  },
+  "disconnected": {
+    "message": "Disconnected"
+  },
+  "disconnectedDetail": {
+    "message": "Open NimGet on this computer and request pairing."
+  },
+  "pending": {
+    "message": "Awaiting approval"
+  },
+  "pendingDetail": {
+    "message": "In NimGet, open Settings → Browser extensions. Match the request ID and enter the approval code."
+  },
+  "connected": {
+    "message": "Connected"
+  },
+  "connectedDetail": {
+    "message": "Manage this connection in NimGet’s Browser extensions settings."
+  },
+  "denied": {
+    "message": "Pairing denied"
+  },
+  "deniedDetail": {
+    "message": "The desktop declined this request. You can start a new one."
+  },
+  "revoked": {
+    "message": "Access revoked"
+  },
+  "revokedDetail": {
+    "message": "The desktop revoked this connection. Pair again to request access."
+  },
+  "unreachable": {
+    "message": "Couldn’t reach NimGet. Open the desktop app and try again."
+  },
+  "failed": {
+    "message": "NimGet couldn’t complete the request. Check that the desktop and extension are up to date."
+  },
+  "pairingLimit": {
+    "message": "Too many pairing requests are pending. Deny unused requests in NimGet and try again."
+  },
+  "requestId": {
+    "message": "Request $1"
+  },
+  "approvalCode": {
+    "message": "Approval code"
+  },
+  "pair": {
+    "message": "Request pairing"
+  }
+}

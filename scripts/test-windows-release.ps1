@@ -47,5 +47,21 @@ try {
     Assert-Rejected { & $prepare -Version $Version -OutputDirectory $output -VerifyOnly } 'SHA-256 mismatch'
 } finally { Copy-Item -LiteralPath (Join-Path $secondBundle $names[1]) -Destination $zip -Force }
 
+$metadata = Join-Path $bundle $names[2]
+$checksums = Join-Path $bundle $names[3]
+try {
+    $originalHash = (Get-FileHash -LiteralPath $metadata).Hash.ToLowerInvariant()
+    $contents = Get-Content -LiteralPath $metadata -Raw | ConvertFrom-Json -AsHashtable
+    $contents.sourceCommit = '0' * 40
+    $contents | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $metadata
+    $newHash = (Get-FileHash -LiteralPath $metadata).Hash.ToLowerInvariant()
+    $lines = (Get-Content -LiteralPath $checksums -Raw).Replace($originalHash, $newHash)
+    [IO.File]::WriteAllText($checksums, $lines)
+    Assert-Rejected { & $prepare -Version $Version -OutputDirectory $output -VerifyOnly } 'Release metadata does not match'
+} finally {
+    Copy-Item -LiteralPath (Join-Path $secondBundle $names[2]) -Destination $metadata -Force
+    Copy-Item -LiteralPath (Join-Path $secondBundle $names[3]) -Destination $checksums -Force
+}
+
 & $prepare -Version $Version -OutputDirectory $output -VerifyOnly
 Write-Host "Release verification and byte-for-byte rebuild passed: $bundle"

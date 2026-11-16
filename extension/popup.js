@@ -1,3 +1,4 @@
+import { renderRetryList } from "./retry-list.js";
 import { pairingStatus, requestPairing } from "./pairing.js";
 import { manualHandoffPrefix, manualHandoffResult } from "./handoff.js";
 
@@ -76,14 +77,7 @@ async function renderHandoffs() {
     .sort((a, b) => b.createdAt - a.createdAt);
   const feedback = stored[manualHandoffResult] ?? (records.length > 0 ? "handoffUnconfirmed" : null);
   setText(handoffResult, feedback ? t(feedback) : "");
-  // Keep keyboard focus when another browser event refreshes the list.
-  const focused = document.activeElement?.dataset.handoffAction;
-  retries.replaceChildren(...records.map(renderHandoffRetry));
-  retries.hidden = records.length === 0;
-  if (focused) {
-    const target = Array.from(retries.querySelectorAll("button")).find((button) => button.dataset.handoffAction === focused);
-    target?.focus();
-  }
+  renderRetryList(retries, records.map(renderHandoffRetry));
 }
 
 function renderHandoffRetry(record) {
@@ -103,7 +97,7 @@ function renderHandoffRetry(record) {
     button.type = "button";
     button.textContent = t(key);
     button.setAttribute("aria-label", `${t(key)} ${label}`);
-    button.dataset.handoffAction = `${type}:${record.request.handoffId}`;
+    button.dataset.retryAction = `${type}:${record.request.handoffId}`;
     button.addEventListener("click", async () => {
       for (const button of actions.children) button.disabled = true;
       try {

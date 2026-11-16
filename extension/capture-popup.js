@@ -1,3 +1,4 @@
+import { renderRetryList } from "./retry-list.js";
 import {
   captureHandoffPrefix, capturePermissions, captureResultKey, captureSessionOriginsKey, captureSettingsKey,
   normalizeExcludedSite, normalizeExcludedType, normalizeSessionOrigin, parseCaptureExclusions,
@@ -121,7 +122,7 @@ function renderPending(key, record) {
     button.type = "button";
     button.textContent = t(keyLabel);
     button.setAttribute("aria-label", `${t(keyLabel)} ${label}`);
-    button.dataset.captureAction = `${type}:${key}`;
+    button.dataset.retryAction = `${type}:${key}`;
     button.addEventListener("click", async () => {
       for (const button of actions.children) button.disabled = true;
       try {
@@ -146,13 +147,7 @@ async function renderHandoffs() {
   const message = stored[captureResultKey];
   const content = message ? t(message) : "";
   if (result.textContent !== content) result.textContent = content;
-  const focused = document.activeElement?.dataset.captureAction;
-  pending.replaceChildren(...entries.map(([key, record]) => renderPending(key, record)));
-  pending.hidden = entries.length === 0;
-  if (focused) {
-    const target = [...pending.querySelectorAll("button")].find((button) => button.dataset.captureAction === focused);
-    target?.focus();
-  }
+  renderRetryList(pending, entries.map(([key, record]) => renderPending(key, record)));
 }
 
 function updateHandoffs() {

@@ -118,3 +118,38 @@ func TestMaskedPasswordsRoundTrip(t *testing.T) {
 		t.Fatalf("proxy unmask = %q, %v", back.Proxy.URL, err)
 	}
 }
+
+func TestMaskedPasswordsWithDuplicateSiteRules(t *testing.T) {
+	stored := Default()
+	stored.Sites = []Site{
+		{Host: "files.test", Password: "first", Headers: map[string]string{"X-File-Group": "one"}},
+		{Host: "Files.Test", Password: "second"},
+		{Host: "files.test"},
+		{Host: "other.test", Password: "other"},
+	}
+	shown := stored.Masked()
+	shown.Sites[3].Connections = 6
+	back, err := shown.Unmask(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, site := range back.Sites {
+		if site.Password != stored.Sites[i].Password {
+			t.Errorf("site %d did not retain its password", i)
+		}
+	}
+	if back.Sites[3].Connections != 6 {
+		t.Error("site settings edit was lost")
+	}
+
+	// Deleting a rule or changing its public fields can make masked rows
+	// indistinguishable from a different configuration of the same host.
+	shown.Sites = shown.Sites[1:]
+	if _, err := shown.Unmask(stored); err == nil || !strings.Contains(err.Error(), "enter") {
+		t.Fatalf("ambiguous password save = %v, want password re-entry feedback", err)
+	}
+	shown.Sites[0].Password = "replacement"
+	if back, err := shown.Unmask(stored); err != nil || back.Sites[0].Password != "replacement" {
+		t.Fatalf("could not save an explicit password after removing a duplicate: %v", err)
+	}
+}

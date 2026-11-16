@@ -1,6 +1,7 @@
 package queuefile
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -42,7 +43,11 @@ func TestImportURLList(t *testing.T) {
 }
 
 func TestLegacyQueueURLsRemainReadable(t *testing.T) {
-	reqs, err := Import([]byte(`{"version":1,"downloads":[{"url":"https://x/old?ticket=abc","headers":{"Cookie":"x=1"}}]}`))
+	legacy := []byte(`{"version":1,"downloads":[{"url":"https://x/old?ticket=abc","headers":{"Cookie":"x=1"}}]}`)
+	if _, err := Import(legacy); !errors.Is(err, ErrLegacyURLs) {
+		t.Fatalf("legacy parse without acknowledgement: %v", err)
+	}
+	reqs, err := ImportLegacyURLs(legacy)
 	if err != nil || len(reqs) != 1 || reqs[0].URL != "https://x/old?ticket=abc" || reqs[0].Headers["Cookie"] != "x=1" {
 		t.Fatalf("legacy requests = %+v, %v", reqs, err)
 	}

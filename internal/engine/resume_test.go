@@ -5,7 +5,6 @@ import (
 	"errors"
 	"math/rand/v2"
 	"net/http"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -116,7 +115,7 @@ func TestRandomizedCrashResume(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 
-		snapshot, snapshotErr := os.ReadFile(dest + ".part.meta")
+		snapshot, snapshotErr := readCheckpoint(dest + ".part.meta")
 		cancel()
 		stopErr := <-done
 		if stopErr != nil && !errors.Is(stopErr, context.Canceled) {
@@ -125,7 +124,7 @@ func TestRandomizedCrashResume(t *testing.T) {
 		if snapshotErr != nil || stopErr == nil {
 			continue // the download had not started or had already finished
 		}
-		if err := os.WriteFile(dest+".part.meta", snapshot, 0o600); err != nil {
+		if err := writeCheckpoint(dest+".part.meta", snapshot); err != nil {
 			t.Fatal(err)
 		}
 		snapshots++

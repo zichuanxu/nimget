@@ -20,7 +20,10 @@ const (
 	backupMode  = "source-backup"
 )
 
-var ErrSummary = errors.New("queue summaries contain no source URLs; import a source URL backup or a list of download links")
+var (
+	ErrSummary    = errors.New("queue summaries contain no source URLs; import a source URL backup or a list of download links")
+	ErrLegacyURLs = errors.New("older queue files may contain incomplete source URLs")
+)
 
 type file[T any] struct {
 	Version   int    `json:"version"`
@@ -91,12 +94,20 @@ func export[T any](items []download.Item, mode string, entry func(download.Item,
 	return json.MarshalIndent(f, "", "  ")
 }
 
-// Import reads source backups, legacy queue files, or a text list of URLs
-// (lines starting with "#" are comments).
+// Import reads source backups and text lists. Legacy JSON requires acknowledgement.
 func Import(data []byte) ([]download.Request, error) {
+	return importData(data, false)
+}
+
+// ImportLegacyURLs also accepts the original URLs in an older JSON queue file.
+func ImportLegacyURLs(data []byte) ([]download.Request, error) {
+	return importData(data, true)
+}
+
+func importData(data []byte, allowLegacyURLs bool) ([]download.Request, error) {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) > 0 && trimmed[0] == '{' {
-		return importJSON(trimmed)
+		return importJSON(trimmed, allowLegacyURLs)
 	}
 	var reqs []download.Request
 	scanner := bufio.NewScanner(bytes.NewReader(trimmed))
@@ -117,7 +128,7 @@ func Import(data []byte) ([]download.Request, error) {
 	return reqs, nil
 }
 
-func importJSON(data []byte) ([]download.Request, error) {
+func importJSON(data []byte, allowLegacyURLs bool) ([]download.Request, error) {
 	var format struct {
 		Version int    `json:"version"`
 		Mode    string `json:"mode"`
@@ -134,6 +145,9 @@ func importJSON(data []byte) ([]download.Request, error) {
 		var legacy file[download.Request]
 		if err := decoder.Decode(&legacy); err != nil {
 			return nil, invalid
+		}
+		if !allowLegacyURLs {
+			return nil, ErrLegacyURLs
 		}
 		return legacy.Downloads, nil
 	case format.Version == version && format.Mode == summaryMode:

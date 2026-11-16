@@ -93,7 +93,7 @@ Client commands read the same token file and talk to `http://127.0.0.1:51000` un
 
 **Export queue summary** in the desktop menu and `nimget export` save unfinished-task states, progress, and numeric options for sharing. A summary contains no source or destination strings. For import, choose a source URL backup or supply a list of download links.
 
-**Back up queue with source URLs** and `nimget export --include-source-urls FILE` save exact links, destinations, and request options in plain text. Links and destinations can contain credentials. Request headers, website sessions, and partial bytes are omitted. Protected tasks may need refreshed links or a new website session. Destinations must be inside an allowed download root on the importing machine. Older JSON queue files remain readable. Older exports may have omitted parts of source links, so update those links before reuse.
+**Back up queue with source URLs** and `nimget export --include-source-urls FILE` save exact links, destinations, and request options in plain text. Links and destinations can contain credentials. Request headers, website sessions, and partial bytes are omitted. Protected tasks may need refreshed links or a new website session. Destinations must be inside an allowed download root on the importing machine. Older queue exports may have omitted parts of source links. Review those links, then confirm the desktop prompt or use `nimget import --allow-legacy-urls FILE` to import the links as saved.
 
 Batch patterns expand left to right: `[1-10]`, zero-padded `[001-120]`, stepped `[0-100:5]`, letters `[a-z]`, and alternatives `{cd,dvd}`, up to 10,000 URLs.
 

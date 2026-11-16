@@ -95,6 +95,15 @@ export function ExtensionPairings(): $CancellablePromise<pairing$0.Record[]> {
 }
 
 /**
+ * FinishLegacyImport consumes the selected file after the user makes a choice.
+ */
+export function FinishLegacyImport(id: string, confirm: boolean): $CancellablePromise<$models.ImportResult> {
+    return $Call.ByID(2360895769, id, confirm).then(($result: any) => {
+        return $$createType6($result);
+    });
+}
+
+/**
  * ImportQueue queues the downloads in an exported file or a list of URLs the
  * user picks.
  */

@@ -98,10 +98,11 @@ function observeResponse(details) {
   const length = header("content-length");
   const size = /^\d+$/.test(length) && Number.isSafeInteger(Number(length)) ? String(Number(length)) : "-1";
   const etag = header("etag");
+  request.strongETag = etag.length >= 2 && etag.startsWith('"') && etag.endsWith('"');
   request.attachmentAt = timeStamp;
   request.attachmentProof = sha256Hex([
     disposition, header("content-type").toLowerCase(), size,
-    etag.length >= 2 && etag.startsWith('"') && etag.endsWith('"') ? etag : "",
+    request.strongETag ? etag : "",
   ].join("\n")).catch(() => null);
   request.requiresContext = responseHeaders.some(({ name, value }) => {
     switch (name.toLowerCase()) {
@@ -211,6 +212,12 @@ async function captureDownload(item, key) {
       await showResult("captureUnsupported");
       return;
     }
+    // Chromium may omit authorization headers from observation. Matching
+    // attachment metadata alone cannot distinguish same-sized representations.
+    if (!navigation.strongETag) {
+      await showResult("captureUnverifiedAttachment");
+      return;
+    }
     const credential = await readCredential();
     if (!credential) {
       await showResult("capturePairingRequired");
@@ -275,7 +282,7 @@ async function deliver(key, record, credential, browserId, session, sentCookie) 
     const rejected = {
       EXTENSION_CREDENTIAL_REQUIRED: "capturePairingRequired",
       PAIRING_REQUIRED: "capturePairingRequired",
-      CAPTURE_NOT_REPLAYABLE: sentCookie && !session ? "captureSessionUnavailable" : "captureUnsupported",
+      CAPTURE_NOT_REPLAYABLE: sentCookie && !session ? "captureSessionUnavailable" : "captureUnverifiedAttachment",
       HANDOFF_REJECTED: "captureRejected",
       INVALID_HANDOFF_ID: "captureRejected",
       INVALID_REQUEST: "captureRejected",

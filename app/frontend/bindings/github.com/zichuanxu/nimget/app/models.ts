@@ -19,6 +19,7 @@ export class ImportResult {
     "added": number;
     "failed": number[];
     "problem"?: string;
+    "legacyId"?: string;
 
     /** Creates a new ImportResult instance. */
     constructor($$source: Partial<ImportResult> = {}) {

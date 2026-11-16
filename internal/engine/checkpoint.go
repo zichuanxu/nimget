@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"time"
 
 	"github.com/zichuanxu/nimget/internal/partialfile"
 )
@@ -94,17 +93,18 @@ func writeCheckpoint(path string, state checkpoint) error {
 	return nil
 }
 
-// Windows can transiently reject a replacement while a reader closes the
-// previous checkpoint. Keep the synced replacement available for a short retry.
+// Root.Rename uses Windows replacement semantics that let readers finish
+// reading their open checkpoint while new opens see its replacement.
 func replaceCheckpoint(temporary, path string) error {
-	err := os.Rename(temporary, path)
-	if runtime.GOOS == "windows" {
-		for i := 0; i < 4 && errors.Is(err, os.ErrPermission); i++ {
-			time.Sleep(5 * time.Millisecond)
-			err = os.Rename(temporary, path)
-		}
+	if runtime.GOOS != "windows" {
+		return os.Rename(temporary, path)
 	}
-	return err
+	dir, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Rename(filepath.Base(temporary), filepath.Base(path))
 }
 
 func readCheckpoint(path string) (checkpoint, error) {

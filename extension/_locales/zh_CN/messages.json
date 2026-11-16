@@ -170,6 +170,9 @@
   "capturePermissionDenied": {
     "message": "自动接管已关闭。授予浏览器权限后才能开启。"
   },
+  "capturePermissionNeeded": {
+    "message": "自动接管已暂停。请保存设置并授予浏览器权限以恢复。"
+  },
   "captureUnsupported": {
     "message": "NimGet 无法验证这是直接的 HTTP 或 HTTPS GET 请求，下载将由浏览器处理。"
   },

@@ -2,11 +2,9 @@ package engine
 
 import (
 	"crypto/tls"
-	"errors"
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -16,29 +14,7 @@ func newProbeClient(proxy proxyFunc) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = proxy
 	transport.DisableCompression = true
-	return &http.Client{Transport: transport, CheckRedirect: checkRedirect}
-}
-
-// portableHeaders may follow a redirect to another host; every other header
-// the caller set (API keys, site headers) stays with the original host. Go
-// itself only strips Authorization and Cookie.
-var portableHeaders = map[string]bool{
-	"User-Agent": true, "Accept": true, "Accept-Language": true, "Accept-Encoding": true,
-	"Range": true, "If-Range": true, "If-Match": true, "Referer": true,
-}
-
-func checkRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= 10 {
-		return errors.New("stopped after 10 redirects")
-	}
-	if !strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
-		for name := range req.Header {
-			if !portableHeaders[name] {
-				req.Header.Del(name)
-			}
-		}
-	}
-	return nil
+	return &http.Client{Transport: transport}
 }
 
 func newSegmentClient(workers int, proxy proxyFunc) *http.Client {
@@ -56,5 +32,5 @@ func newSegmentClient(workers int, proxy proxyFunc) *http.Client {
 	transport.MaxConnsPerHost = workers
 	transport.MaxIdleConnsPerHost = workers
 	transport.DisableCompression = true
-	return &http.Client{Transport: transport, CheckRedirect: checkRedirect}
+	return &http.Client{Transport: transport}
 }

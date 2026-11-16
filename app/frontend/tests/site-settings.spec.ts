@@ -13,7 +13,7 @@ test("edits existing site settings and preserves untouched settings across save 
     host: " Files.Example.test ",
     connections: 7,
     hostConnections: 12,
-    headers: { "X-Test": " two spaces  ", "X-Empty": "" },
+    headers: { "X-Test": " two spaces  ", "X-Empty": "", "x-test": "saved case variant" },
     username: "saved-user",
     password: "********",
   };
@@ -80,6 +80,14 @@ test("validates site fields and keeps entered settings after the service rejects
   await name.fill("X-Test");
   await connections.fill("");
   await expect(host).toHaveAttribute("aria-invalid", "false");
+  await dialog.getByRole("button", { name: "Add header" }).press("Enter");
+  const duplicate = dialog.getByLabel("Header name", { exact: true }).last();
+  await duplicate.fill("x-test");
+  await save.press("Enter");
+  await expect(dialog.getByLabel("Header name", { exact: true }).first()).toBeFocused();
+  await expect(duplicate).toHaveAccessibleDescription(/Use each header name once per site/);
+  expect(saves).toHaveLength(0);
+  await dialog.getByRole("button", { name: "Remove header" }).last().press("Enter");
   await save.press("Enter");
   await expect(dialog.getByRole("alert")).toContainText("Could not write settings to disk");
   await expect(host).toHaveValue("example.test");

@@ -40,6 +40,7 @@ type Outcome = {
 
 export default function BulkTaskActions({
   visibleCount,
+  multiplePages,
   selected,
   disabled,
   onSelectAll,
@@ -48,6 +49,7 @@ export default function BulkTaskActions({
   refresh,
 }: {
   visibleCount: number;
+  multiplePages: boolean;
   selected: Item[];
   disabled: boolean;
   onSelectAll: (checked: boolean) => void;
@@ -139,7 +141,7 @@ export default function BulkTaskActions({
             disabled={visibleCount === 0}
             onChange={(event) => onSelectAll(event.target.checked)}
           />
-          {t("bulk.selectAll")}
+          {t(multiplePages ? "bulk.selectMatching" : "bulk.selectAll")}
         </label>
         <span className="selection-count" role="status">{picked > 0 && t("bulk.selected", { n: picked })}</span>
         {picked > 0 && (

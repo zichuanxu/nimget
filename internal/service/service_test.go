@@ -26,7 +26,7 @@ func (idleRunner) Download(context.Context, download.Spec, func(download.Progres
 	return nil
 }
 
-func (idleRunner) Discard(string) error { return nil }
+func (idleRunner) Discard(download.Spec) error { return nil }
 
 func startService(t *testing.T) (*service.Service, string, context.CancelFunc) {
 	t.Helper()

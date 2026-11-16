@@ -125,7 +125,7 @@ func TestForeignWorkDirIsKept(t *testing.T) {
 	if err := Download(context.Background(), s.URL+"/media.m3u8", dest, fastOpts(), nil); err == nil {
 		t.Fatal("download reused a foreign directory")
 	}
-	if err := Discard(dest); err == nil {
+	if err := Discard(dest, s.URL+"/media.m3u8"); err == nil {
 		t.Fatal("Discard accepted a foreign directory")
 	}
 	if _, err := os.Stat(mine); err != nil {

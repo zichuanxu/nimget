@@ -185,5 +185,5 @@ type Runner interface {
 	Inspect(ctx context.Context, rawURL string, headers http.Header) (Remote, error)
 	Download(context.Context, Spec, func(Progress)) error
 	// Discard removes the resumable partial state kept for a destination.
-	Discard(destination string) error
+	Discard(Spec) error
 }

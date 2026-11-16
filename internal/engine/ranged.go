@@ -131,37 +131,33 @@ func (j *job) openPart(ctx context.Context, source probeInfo, want *checkpoint) 
 			_ = f.Close()
 			return nil, nil, fmt.Errorf("stat partial file: %w", statErr)
 		}
+		legacy := cp.FileID == ""
 		if info.Size() == want.Size {
 			expected := *want
-			want.FileID = cp.FileID
-			if !validateSource && cp.Identity == j.url {
-				// Checkpoints made before task IDs were used are valid for
-				// the original URL. Successful runs rewrite them with the ID.
+			if legacy && !validateSource && cp.Identity == j.url {
 				expected.Identity = j.url
 			}
-			if cp.resumable(expected) &&
-				(!validateSource || (cp.ETag != "" && cp.SourceScope != "")) {
-				return f, cp.Remaining, nil
-			}
-			// The same strong ETag can describe unrelated resources.
-			// When the final URI changes, compare all saved bytes before use.
-			if cp.ETag != "" && cp.SourceScope != "" && cp.SourceScope != want.SourceScope &&
-				(validateSource || j.engine.cfg.ResumeKey != "") {
-				expected.SourceScope = cp.SourceScope
-				if cp.resumable(expected) {
-					r := rangedRun{job: j, info: source, file: f}
-					verifyErr := r.verifySaved(ctx, cp)
-					if verifyErr == nil {
-						return f, cp.Remaining, nil
-					}
-					if validateSource || !errors.Is(verifyErr, ErrSourceChanged) {
-						return nil, nil, errors.Join(verifyErr, f.Close())
-					}
+			same := cp.resumable(expected) && (!validateSource || (cp.ETag != "" && cp.SourceScope != ""))
+			// The same ETag on a different URI also needs byte comparison.
+			compareNewSource := cp.ETag != "" && cp.SourceScope != "" && cp.SourceScope != want.SourceScope &&
+				(validateSource || j.engine.cfg.ResumeKey != "")
+			expected.SourceScope = cp.SourceScope
+			if same || (compareNewSource && cp.resumable(expected)) {
+				r := rangedRun{job: j, info: source, file: f}
+				verifyErr := r.verifyPartial(ctx, cp, want, !same)
+				if verifyErr == nil {
+					return f, cp.Remaining, nil
+				}
+				if legacy || validateSource || !errors.Is(verifyErr, ErrSourceChanged) {
+					return nil, nil, errors.Join(verifyErr, f.Close())
 				}
 			}
 		}
 		if err := f.Close(); err != nil {
 			return nil, nil, fmt.Errorf("close stale partial file: %w", err)
+		}
+		if legacy {
+			return nil, nil, partialfile.Collision("legacy partial ownership could not be verified")
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, nil, fmt.Errorf("open partial file: %w", err)
@@ -188,6 +184,33 @@ func (j *job) openPart(ctx context.Context, source probeInfo, want *checkpoint) 
 		return nil, nil, err
 	}
 	return f, remaining, nil
+}
+
+func (r *rangedRun) verifyPartial(ctx context.Context, cp checkpoint, want *checkpoint, compare bool) error {
+	legacy := cp.FileID == ""
+	if legacy && totalSize(cp.Remaining) >= cp.Size {
+		return partialfile.Collision("legacy checkpoint contains no saved bytes to verify")
+	}
+	if legacy || compare {
+		if err := r.verifySaved(ctx, cp); err != nil {
+			if legacy && errors.Is(err, ErrSourceChanged) {
+				return partialfile.Collision("saved legacy bytes do not match the source")
+			}
+			return err
+		}
+	}
+	if !legacy {
+		want.FileID = cp.FileID
+		return nil
+	}
+	fileID, err := partialfile.Identity(r.file)
+	if err != nil {
+		return err
+	}
+	want.FileID = fileID
+	state := *want
+	state.Remaining = cp.Remaining
+	return writeCheckpoint(r.job.meta, state)
 }
 
 // verifySaved compares the complement of the missing ranges without writing

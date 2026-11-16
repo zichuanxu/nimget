@@ -75,14 +75,21 @@ func (r *Runner) Download(ctx context.Context, spec download.Spec, progress func
 
 // Discard removes the downloader's resumable partial state for destination,
 // including an HLS download's segment directory.
-func (r *Runner) Discard(destination string) error {
-	if err := hls.Discard(destination); err != nil {
+func (r *Runner) Discard(spec download.Spec) error {
+	identity := spec.ResumeKey
+	if identity == "" {
+		identity = r.base.ResumeKey
+	}
+	if identity == "" {
+		identity = spec.URL
+	}
+	if err := hls.Discard(spec.Destination, identity); err != nil {
 		return err
 	}
-	release, err := filelock.Acquire(destination + ".lock")
+	release, err := filelock.Acquire(spec.Destination + ".lock")
 	if err != nil {
 		return err
 	}
 	defer release()
-	return removePartial(destination+".part", destination+".part.meta", "", "")
+	return removePartial(spec.Destination+".part", spec.Destination+".part.meta", identity)
 }

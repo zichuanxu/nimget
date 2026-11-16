@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/zichuanxu/nimget/internal/download"
 )
 
 func TestSingleDownloadRejectsLinkedPartial(t *testing.T) {
@@ -99,7 +101,7 @@ func TestRangedResumeRejectsLinkedPartial(t *testing.T) {
 	if err := run(t, cfg, server.URL, dest); err == nil {
 		t.Fatal("ranged resume accepted a substituted regular file")
 	}
-	if err := (&Runner{}).Discard(dest); err == nil {
+	if err := (&Runner{}).Discard(download.Spec{URL: server.URL, Destination: dest}); err == nil {
 		t.Fatal("discard accepted a substituted regular file")
 	}
 	requireFile(t, part, []byte(original))

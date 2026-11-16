@@ -90,7 +90,7 @@ if ($VerifyOnly) {
     return
 }
 if (Test-Path -LiteralPath $bundle) { throw "Release bundle already exists: $bundle" }
-if (git -C $repo status --porcelain) { throw 'Prepare a release from a clean checkout.' }
+if (git -C $repo status --porcelain --untracked-files=all) { throw 'Prepare a release from a clean checkout.' }
 
 # Stage beside the final directory so the verified bundle can be moved as a unit.
 $stage = (New-Item -ItemType Directory -Path (Join-Path (Split-Path $bundle) ('.staging-' + [Guid]::NewGuid()))).FullName
@@ -111,7 +111,8 @@ try {
             $data = $outputEntry.Open()
             try {
                 if ($name -ceq 'manifest.json') {
-                    $data.Write([Text.Encoding]::UTF8.GetBytes(($manifestJson -replace "`r`n", "`n")))
+                    $bytes = [Text.Encoding]::UTF8.GetBytes(($manifestJson -replace "`r`n", "`n"))
+                    $data.Write($bytes, 0, $bytes.Length)
                 } else {
                     $inputData = $entry.Open()
                     try { $inputData.CopyTo($data) } finally { $inputData.Dispose() }

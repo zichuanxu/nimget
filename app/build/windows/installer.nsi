@@ -18,12 +18,15 @@ InstallDir "$LOCALAPPDATA\Programs\nimget"
 InstallDirRegKey HKCU "${INSTALL_KEY}" "InstallDir"
 RequestExecutionLevel user
 AllowSkipFiles off
+; Embedded file dates would make the installer depend on the build time.
+SetDateSave off
 SetCompressor /SOLID lzma
 VIProductVersion "${NUMVERSION}.0"
 VIAddVersionKey "CompanyName" "zichuanxu"
 VIAddVersionKey "ProductName" "${PRODUCT}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "FileVersion" "${NUMVERSION}"
+VIAddVersionKey "Comments" "Source commit: ${SOURCECOMMIT}"
 VIAddVersionKey "FileDescription" "NimGet installer"
 VIAddVersionKey "LegalCopyright" "Copyright 2026 zichuanxu. Apache-2.0."
 

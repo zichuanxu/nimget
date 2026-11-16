@@ -20,6 +20,7 @@ $compiler = (Get-Command $MakeNSIS -CommandType Application).Source
 $compilerVersion = & $compiler /VERSION
 if ($compilerVersion -ne 'v3.13') { throw "Expected NSIS v3.13, found $compilerVersion." }
 $repo = Split-Path -Parent $PSScriptRoot
+$sourceCommit = git -C $repo rev-parse HEAD
 $app = Join-Path $repo 'app'
 $resourceDir = Join-Path $app 'build/windows'
 $output = [IO.Path]::GetFullPath($OutputDirectory, $repo)
@@ -70,7 +71,7 @@ try {
         }
     } finally { Pop-Location }
 
-    $definitions = @("/DVERSION=$Version", "/DNUMVERSION=$numericVersion", "/DBINARY=$binary",
+    $definitions = @("/DVERSION=$Version", "/DNUMVERSION=$numericVersion", "/DSOURCECOMMIT=$sourceCommit", "/DBINARY=$binary",
         "/DLICENSE=$(Join-Path $repo 'LICENSE')", "/DNOTICE=$(Join-Path $repo 'NOTICE')",
         "/DICON=$icon", "/DOUTFILE=$setup")
     & $compiler /V2 /WX @definitions (Join-Path $resourceDir 'installer.nsi')

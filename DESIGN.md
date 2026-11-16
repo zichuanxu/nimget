@@ -2,13 +2,13 @@
 
 **`github.com/zichuanxu/nimget`** · Apache-2.0 · Go 1.25 · open source, free
 
-A fast, cross-platform download manager. The core engine, service, CLI, and desktop GUI
-target feature parity with Internet Download Manager. NimGet supports pairing a Chrome or Edge extension.
+A cross-platform download manager with a desktop GUI and CLI. A paired Chrome or Edge
+extension can send downloads to the desktop app.
 
 Revision 2 (2026-09-27) records the scope review in section 14. Where it conflicts with
 revision 1, this document wins.
 
-Distribution was changed to source-only on 2026-10-11; section 10 describes the current policy.
+Section 10 describes Windows release preparation and source distribution.
 
 ---
 
@@ -48,7 +48,8 @@ no Windows service).
 
 | Tier | Targets | Scope |
 |---|---|---|
-| 1 | `darwin/arm64`, `darwin/amd64`, `windows/amd64` | GUI, tray, installer, CLI, service |
+| 1 | `windows/amd64` | GUI, tray, installer, unpacked Chrome and Edge extension, CLI, service |
+| 1 | `darwin/arm64`, `darwin/amd64` | GUI, tray, CLI, service from source |
 | 1 | `linux/amd64`, `linux/arm64` | Headless service + CLI |
 | — | Linux GUI | Not shipped; builds from source on a best-effort basis |
 
@@ -370,7 +371,7 @@ Each browser profile uses its own randomly generated bearer credential. Desktop 
 
 ## 6. Browser extension
 
-Load the unpacked extension in Chrome or Edge and request desktop approval using the [pairing instructions](docs/browser-pairing.md). The popup reports pairing status.
+Load the unpacked extension in Chrome or Edge and request desktop approval using the [pairing instructions](docs/browser-pairing.md). The popup reports pairing status. A context-menu command hands off a link, with optional per-download access to its website session. Automatic capture is off by default. When enabled, it honors site and file-type exclusions and cancels an eligible browser download only after receiving a durable task receipt. The [browser handoff guide](docs/browser-handoff.md) describes permissions, data retention, and fallback behavior.
 
 Authenticated downloads can be added by:
 
@@ -378,7 +379,7 @@ Authenticated downloads can be added by:
   "Copy as cURL"; the URL, cookies, referer, user agent, and headers are captured.
 - **Clipboard monitor** — detects copied URLs and cURL commands and offers to add them.
 
-The production plan tracks automatic capture. The video overlay and "download all links on page" are deferred.
+The video overlay and "download all links on page" are deferred.
 
 ---
 
@@ -470,19 +471,19 @@ LICENSE         Apache-2.0
 NOTICE          nimget attribution
 ```
 
-**Source-only distribution.** Users clone the repository and run the CLI or service
-with `go run ./cmd/nimget ...`. The desktop frontend is built locally with npm,
-then the app starts with `go run .` from `app/`. Local binaries may also be built
-with Go. [docs/source.md](docs/source.md) documents prerequisites and startup for
-macOS, Windows, and headless Linux.
+The [Windows release process](docs/windows-release.md) prepares an unsigned x64
+installer, a matching unpacked Chrome and Edge extension archive, release metadata,
+and SHA-256 checksums for GitHub Releases. A manually dispatched workflow verifies
+the assets and retains them for maintainer review. Publication is a separate step.
 
-CI tests the source and builds the CLI and desktop app. Binary release automation,
-installer packaging, and package-manager publication have been retired.
+The [source setup guide](docs/source.md) covers the desktop app on macOS and Windows
+and the CLI and service on macOS, Windows, and Linux. CI tests the source across
+platforms and builds the CLI and desktop app.
 
-**Updates:** pull source changes with `git pull --ff-only`, rebuild the frontend or
-local binaries as needed, and restart. Default `dev` builds skip the release
-check. Versioned local desktop builds can still show a dismissible release-notes
-banner; it never downloads or replaces anything.
+**Updates.** Install the new Windows release to upgrade the desktop app, then reload
+the matching extension in place. Source users can fast-forward their checkout and
+rebuild. Versioned desktop builds can show a dismissible GitHub release-notes banner
+when the user enables the update check.
 
 `nimget version` prints the version, commit, and build date injected at link time.
 
@@ -501,8 +502,9 @@ banner; it never downloads or replaces anything.
 | **M5** | v0.6 ✅ | HLS: playlist parsing, AES-128, TS/fMP4 concatenation, optional system-ffmpeg remux. | Hostile-HLS fault tests green for clear and encrypted streams. |
 | **M6** | v1.0 ✅ (historical) | Binary distribution and install checks, retired on 2026-10-11 in favor of source startup. | Current source startup is documented in `docs/source.md`; source tests and builds remain in CI. |
 
-The former M6 release and install workflows have been removed. Desktop behavior
-is checked against local source builds using `docs/desktop-checklist.md`.
+Windows release preparation has since been restored. The [desktop checklist](docs/desktop-checklist.md)
+tracks desktop behavior, and the [Windows release guide](docs/windows-release.md) describes
+the additional release checks.
 
 ¹ M3, M4, and M5 shipped together in v0.6. Their automated checks pass in CI (unit tests,
 the desktop build on macOS and Windows, current bindings); the manual checklist
@@ -536,8 +538,8 @@ ffmpeg build script (ffmpeg is not bundled), and "v1 spans all four feature bund
 2. **Relaxed validators** (3.3) parallelize downloads without a strong ETag. Within one
    session the risk is a resource changing mid-transfer, which the total-size and
    `Content-Range` checks catch in practice; cross-session resume still needs a validator.
-3. **Source-only distribution** requires a local Go toolchain and, for the desktop
-   app, Node.js and platform prerequisites, in exchange for zero spend.
+3. **Unsigned Windows installer and unpacked extension.** This distribution uses
+   GitHub Releases and requires users to load the browser extension in developer mode.
 4. **Wails v3 beta** is required for the tray, at the cost of tracking a pre-1.0 API.
 5. **No SSE replay**: a reconnecting client gets a snapshot, not missed history.
    Lifecycle history, if ever needed, belongs in the store.
@@ -553,7 +555,8 @@ wired, and partly incomplete (no re-splitting of owned intervals, a limiter that
 requests larger than its burst, a check-then-create collision loop). `go vet ./...`
 failed on `app/` tests that reference missing symbols.
 
-Decisions taken in the review:
+Historical decisions from the review are recorded below. Sections 6 and 10 describe
+the current browser and distribution scope.
 
 | Topic | Decision |
 |---|---|
@@ -567,5 +570,5 @@ Decisions taken in the review:
 | Local API | Token, Host allowlist, JSON-only, Origin rejection, destination confinement |
 | Engine | Finish the interval engine; stall timeout; RFC 9110 validator table |
 | Connections | 8 per download (max 32), 16 per host, 1 MiB minimum split |
-| Distribution | Source-only as of 2026-10-11; see section 10 |
+| Distribution | Source-only from 2026-10-11 until Windows release preparation was restored |
 | Order | Hardening (M0.5) before the engine rewrite; proxy in M2; extras before HLS |

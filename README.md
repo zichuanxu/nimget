@@ -8,11 +8,11 @@ NimGet is a lightweight, open-source download manager built in Go for macOS and 
 - Queue with priorities, per-host connection caps, speed limits, and a schedule.
 - HLS (`.m3u8`, AES-128) to one `.ts` file, optional MP4 conversion with ffmpeg.
 - Desktop app: tray icon, notifications, drag and drop, cURL import, clipboard monitor, batch URLs, sleep or shut down when done; English and Simplified Chinese, light and dark themes.
-- Chrome and Edge [extension pairing](docs/browser-pairing.md) with desktop approval and revocation.
+- Chrome and Edge extension with [manual handoff, website sessions, and opt-in automatic capture](docs/browser-handoff.md).
 
 ## Install on Windows
 
-See the [Windows installation guide](docs/windows-installer.md) for the x64 installer, WebView2 requirement, upgrades, and uninstall.
+The [Windows release guide](docs/windows-release.md) covers the x64 installer, matching Chrome and Edge extension archive, and SHA-256 checksums. See the [Windows installation guide](docs/windows-installer.md) for WebView2, upgrades, and uninstall. Follow the [extension pairing guide](docs/browser-pairing.md) for browser setup.
 
 ## Run from source
 
@@ -73,7 +73,7 @@ internal/remux/       Optional ffmpeg remux of .ts to .mp4
 internal/batch/       Batch URL patterns
 internal/queuefile/   Queue import and export
 internal/power/       Sleep and shut down
-internal/update/      Optional release notices for versioned local builds
+internal/update/      Optional GitHub Release notices for versioned desktop builds
 internal/quarantine/  Marks completed files as downloaded from the internet
 internal/secrets/     AES-GCM sealing with a key in the OS keyring
 internal/curlimport/  "Copy as cURL" parser

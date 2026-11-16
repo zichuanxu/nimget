@@ -1,15 +1,24 @@
 # Pair Chrome or Edge with NimGet
 
-1. Start the [NimGet desktop app](source.md#desktop-app). If the CLI service is running, stop it first so the desktop can open the loopback connection.
-2. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge. Turn on **Developer mode**, select **Load unpacked**, and choose the repository's `extension` directory containing `manifest.json`.
-3. Open **NimGet** from the browser's Extensions menu. Select **Request pairing** and keep the request ID and approval code available.
-4. In NimGet, open **Settings → Browser extensions**. Find the matching request ID, enter the code, and select **Approve**. The extension displays **Connected**. Select **Deny** to decline an unfamiliar request.
+1. Download and verify the [Windows installer and Chromium extension archive](windows-release.md) from the same release. Extract the ZIP to a directory you can keep for later updates. For a source build, use the `extension` directory in the checkout.
+2. Start the NimGet desktop app. If the CLI service is running, stop it first so the desktop can open the loopback connection.
+3. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge. Turn on **Developer mode**, select **Load unpacked**, and choose the extracted directory containing `manifest.json`.
+4. Open **NimGet** from the browser's Extensions menu. Select **Request pairing** and keep the request ID and approval code available.
+5. In NimGet, open **Settings → Browser extensions**. Find the matching request ID, enter the code, and select **Approve**. The extension displays **Connected**. Select **Deny** to decline an unfamiliar request.
 
 Repeat the steps for each browser profile you want to connect. Existing connections appear in the same desktop panel. Select **Revoke access** to end a connection. To reconnect after denial or revocation, request a new pairing from the extension.
 
 The browser shows **Disconnected** before pairing or while it cannot reach NimGet, **Awaiting approval** during a pending request, **Connected** after approval, and **Pairing denied** or **Access revoked** after the corresponding desktop action. A **Connected** desktop record means the profile remains authorized. The extension verifies desktop reachability when its popup is open. Closing the desktop window to the tray keeps the service running. Quitting the desktop stops it. Pairing does not require an account.
 
 The browser permission to contact `http://127.0.0.1:51000/*` lets the extension reach the local service. Pairing uses extension storage for its credential. Manual handoff works with this local connection. Chrome or Edge asks for additional permissions when you enable automatic capture or grant access to a website session. See [browser handoff](browser-handoff.md) for both options.
+
+## Update the extension
+
+1. Download and verify the archive for the same version as the upgraded desktop app.
+2. Quit each browser using the extension directory. Extract the new archive to a temporary directory and replace the contents of the existing NimGet extension directory with the new files.
+3. Reopen the browser and select **Reload** on the NimGet extension card. Repeat in each browser profile using the directory. Open the NimGet popup and verify that it shows **Connected**. Review automatic capture permissions if the popup reports that capture is paused.
+
+Updating the files in place keeps the installed extension and its local browser storage. If you remove the extension or clear its storage, revoke the old pairing in the desktop app and follow the pairing steps again.
 
 ## Loopback API
 

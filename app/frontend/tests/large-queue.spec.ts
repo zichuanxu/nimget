@@ -40,7 +40,7 @@ test("opens later matches with the keyboard and operates checked tasks across qu
     },
   });
   await page.goto("/");
-  const row = (index: number) => page.locator("#task-row-" + task(index).id);
+  const row = (index: number) => page.getByRole("listitem").filter({ has: page.getByRole("checkbox", { name: "Select " + task(index).id + ".zip", exact: true }) });
   const select = (index: number) => page.getByRole("checkbox", { name: "Select " + task(index).id + ".zip", exact: true });
   const pages = page.getByRole("navigation", { name: "Download pages" });
   await expect(pages).toContainText("1–50 of 105");
@@ -115,7 +115,7 @@ test("retains task changes and removals that arrive while the queue resyncs", as
     download("updated", added),
     download("progress", { ...running, completed: 512 }),
   ]);
-  const getRunning = () => page.locator("#task-row-" + running.id);
+  const getRunning = () => page.getByRole("listitem").filter({ has: page.getByRole("checkbox", { name: "Select " + running.id + ".zip", exact: true }) });
   await expect(getRunning()).toContainText("50%");
   const response = page.waitForResponse((response) => response.url().endsWith("/wails/runtime"));
   finishRefresh();
@@ -182,7 +182,7 @@ test("uses snapshot order and skips replay of events already covered by the snap
     QueueSnapshot: snapshot,
   });
   await page.goto("/");
-  const row = (index: number) => page.locator("#task-row-" + task(index).id);
+  const row = (index: number) => page.getByRole("listitem").filter({ has: page.getByRole("checkbox", { name: "Select " + task(index).id + ".zip", exact: true }) });
   await expect(row(3)).toBeVisible();
   hold = true;
   await emit(page, [{ name: "resync" }]);
@@ -239,7 +239,7 @@ test("returns focus to search when a download dialog's row moves off-page", asyn
   await expect(dialog).toBeVisible();
 
   await emit(page, [download("updated", task(0))]);
-  await expect(page.locator("#task-row-task-0050")).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Select task-0050.zip", exact: true })).toHaveCount(0);
   await expect(dialog).toContainText("task-0050.zip");
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);

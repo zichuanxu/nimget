@@ -16,7 +16,7 @@ export class ExtensionRequestError extends Error {
 
 // Browser-only commands share the same profile credential. Reject redirects
 // so neither the credential nor a command body can leave the loopback endpoint.
-export async function requestExtension(command, body, token) {
+export async function requestExtension(command, body, token, expectedStatuses) {
   const credential = token ?? await readCredential();
   if (!credential) throw new ExtensionRequestError("EXTENSION_CREDENTIAL_REQUIRED");
 
@@ -46,6 +46,9 @@ export async function requestExtension(command, body, token) {
   const result = await response.json().catch(() => null);
   if (!response.ok || !result) {
     throw new ExtensionRequestError(result?.error?.code ?? "REQUEST_FAILED");
+  }
+  if (expectedStatuses && !expectedStatuses.includes(response.status)) {
+    throw new ExtensionRequestError("UNEXPECTED_RESPONSE_STATUS");
   }
   return result;
 }

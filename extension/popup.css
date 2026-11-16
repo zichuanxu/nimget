@@ -55,3 +55,20 @@ button:focus-visible {
   outline: 2px solid Highlight;
   outline-offset: 2px;
 }
+
+.handoff-result:empty {
+  margin: 0;
+}
+
+#handoff-retries {
+  padding-inline-start: 20px;
+}
+
+#handoff-retries li + li {
+  margin-block-start: 10px;
+}
+
+#handoff-retries button {
+  margin-block-start: 4px;
+  margin-inline-end: 6px;
+}

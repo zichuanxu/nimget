@@ -25,6 +25,7 @@ type Downloads interface {
 	Pause(context.Context, string) error
 	Resume(context.Context, string) error
 	Retry(context.Context, string) error
+	Restart(context.Context, string) error
 	Update(context.Context, string, download.Patch) error
 	Delete(ctx context.Context, id string, removeFiles bool) error
 	Settings() settings.Settings
@@ -249,9 +250,10 @@ func (h *Handler) command(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	commands := map[string]func(context.Context, string) error{
-		"pause":  h.downloads.Pause,
-		"resume": h.downloads.Resume,
-		"retry":  h.downloads.Retry,
+		"pause":   h.downloads.Pause,
+		"resume":  h.downloads.Resume,
+		"retry":   h.downloads.Retry,
+		"restart": h.downloads.Restart,
 	}
 	run, ok := commands[verb]
 	if !ok {
@@ -333,6 +335,8 @@ func (h *Handler) writeCommandError(w http.ResponseWriter, action string, err er
 	switch {
 	case errors.Is(err, download.ErrNotFound):
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Download not found")
+	case errors.Is(err, download.ErrRestartRequired):
+		writeError(w, http.StatusConflict, "RESTART_REQUIRED", err.Error())
 	case errors.Is(err, download.ErrInvalidTransition), errors.Is(err, download.ErrActive):
 		writeError(w, http.StatusConflict, "CONFLICT", err.Error())
 	case errors.Is(err, download.ErrInvalidDownload):

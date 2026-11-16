@@ -72,6 +72,10 @@ func (c *Client) Retry(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/v1/downloads/"+url.PathEscape(id)+":retry", nil, http.StatusNoContent, nil)
 }
 
+func (c *Client) Restart(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/v1/downloads/"+url.PathEscape(id)+":restart", nil, http.StatusNoContent, nil)
+}
+
 func (c *Client) Delete(ctx context.Context, id string, removeFiles bool) error {
 	path := "/v1/downloads/" + url.PathEscape(id)
 	if removeFiles {

@@ -6,6 +6,7 @@ export {
     EventType,
     Item,
     Patch,
+    Recovery,
     Request,
     Status
 } from "./models.js";

@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent } from "react";
 import { KeyRound, Moon, Power, RotateCw, Trash2 } from "lucide-react";
-import { Desktop, Item, Status, message } from "./api";
+import { Desktop, Item, Recovery, Status, message } from "./api";
 import { baseName } from "./format";
 import { useI18n } from "./i18n";
 import { Modal } from "./ui";
@@ -62,7 +62,7 @@ export function ReauthDialog({ item, onClose }: { item: Item; onClose: () => voi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const id = useId();
-  const restartRequired = item.recovery === "restart-required";
+  const restartRequired = item.recovery === Recovery.RecoveryRestartRequired;
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);

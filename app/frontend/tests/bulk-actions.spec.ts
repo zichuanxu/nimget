@@ -164,7 +164,7 @@ test("keeps removal scoped to tasks still visible and eligible after confirmatio
   await page.evaluate((updated) => {
     const { _wails } = window as typeof window & { _wails: { dispatchWailsEvent(event: unknown): void } };
     for (const item of updated) {
-      _wails.dispatchWailsEvent({ name: "download", data: { type: "updated", item } });
+      _wails.dispatchWailsEvent({ name: "download", data: { type: "updated", item, sequence: 1 } });
     }
   }, [finished, running]);
 

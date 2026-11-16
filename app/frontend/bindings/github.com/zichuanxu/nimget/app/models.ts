@@ -7,6 +7,9 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as download$0 from "../internal/download/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as update$0 from "../internal/update/models.js";
 
 /**
@@ -38,6 +41,38 @@ export class ImportResult {
             $$parsedSource["failed"] = $$createField1_0($$parsedSource["failed"]);
         }
         return new ImportResult($$parsedSource as Partial<ImportResult>);
+    }
+}
+
+/**
+ * QueueSnapshot pairs a desktop list with the download event sequence.
+ */
+export class QueueSnapshot {
+    "items": download$0.Item[];
+    "sequence": number;
+
+    /** Creates a new QueueSnapshot instance. */
+    constructor($$source: Partial<QueueSnapshot> = {}) {
+        if (!("items" in $$source)) {
+            this["items"] = [];
+        }
+        if (!("sequence" in $$source)) {
+            this["sequence"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new QueueSnapshot instance from a string or object.
+     */
+    static createFrom($$source: any = {}): QueueSnapshot {
+        const $$createField0_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("items" in $$parsedSource) {
+            $$parsedSource["items"] = $$createField0_0($$parsedSource["items"]);
+        }
+        return new QueueSnapshot($$parsedSource as Partial<QueueSnapshot>);
     }
 }
 
@@ -79,7 +114,7 @@ export class State {
      * Creates a new State instance from a string or object.
      */
     static createFrom($$source: any = {}): State {
-        const $$createField4_0 = $$createType2;
+        const $$createField4_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("update" in $$parsedSource) {
             $$parsedSource["update"] = $$createField4_0($$parsedSource["update"]);
@@ -90,5 +125,7 @@ export class State {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = update$0.Release.createFrom;
-const $$createType2 = $Create.Nullable($$createType1);
+const $$createType1 = download$0.Item.createFrom;
+const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = update$0.Release.createFrom;
+const $$createType4 = $Create.Nullable($$createType3);

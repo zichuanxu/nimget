@@ -113,6 +113,8 @@ function Shell() {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState<AddPrefill | null>(null);
+  const [retainAddDraft, setRetainAddDraft] = useState(false);
+  const [addFormKey, setAddFormKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleting, setDeleting] = useState<Item | null>(null);
   const [reauth, setReauth] = useState<Item | null>(null);
@@ -524,7 +526,23 @@ function Shell() {
           }}
         />
       )}
-      {adding && state && <AddDialog prefill={adding} defaultDirectory={state.defaultDirectory} onClose={() => setAdding(null)} onError={fail} />}
+      {(adding || retainAddDraft) && state && (
+        <AddDialog
+          key={addFormKey}
+          prefill={adding}
+          defaultDirectory={state.defaultDirectory}
+          onClose={(keepDraft) => {
+            setRetainAddDraft(keepDraft);
+            setAdding(null);
+          }}
+          onStartNew={() => {
+            if (!retainAddDraft) setAdding({});
+            setRetainAddDraft(false);
+            setAddFormKey((key) => key + 1);
+          }}
+          onError={fail}
+        />
+      )}
       {settingsOpen && state && (
         <SettingsDialog
           state={state}

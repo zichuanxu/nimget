@@ -16,6 +16,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as download$0 from "../internal/download/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as pairing$0 from "../internal/pairing/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as settings$0 from "../internal/settings/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -26,6 +29,10 @@ export function Add(req: download$0.Request): $CancellablePromise<download$0.Ite
     return $Call.ByID(2029781567, req).then(($result: any) => {
         return $$createType0($result);
     });
+}
+
+export function ApproveExtensionPairing(id: string, code: string): $CancellablePromise<void> {
+    return $Call.ByID(562305078, id, code);
 }
 
 /**
@@ -47,6 +54,10 @@ export function Delete(id: string, removeFiles: boolean): $CancellablePromise<vo
     return $Call.ByID(1920553007, id, removeFiles);
 }
 
+export function DenyExtensionPairing(id: string): $CancellablePromise<void> {
+    return $Call.ByID(966454529, id);
+}
+
 /**
  * ExpandBatch returns the URLs a batch pattern such as img[001-120].jpg
  * describes.
@@ -66,19 +77,25 @@ export function ExportQueue(): $CancellablePromise<string> {
     return $Call.ByID(2600091605);
 }
 
+export function ExtensionPairings(): $CancellablePromise<pairing$0.Record[]> {
+    return $Call.ByID(1446732200).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
 /**
  * ImportQueue queues the downloads in an exported file or a list of URLs the
  * user picks.
  */
 export function ImportQueue(): $CancellablePromise<$models.ImportResult> {
     return $Call.ByID(3375714468).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType4($result);
     });
 }
 
 export function List(): $CancellablePromise<download$0.Item[]> {
     return $Call.ByID(507861228).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
     });
 }
 
@@ -94,7 +111,7 @@ export function Open(id: string): $CancellablePromise<void> {
  */
 export function ParseCurl(command: string): $CancellablePromise<download$0.Request> {
     return $Call.ByID(3295307761, command).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType6($result);
     });
 }
 
@@ -162,9 +179,13 @@ export function Reveal(id: string): $CancellablePromise<void> {
     return $Call.ByID(3591417225, id);
 }
 
+export function RevokeExtensionPairing(id: string): $CancellablePromise<void> {
+    return $Call.ByID(4126598205, id);
+}
+
 export function SaveSettings(s: settings$0.Settings): $CancellablePromise<settings$0.Settings> {
     return $Call.ByID(884926860, s).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType7($result);
     });
 }
 
@@ -193,13 +214,13 @@ export function SetWhenDone(action: string): $CancellablePromise<void> {
 
 export function Settings(): $CancellablePromise<settings$0.Settings> {
     return $Call.ByID(3894829833).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType7($result);
     });
 }
 
 export function State(): $CancellablePromise<$models.State> {
     return $Call.ByID(3152233241).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType8($result);
     });
 }
 
@@ -217,8 +238,10 @@ export function WhenDone(): $CancellablePromise<string> {
 // Private type creation functions
 const $$createType0 = download$0.Item.createFrom;
 const $$createType1 = $Create.Array($Create.Any);
-const $$createType2 = $models.ImportResult.createFrom;
-const $$createType3 = $Create.Array($$createType0);
-const $$createType4 = download$0.Request.createFrom;
-const $$createType5 = settings$0.Settings.createFrom;
-const $$createType6 = $models.State.createFrom;
+const $$createType2 = pairing$0.Record.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $models.ImportResult.createFrom;
+const $$createType5 = $Create.Array($$createType0);
+const $$createType6 = download$0.Request.createFrom;
+const $$createType7 = settings$0.Settings.createFrom;
+const $$createType8 = $models.State.createFrom;

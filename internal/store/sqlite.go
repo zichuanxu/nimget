@@ -63,6 +63,15 @@ ALTER TABLE downloads ADD COLUMN checksum TEXT NOT NULL DEFAULT '';
 ALTER TABLE downloads ADD COLUMN headers TEXT NOT NULL DEFAULT '';
 CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL);`,
 	`ALTER TABLE settings ADD COLUMN secrets TEXT NOT NULL DEFAULT '';`,
+	`CREATE TABLE extension_pairings (
+    id TEXT PRIMARY KEY,
+    token_digest BLOB NOT NULL UNIQUE CHECK (length(token_digest) = 32),
+    browser TEXT NOT NULL CHECK (browser IN ('chrome', 'edge')),
+    status TEXT NOT NULL CHECK (status IN ('awaiting-approval', 'connected', 'denied', 'revoked')),
+    code TEXT NOT NULL,
+    requested_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);`,
 	`ALTER TABLE downloads ADD COLUMN recovery TEXT NOT NULL DEFAULT '';`,
 }
 

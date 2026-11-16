@@ -571,7 +571,7 @@ func (e *Engine) Inspect(ctx context.Context, rawURL string) (Remote, error) {
 // engine probe and request headers that a task would use.
 func (info probeInfo) attachmentProof(rawURL string) string {
 	original, err := url.Parse(rawURL)
-	if err != nil || info.sourceScope != sourceScope(original) {
+	if err != nil || info.etag == "" || info.sourceScope != sourceScope(original) {
 		return ""
 	}
 	disposition := strings.TrimSpace(info.disposition)
@@ -581,8 +581,7 @@ func (info probeInfo) attachmentProof(rawURL string) string {
 		return ""
 	}
 	contentType := strings.ToLower(strings.TrimSpace(info.contentType))
-	if mediaType, _, _ := mime.ParseMediaType(contentType); mediaType == "text/html" ||
-		(info.size < 0 && info.etag == "") {
+	if mediaType, _, _ := mime.ParseMediaType(contentType); mediaType == "text/html" {
 		return ""
 	}
 	data := strings.Join([]string{disposition, contentType, strconv.FormatInt(info.size, 10), info.etag}, "\n")

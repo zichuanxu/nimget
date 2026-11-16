@@ -67,8 +67,9 @@ type Desktop struct {
 	// newer is the newest release, when it is newer than this build.
 	newer atomic.Pointer[update.Release]
 	// locale is the frontend's language (a string); tray is relabelled with it.
-	locale atomic.Value
-	tray   []trayItem
+	locale            atomic.Value
+	legacyQueueImport atomic.Pointer[pendingQueueImport]
+	tray              []trayItem
 }
 
 // State describes the backend to the frontend.

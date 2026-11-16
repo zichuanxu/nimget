@@ -122,13 +122,12 @@ func Download(ctx context.Context, rawURL, dest string, opts Options, progress f
 	}
 
 	work := dest + ".hls"
-	if err := partialfile.RejectExisting(dest+".part", dest+".part.meta"); err != nil {
-		return err
-	}
 	if opts.RequireFresh {
-		if err := partialfile.RequireAbsent(work); err != nil {
+		if err := partialfile.RequireAbsent(work, dest+".part", dest+".part.meta"); err != nil {
 			return err
 		}
+	} else if err := partialfile.RejectExisting(dest+".part", dest+".part.meta"); err != nil {
+		return err
 	}
 	d := &downloader{opts: opts, prog: &tracker{cb: progress}, keys: map[string]*keyEntry{}}
 	if u, err := url.Parse(rawURL); err == nil {

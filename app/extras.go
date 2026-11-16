@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"os"
 	"path/filepath"
@@ -95,9 +96,10 @@ func (d *Desktop) exportQueue(filename string, encode func([]download.Item) ([]b
 
 // ImportResult reports an import.
 type ImportResult struct {
-	Added   int    `json:"added"`
-	Failed  []int  `json:"failed"`
-	Problem string `json:"problem,omitempty"`
+	Added    int    `json:"added"`
+	Failed   []int  `json:"failed"`
+	Problem  string `json:"problem,omitempty"`
+	LegacyID string `json:"legacyId,omitempty"`
 }
 
 // ImportQueue queues the downloads in an exported file or a list of URLs the
@@ -107,6 +109,7 @@ func (d *Desktop) ImportQueue() (ImportResult, error) {
 	if err != nil {
 		return ImportResult{}, err
 	}
+	d.legacyQueueImport.Store(nil)
 	path, err := d.app.Dialog.OpenFile().CanChooseFiles(true).PromptForSingleSelection()
 	if err != nil || path == "" {
 		return ImportResult{}, err
@@ -115,17 +118,47 @@ func (d *Desktop) ImportQueue() (ImportResult, error) {
 	if err != nil {
 		return ImportResult{Problem: "unreadable"}, nil
 	}
-	return importQueue(context.Background(), data, m.Add), nil
-}
-
-func importQueue(ctx context.Context, data []byte, add func(context.Context, download.Request) (download.Item, error)) ImportResult {
 	reqs, err := queuefile.Import(data)
+	if errors.Is(err, queuefile.ErrLegacyURLs) {
+		pending := &pendingQueueImport{id: rand.Text(), data: data}
+		d.legacyQueueImport.Store(pending)
+		return ImportResult{LegacyID: pending.id}, nil
+	}
 	if errors.Is(err, queuefile.ErrSummary) {
-		return ImportResult{Problem: "summary"}
+		return ImportResult{Problem: "summary"}, nil
 	}
 	if err != nil {
-		return ImportResult{Problem: "invalid"}
+		return ImportResult{Problem: "invalid"}, nil
 	}
+	return addImported(context.Background(), reqs, m.Add), nil
+}
+
+type pendingQueueImport struct {
+	id   string
+	data []byte
+}
+
+// FinishLegacyImport consumes the selected file after the user makes a choice.
+func (d *Desktop) FinishLegacyImport(id string, confirm bool) (ImportResult, error) {
+	pending := d.legacyQueueImport.Load()
+	if pending == nil || pending.id != id || !d.legacyQueueImport.CompareAndSwap(pending, nil) {
+		return ImportResult{Problem: "expired"}, nil
+	}
+	if !confirm {
+		return ImportResult{}, nil
+	}
+	m, err := d.manager()
+	if err != nil {
+		return ImportResult{}, err
+	}
+	reqs, err := queuefile.ImportLegacyURLs(pending.data)
+	if err != nil {
+		return ImportResult{Problem: "invalid"}, nil
+	}
+	return addImported(context.Background(), reqs, m.Add), nil
+}
+
+func addImported(ctx context.Context, reqs []download.Request, add func(context.Context, download.Request) (download.Item, error)) ImportResult {
 	res := ImportResult{Failed: []int{}}
 	for i, req := range reqs {
 		if _, err := add(ctx, req); err != nil {

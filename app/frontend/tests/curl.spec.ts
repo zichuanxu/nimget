@@ -25,7 +25,6 @@ for (const [url, sameOrigin] of [
     await expect.poll(() => requests.length).toBe(1);
     expect(requests[0]).toMatchObject({ url });
     if (sameOrigin) expect(requests[0]).toHaveProperty("headers", headers);
-    else expect(requests[0]).not.toHaveProperty("headers", headers);
+    else expect(requests[0]).not.toHaveProperty("headers");
   });
 }
-

@@ -122,6 +122,7 @@ function Shell() {
   const [addFormKey, setAddFormKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
+  const [legacyImportID, setLegacyImportID] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Item | null>(null);
   const [reauth, setReauth] = useState<Item | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(null);
@@ -186,20 +187,31 @@ function Shell() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  const reportImport = (res: Awaited<ReturnType<typeof Desktop.ImportQueue>>) => {
+    if (res.problem === "summary" || res.problem === "invalid" || res.problem === "unreadable" || res.problem === "expired") {
+      fail(t(`import.${res.problem}`));
+    } else if (res.failed?.length) {
+      const failed = res.failed.map((n) => t("import.entry", { n })).join("\n");
+      fail(t("toast.imported", { n: res.added, failed }));
+    } else if (res.added > 0) {
+      ok(t("import.added", { n: res.added }));
+    }
+  };
+
   const importQueue = async () => {
     try {
       const res = await Desktop.ImportQueue();
-      if (res.problem === "summary" || res.problem === "invalid" || res.problem === "unreadable") {
-        fail(t(`import.${res.problem}`));
-      } else if (res.failed?.length) {
-        const failed = res.failed.map((n) => t("import.entry", { n })).join("\n");
-        fail(t("toast.imported", { n: res.added, failed }));
-      } else if (res.added > 0) {
-        ok(t("import.added", { n: res.added }));
-      }
+      if (res.legacyId) setLegacyImportID(res.legacyId);
+      else reportImport(res);
     } catch (err) {
       fail(err);
     }
+  };
+
+  const finishLegacyImport = (confirm: boolean) => {
+    if (!legacyImportID) return;
+    setLegacyImportID(null);
+    Desktop.FinishLegacyImport(legacyImportID, confirm).then(reportImport).catch(fail);
   };
 
   const exportQueue = async (save: () => Promise<string>) => {
@@ -265,7 +277,7 @@ function Shell() {
   const totalSpeed = history[history.length - 1] ?? 0;
   const details = detailsId ? items.get(detailsId) : undefined;
   const contextItem = context ? pageRows.find((item) => item.id === context.id) : undefined;
-  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming || backupOpen);
+  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming || backupOpen || legacyImportID);
   useEffect(() => {
     if (context && !contextItem) setContext(null);
   }, [context, contextItem]);
@@ -638,6 +650,24 @@ function Shell() {
           }}
           onError={fail}
         />
+      )}
+      {legacyImportID && (
+        <Modal
+          icon={FolderInput}
+          tone="warn"
+          size="small"
+          title={t("import.legacyTitle")}
+          onClose={() => finishLegacyImport(false)}
+          focusFallback={focusSearch}
+          footer={
+            <>
+              <button type="button" data-initial-focus onClick={() => finishLegacyImport(false)}>{t("common.cancel")}</button>
+              <button type="button" className="primary" onClick={() => finishLegacyImport(true)}>{t("import.confirmLegacy")}</button>
+            </>
+          }
+        >
+          <p>{t("import.legacyWarning")}</p>
+        </Modal>
       )}
       {backupOpen && (
         <Modal

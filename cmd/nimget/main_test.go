@@ -319,8 +319,18 @@ func TestQueueCommandsKeepSourceCredentialsOutOfSharedOutput(t *testing.T) {
 		t.Fatal("backup did not restore exact source and destination")
 	}
 
-	input := command("import", "-")
-	input.Stdin = strings.NewReader(fmt.Sprintf(`{"version":1,"downloads":[{"url":%q},{"url":%q,"priority":2}]}`, url, url))
+	legacy := fmt.Sprintf(`{"version":1,"downloads":[{"url":%q},{"url":%q,"priority":2}]}`, url, url)
+	unacknowledged := command("import", "-")
+	unacknowledged.Stdin = strings.NewReader(legacy)
+	message, err := unacknowledged.CombinedOutput()
+	if err == nil || !bytes.Contains(message, []byte("--allow-legacy-urls")) {
+		t.Fatalf("legacy file accepted before its URLs were acknowledged: %q, %v", message, err)
+	}
+	if count, err := p.client.List(t.Context()); err != nil || len(count) != 1 {
+		t.Fatalf("legacy refusal added tasks: %d, %v", len(count), err)
+	}
+	input := command("import", "--allow-legacy-urls", "-")
+	input.Stdin = strings.NewReader(legacy)
 	output, err := input.CombinedOutput()
 	if err == nil || !bytes.Contains(output, []byte("Entry 2")) || !bytes.Contains(output, []byte("Added 1 of 2 downloads")) {
 		t.Fatalf("partial import result = %q, %v", output, err)

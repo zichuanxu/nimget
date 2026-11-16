@@ -17,7 +17,10 @@ const post = { requestId: "post", url, method: "POST", tabId: 1, timeStamp };
 const attachment = {
   ...get,
   statusCode: 200,
-  responseHeaders: [{ name: "Content-Disposition", value: "attachment" }],
+  responseHeaders: [
+    { name: "Content-Disposition", value: "attachment" },
+    { name: "ETag", value: '"fixture-version"' },
+  ],
 };
 
 async function startCapture(t) {
@@ -149,3 +152,21 @@ test("an unmarked cookie download stays with the browser when replay is rejected
   assert.equal(transport.mock.callCount(), 1);
   assert.equal(downloads.cancel.mock.callCount(), 0);
 });
+
+for (const headers of [[], [{ name: "Cookie", value: "fixture=private" }]]) {
+  for (const tag of ["", 'W/"weak"']) {
+    test(`a ${headers.length ? "cookie" : "possibly authorized"} attachment with ${tag ? "a weak" : "no"} validator stays with Chromium`, { timeout: 2500 }, async (t) => {
+      const { webRequest, transport, downloads, item } = await startCapture(t);
+      await webRequest.onBeforeRequest.dispatch(get);
+      await webRequest.onSendHeaders.dispatch({ ...get, requestHeaders: headers });
+      await webRequest.onHeadersReceived.dispatch({
+        ...attachment,
+        responseHeaders: [attachment.responseHeaders[0], { name: "ETag", value: tag }],
+      });
+
+      assert.equal(await item(), "captureUnverifiedAttachment");
+      assert.equal(transport.mock.callCount(), 0);
+      assert.equal(downloads.cancel.mock.callCount(), 0);
+    });
+  }
+}

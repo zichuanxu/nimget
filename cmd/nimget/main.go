@@ -299,10 +299,11 @@ func newExportCommand(cfg *cliConfig) *cobra.Command {
 }
 
 func newImportCommand(cfg *cliConfig) *cobra.Command {
-	return &cobra.Command{
+	var allowLegacyURLs bool
+	cmd := &cobra.Command{
 		Use:   "import FILE",
 		Short: "Queue downloads from a source URL backup or a list of links ('-' for standard input)",
-		Long:  "Queue downloads from a source URL backup or a list of links. Older queue exports may contain incomplete links. Replace them with current links if needed.",
+		Long:  "Queue downloads from a source URL backup or a list of links. Older queue exports may contain incomplete links. Review the links before importing older queue files with --allow-legacy-urls.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var data []byte
@@ -315,7 +316,14 @@ func newImportCommand(cfg *cliConfig) *cobra.Command {
 			if err != nil {
 				return errors.New("could not read queue file")
 			}
-			reqs, err := queuefile.Import(data)
+			decode := queuefile.Import
+			if allowLegacyURLs {
+				decode = queuefile.ImportLegacyURLs
+			}
+			reqs, err := decode(data)
+			if errors.Is(err, queuefile.ErrLegacyURLs) {
+				return errors.New("older queue files may contain incomplete links; review the links, then use --allow-legacy-urls to import them")
+			}
 			if err != nil {
 				return err
 			}
@@ -330,13 +338,17 @@ func newImportCommand(cfg *cliConfig) *cobra.Command {
 					reportRejectedEntry(cmd, i)
 				}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Added %d of %d downloads.\n", len(reqs)-failed, len(reqs))
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Added %d of %d downloads.\n", len(reqs)-failed, len(reqs)); err != nil {
+				return err
+			}
 			if failed > 0 {
 				return fmt.Errorf("%d of %d downloads were not added", failed, len(reqs))
 			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&allowLegacyURLs, "allow-legacy-urls", false, "import an older queue file after reviewing its source URLs")
+	return cmd
 }
 
 func newSetCommand(cfg *cliConfig) *cobra.Command {

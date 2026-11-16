@@ -170,6 +170,9 @@
   "capturePermissionDenied": {
     "message": "Automatic capture is off. Allow the browser permissions to turn it on."
   },
+  "capturePermissionNeeded": {
+    "message": "Automatic capture is paused. Save and allow browser access to resume it."
+  },
   "captureUnsupported": {
     "message": "The browser kept this download because NimGet couldn’t verify a direct HTTP or HTTPS GET."
   },

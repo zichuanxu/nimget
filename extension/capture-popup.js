@@ -37,7 +37,10 @@ for (const [id, key] of [
 async function initialize() {
   try {
     const settings = await readCaptureSettings();
-    enabled.checked = settings.enabled && await chrome.permissions.contains(capturePermissions);
+    enabled.checked = settings.enabled;
+    if (settings.enabled && !await chrome.permissions.contains(capturePermissions)) {
+      settingsResult.textContent = t("capturePermissionNeeded");
+    }
     sites.value = settings.sites.join("\n");
     types.value = settings.types.join(", ");
     save.disabled = false;

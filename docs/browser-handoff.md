@@ -32,6 +32,14 @@ Public capture needs no cookie permission. To share a website session automatica
 
 The browser download is canceled only after NimGet returns a durable task receipt. A rejection, timeout, unconfirmed reply, or unavailable desktop leaves the browser downloading. Check the popup for a retry or an explanation. **Retry in NimGet** reuses the original identity and leaves the browser download alone. Check NimGet's queue and the browser downloads list before retrying, since both apps may already be downloading the file. A cancellation failure leaves the accepted NimGet task and a warning in the extension popup.
 
+### Automatic capture acceptance
+
+On Windows 11 25H2 (build 26200.9974), Google Chrome 157.0.8103.51 and Microsoft Edge 157.0.4341.60 ran the unpacked extension with isolated browser profiles and NimGet databases. Both browsers completed a download on a fresh installation, displayed the opt-in permission prompt, and kept downloads excluded by hostname or by the server-provided filename. POST, redirected, and private responses without session consent stayed in the browser. Public handoffs omitted cookies, and the allowed same-origin fixture downloaded the expected protected bytes. The saved setting and exclusions survived browser restart. The test harness reinstalled the unpacked extension after restart, so optional browser grants had to be restored. Both browsers displayed the paused state until renewed access.
+
+The browser left a download active while the acknowledgement was held and canceled it after the receipt arrived. A loopback acceptance fixture in front of the Go service injected a dropped connection, rejection, storage-error response, malformed acknowledgement, timeout, and a response lost after durable acceptance. These cases kept the browser download. Retry after restarting the service reused the same identity and verified the original task and file. An injected browser cancellation error kept the accepted task, let the browser finish, and displayed the duplicate-download warning.
+
+Run the service and extension receipt regressions with `go test ./internal/service ./internal/api` and `node --test tests/extension/*.test.mjs`.
+
 ## Loopback API
 
 Send `POST /v1/extension/handoffs` to `http://127.0.0.1:51000` using the [extension pairing authorization and origin rules](browser-pairing.md#loopback-api). The JSON body contains `handoffId`, a lowercase UUID created once per intent, and `url`, an absolute HTTP or HTTPS URL without embedded credentials. A protected handoff adds `websiteSession` with a `cookie` header value and `expiresAt` as Unix seconds. Optional `referer` must be the target origin with a trailing slash and `userAgent` is the browser's user agent.

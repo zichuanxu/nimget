@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -381,8 +383,7 @@ func (s *SQLite) LoadSettings(ctx context.Context) (settings.Settings, bool, err
 
 // SaveSettings stores the settings with site headers, site passwords, and
 // the proxy URL sealed apart from the readable document. Sealed settings
-// this process cannot open, because the keyring was unavailable, are kept
-// rather than replaced.
+// this process cannot open are kept with the site rules they belong to.
 func (s *SQLite) SaveSettings(ctx context.Context, value settings.Settings) error {
 	value.Sites = append([]settings.Site(nil), value.Sites...)
 	secret := sealedSettings{Sites: make([]siteSecret, len(value.Sites)), ProxyURL: value.Proxy.URL}
@@ -403,19 +404,36 @@ func (s *SQLite) SaveSettings(ctx context.Context, value settings.Settings) erro
 	if err != nil {
 		return err
 	}
-	var stored string
-	err = s.db.QueryRowContext(ctx, `SELECT secrets FROM settings WHERE id = 1`).Scan(&stored)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var storedDoc, stored string
+	err = tx.QueryRowContext(ctx, `SELECT value, secrets FROM settings WHERE id = 1`).Scan(&storedDoc, &stored)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("load settings: %w", err)
 	}
 	if !s.readable(stored) {
+		var previous settings.Settings
+		if err := json.Unmarshal([]byte(storedDoc), &previous); err != nil {
+			return fmt.Errorf("parse saved settings: %w", err)
+		}
+		hasSiteSecrets := slices.ContainsFunc(secret.Sites, func(site siteSecret) bool {
+			return site.Password != "" || len(site.Headers) > 0
+		})
+		// The saved secrets are indexed by rule position. Keep them only
+		// alongside the same rules, and reject secrets we cannot persist.
+		if !reflect.DeepEqual(value.Sites, previous.Sites) || hasSiteSecrets || secret.ProxyURL != "" {
+			return fmt.Errorf("%w: saved credentials are unavailable; restart NimGet with access to credential storage before editing site rules or the proxy URL", download.ErrInvalidSettings)
+		}
 		sealed = stored
 	}
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO settings (id, value, secrets) VALUES (1, ?, ?)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO settings (id, value, secrets) VALUES (1, ?, ?)
 ON CONFLICT(id) DO UPDATE SET value = excluded.value, secrets = excluded.secrets`, string(doc), sealed); err != nil {
 		return fmt.Errorf("save settings: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 // readable reports whether a stored value can be opened with this key.

@@ -34,7 +34,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { Desktop, EventType, Item, State, Status, message } from "./api";
+import { Desktop, EventType, Item, Recovery, State, Status, message } from "./api";
 import AddDialog, { type AddPrefill } from "./AddDialog";
 import SettingsDialog from "./SettingsDialog";
 import { CountdownDialog, DeleteDialog, ReauthDialog } from "./dialogs";
@@ -265,12 +265,12 @@ function Shell() {
     const list: Action[] = [];
     if (item.status === Status.StatusRunning || item.status === Status.StatusQueued) list.push({ icon: Pause, label: t("row.pause"), onSelect: run(() => Desktop.Pause(item.id)) });
     if (item.status === Status.StatusPaused) list.push({ icon: Play, label: t("row.resume"), onSelect: run(() => Desktop.Resume(item.id)) });
-    if (item.status === Status.StatusFailed && item.recovery !== "restart-required")
+    if (item.status === Status.StatusFailed && item.recovery !== Recovery.RecoveryRestartRequired)
       list.push({ icon: RotateCw, label: t("row.retry"), onSelect: run(() => Desktop.Retry(item.id)) });
     if (item.status === Status.StatusFailed || item.status === Status.StatusPaused)
       list.push({
         icon: KeyRound,
-        label: t(item.recovery === "restart-required" ? "row.recover" : "row.reauth"),
+        label: t(item.recovery === Recovery.RecoveryRestartRequired ? "row.recover" : "row.reauth"),
         onSelect: () => setReauth(item),
       });
     if (item.status === Status.StatusCompleted) list.push({ icon: SquareArrowOutUpRight, label: t("row.open"), onSelect: run(() => Desktop.Open(item.id)) });
@@ -684,7 +684,7 @@ function SpeedCard({ running, queued, rate, bps, history }: { running: Item[]; q
 }
 
 function Meta({ item, bps, t }: { item: Item; bps: number; t: T }) {
-  if (item.recovery === "restart-required") return <span className="meta error-text">{t("reauth.restartRequired")}</span>;
+  if (item.recovery === Recovery.RecoveryRestartRequired) return <span className="meta error-text">{t("reauth.restartRequired")}</span>;
   if (item.status === Status.StatusFailed && item.error) return <span className="meta error-text">{item.error}</span>;
   if (item.status === Status.StatusCompleted) return null;
   const parts: string[] = [];

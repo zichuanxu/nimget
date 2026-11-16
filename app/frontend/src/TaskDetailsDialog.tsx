@@ -120,7 +120,7 @@ export default function TaskDetailsDialog({ item, onClose, onRecover }: { item: 
       <form id={`${id}-form`} className="task-options" onSubmit={submit}>
         <div className="field">
           <label className="field-label" htmlFor={`${id}-priority`}>{t("add.priority")}</label>
-          <select id={`${id}-priority`} name="priority" aria-describedby={`${id}-priority-hint`} value={priority} disabled={busy} autoFocus onChange={(event) => {
+          <select id={`${id}-priority`} name="priority" aria-describedby={`${id}-priority-hint`} value={priority} disabled={busy} data-initial-focus onChange={(event) => {
             setPriority(Number(event.target.value));
             setChanged({ ...changed, priority: true });
           }}>

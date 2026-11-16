@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Browser, Events } from "@wailsio/runtime";
 import {
   ArrowDownToLine,
@@ -85,7 +85,6 @@ function matches(item: Item, f: Filter): boolean {
 }
 
 const isMac = navigator.userAgent.includes("Mac");
-const isTyping = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
 /** App owns the interface language and renders the window. */
 export default function App() {
@@ -131,7 +130,8 @@ function Shell() {
   const [converting, setConverting] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<{ action: string; left: number } | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [context, setContext] = useState<{ x: number; y: number; id: string } | null>(null);
+  const [context, setContext] = useState<{ x: number; y: number; id: string; trigger: HTMLElement } | null>(null);
+  const contextMenuId = useId();
   const [dismissed, setDismissed] = useState(() => {
     try {
       return localStorage.getItem("dismissedUpdate") ?? "";
@@ -140,6 +140,7 @@ function Shell() {
     }
   });
   const samples = useRef(new Map<string, Sample>());
+  const newDownload = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [, setTick] = useState(0);
@@ -285,7 +286,11 @@ function Shell() {
   const current = selected && selectedTasks.length === 0 ? rows.find((item) => item.id === selected) : undefined;
   const totalSpeed = history[history.length - 1] ?? 0;
   const details = detailsId ? items.get(detailsId) : undefined;
+  const contextItem = context ? rows.find((item) => item.id === context.id) : undefined;
   const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming);
+  useEffect(() => {
+    if (context && !contextItem) setContext(null);
+  }, [context, contextItem]);
 
   const actions = (item: Item): Action[] => {
     const list: Action[] = [];
@@ -311,7 +316,12 @@ function Shell() {
   // the selection, Space pauses or resumes, Enter opens, Delete removes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (modalOpen) return;
+      if (modalOpen || contextItem || e.defaultPrevented || e.isComposing) return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (target?.isContentEditable || target?.closest("input, textarea, select")) {
+        if (e.key === "Escape" && target === search.current) target.blur();
+        return;
+      }
       const mod = isMac ? e.metaKey : e.ctrlKey;
       if (mod && e.key.toLowerCase() === "n") {
         e.preventDefault();
@@ -322,16 +332,17 @@ function Shell() {
       } else if (mod && e.key.toLowerCase() === "f") {
         e.preventDefault();
         search.current?.focus();
-      } else if (isTyping(e)) {
-        if (e.key === "Escape") (e.target as HTMLElement).blur();
-      } else if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest("button, a, summary"))) {
+      } else if (target?.closest("button, a, summary")) {
         // Keep the native keyboard behavior of focused controls.
         return;
       } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
         const i = rows.findIndex((r) => r.id === selected);
         const next = rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
-        if (next) setSelected(next.id);
+        if (next) {
+          e.preventDefault();
+          setSelected(next.id);
+          document.getElementById(`task-row-${next.id}`)?.focus();
+        }
       } else if (current && e.key === " ") {
         e.preventDefault();
         if (current.status === Status.StatusPaused) run(() => Desktop.Resume(current.id))();
@@ -352,7 +363,6 @@ function Shell() {
     return looksLikeCurl(text) ? text : looksLikeURL(first) ? first : "";
   };
 
-  const contextItem = context ? items.get(context.id) : undefined;
   const closeContext = useCallback(() => setContext(null), []);
   const title = t(filters.find((f) => f.id === filter)!.label);
 
@@ -384,13 +394,13 @@ function Shell() {
           <img className="logo" src="/nimget.png" alt="" />
           <span className="brand-name">NimGet</span>
         </div>
-        <button className="primary block" onClick={() => setAdding({})} title={`${t("app.newDownload")} (${isMac ? "⌘" : "Ctrl+"}N)`}>
+        <button ref={newDownload} className="primary block" onClick={() => setAdding({})} title={`${t("app.newDownload")} (${isMac ? "⌘" : "Ctrl+"}N)`}>
           <Plus size={16} strokeWidth={2.4} />
           {t("app.newDownload")}
         </button>
         <nav className="nav">
           {filters.map((f) => (
-            <button key={f.id} className={`nav-item ${filter === f.id ? "on" : ""} ${f.id}`} onClick={() => {
+            <button key={f.id} className={`nav-item ${filter === f.id ? "on" : ""} ${f.id}`} aria-current={filter === f.id || undefined} onClick={() => {
               if (filter === f.id) return;
               setFilter(f.id);
               setSelected(null);
@@ -426,7 +436,7 @@ function Shell() {
           <div className="grow" />
           <div className="search no-drag">
             <Search size={14} />
-            <input ref={search} value={query} onChange={(e) => changeQuery(e.target.value)} placeholder={t("header.search")} spellCheck={false} />
+            <input ref={search} value={query} onChange={(e) => changeQuery(e.target.value)} placeholder={t("header.search")} aria-label={t("header.search")} spellCheck={false} />
             {query && (
               <button className="icon ghost tiny" onClick={() => changeQuery("")} aria-label={t("common.close")}>
                 <X size={12} />
@@ -500,38 +510,47 @@ function Shell() {
           {rows.length === 0 ? (
             <Empty all={all.length} query={query} onAdd={() => setAdding({})} />
           ) : (
-            rows.map((item) => (
-              <Row
-                key={item.id}
-                item={item}
-                bps={samples.current.get(item.id)?.bps ?? 0}
-                selected={selectedTaskIDs.has(item.id) || current?.id === item.id}
-                checked={selectedTaskIDs.has(item.id)}
-                onCheck={(checked) => setSelectedTaskIDs((previous) => {
-                  const next = new Set(previous);
-                  if (checked) next.add(item.id);
-                  else next.delete(item.id);
-                  return next;
-                })}
-                converting={converting === item.id}
-                actions={actions(item)}
-                onSelect={() => setSelected(item.id)}
-                onDetails={() => setDetailsId(item.id)}
-                onOpen={run(() => (item.status === Status.StatusCompleted ? Desktop.Open(item.id) : Desktop.Reveal(item.id)))}
-                onContext={(x, y) => {
-                  setSelected(item.id);
-                  setContext({ x, y, id: item.id });
-                }}
-              />
-            ))
+            <ul className="task-rows" role="list" aria-label={title}>
+              {rows.map((item) => (
+                <Row
+                  key={item.id}
+                  item={item}
+                  bps={samples.current.get(item.id)?.bps ?? 0}
+                  current={current?.id === item.id}
+                  checked={selectedTaskIDs.has(item.id)}
+                  onCheck={(checked) => setSelectedTaskIDs((previous) => {
+                    const next = new Set(previous);
+                    if (checked) next.add(item.id);
+                    else next.delete(item.id);
+                    return next;
+                  })}
+                  converting={converting === item.id}
+                  actions={actions(item)}
+                  menuId={context?.id === item.id ? contextMenuId : undefined}
+                  onSelect={() => setSelected(item.id)}
+                  onDetails={() => setDetailsId(item.id)}
+                  onOpen={run(() => (item.status === Status.StatusCompleted ? Desktop.Open(item.id) : Desktop.Reveal(item.id)))}
+                  onContext={(x, y, trigger) => {
+                    setSelected(item.id);
+                    setContext((open) => {
+                      if (open?.trigger === trigger && trigger instanceof HTMLButtonElement) return null;
+                      return { x, y, id: item.id, trigger };
+                    });
+                  }}
+                />
+              ))}
+            </ul>
           )}
         </div>
       </section>
 
       {context && contextItem && (
         <ContextMenu
+          id={contextMenuId}
+          label={t("row.actionsFor", { name: baseName(contextItem.destination) })}
           x={context.x}
           y={context.y}
+          trigger={context.trigger}
           entries={[{ icon: Info, label: t("details.title"), onSelect: () => setDetailsId(contextItem.id) }, ...actions(contextItem)]}
           onClose={closeContext}
         />
@@ -560,6 +579,7 @@ function Shell() {
             <button
               className="primary small"
               onClick={() => {
+                newDownload.current?.focus({ preventScroll: true });
                 setAdding({ text: clip });
                 setClip(null);
               }}
@@ -638,11 +658,12 @@ function Shell() {
 function Row({
   item,
   bps,
-  selected,
+  current,
   checked,
   onCheck,
   converting,
   actions,
+  menuId,
   onSelect,
   onDetails,
   onOpen,
@@ -650,15 +671,16 @@ function Row({
 }: {
   item: Item;
   bps: number;
-  selected: boolean;
+  current: boolean;
   checked: boolean;
   onCheck: (checked: boolean) => void;
   converting: boolean;
   actions: Action[];
+  menuId?: string;
   onSelect: () => void;
   onDetails: () => void;
   onOpen: () => void;
-  onContext: (x: number, y: number) => void;
+  onContext: (x: number, y: number, trigger: HTMLElement) => void;
 }) {
   const { t } = useI18n();
   const name = baseName(item.destination);
@@ -669,13 +691,22 @@ function Row({
   // Two quick actions on the row; the rest are in the menu.
   const quick = actions.filter((a) => !a.danger).slice(0, 2);
   return (
-    <div
-      className={`row ${item.status} ${selected ? "selected" : ""}`}
-      onMouseDown={onSelect}
+    <li
+      id={`task-row-${item.id}`}
+      className={`row ${item.status} ${current || checked ? "selected" : ""}`}
+      aria-current={current || undefined}
+      tabIndex={-1}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) onSelect();
+      }}
+      onMouseDown={(event) => {
+        event.currentTarget.focus({ preventScroll: true });
+        onSelect();
+      }}
       onDoubleClick={onOpen}
       onContextMenu={(e) => {
         e.preventDefault();
-        onContext(e.clientX, e.clientY);
+        onContext(e.clientX, e.clientY, e.currentTarget);
       }}
       title={name}
     >
@@ -708,7 +739,7 @@ function Row({
         <span className="pct">{item.status === Status.StatusCompleted ? (known ? bytes(item.total) : "") : known ? `${Math.floor(pct)}%` : ""}</span>
         <div className="row-actions" onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
           {quick.map((a) => (
-            <button key={a.label} className="icon ghost" title={a.label} aria-label={a.label} onClick={a.onSelect}>
+            <button key={a.label} className="icon ghost" title={a.label} aria-label={t("row.actionFor", { action: a.label, name })} onClick={a.onSelect}>
               {a.icon && <a.icon size={15} />}
             </button>
           ))}
@@ -717,18 +748,27 @@ function Row({
             title={t("details.title")}
             aria-label={t("details.for", { name })}
             onClick={onDetails}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") event.stopPropagation();
-            }}
           >
             <Info size={15} />
           </button>
-          <button className="icon ghost" title={t("header.more")} aria-label={t("header.more")} onClick={(e) => onContext(e.clientX, e.clientY)}>
+          <button
+            className="icon ghost"
+            title={t("header.more")}
+            aria-label={t("row.actionsFor", { name })}
+            aria-haspopup="menu"
+            aria-expanded={!!menuId}
+            aria-controls={menuId}
+            onClick={(event) => {
+              const button = event.currentTarget;
+              const { left, bottom } = button.getBoundingClientRect();
+              onContext(event.detail === 0 ? left : event.clientX, event.detail === 0 ? bottom : event.clientY, button);
+            }}
+          >
             <Ellipsis size={15} />
           </button>
         </div>
       </div>
-    </div>
+    </li>
   );
 }
 
@@ -822,33 +862,79 @@ function Empty({ all, query, onAdd }: { all: number; query: string; onAdd: () =>
   );
 }
 
-function ContextMenu({ x, y, entries, onClose }: { x: number; y: number; entries: Action[]; onClose: () => void }) {
+function ContextMenu({ id, label, x, y, trigger, entries, onClose }: {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  trigger: HTMLElement;
+  entries: Action[];
+  onClose: () => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y });
+  useLayoutEffect(() => {
+    const el = ref.current!;
+    setPos({ left: Math.min(x, window.innerWidth - el.offsetWidth - 8), top: Math.min(y, window.innerHeight - el.offsetHeight - 8) });
+    el.querySelector("button")?.focus({ preventScroll: true });
+  }, [x, y, trigger]);
   useEffect(() => {
-    const el = ref.current;
-    if (el) setPos({ left: Math.min(x, window.innerWidth - el.offsetWidth - 8), top: Math.min(y, window.innerHeight - el.offsetHeight - 8) });
-    const close = (e: MouseEvent) => !el?.contains(e.target as Node) && onClose();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const close = (e: MouseEvent) => {
+      if (!(e.target instanceof Node) || ref.current?.contains(e.target)) return;
+      if (trigger instanceof HTMLButtonElement && trigger.contains(e.target)) return;
+      onClose();
+    };
     window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", onKey);
     window.addEventListener("blur", onClose);
     return () => {
       window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", onKey);
       window.removeEventListener("blur", onClose);
     };
-  }, [x, y, onClose]);
+  }, [trigger, onClose]);
+  const dismiss = () => {
+    trigger.focus({ preventScroll: true });
+    onClose();
+  };
   return (
-    <div ref={ref} className="menu floating-menu" style={pos} role="menu">
+    <div
+      id={id}
+      ref={ref}
+      className="menu floating-menu"
+      style={pos}
+      role="menu"
+      aria-label={label}
+      onBlur={(event) => {
+        if (event.relatedTarget !== trigger && !event.currentTarget.contains(event.relatedTarget)) onClose();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" || event.key === "Tab") {
+          if (event.key === "Escape") event.preventDefault();
+          dismiss();
+          return;
+        }
+        if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const buttons = [...event.currentTarget.querySelectorAll("button")];
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const last = buttons.length - 1;
+        const positions = {
+          Home: 0,
+          End: last,
+          ArrowUp: index <= 0 ? last : index - 1,
+          ArrowDown: index === last ? 0 : index + 1,
+        };
+        buttons[positions[event.key]]?.focus();
+      }}
+    >
       {entries.map((e, i) => (
-        <div key={e.label}>
-          {e.danger && i > 0 && <div className="menu-sep" />}
+        <div key={e.label} role="presentation">
+          {e.danger && i > 0 && <div className="menu-sep" role="separator" />}
           <button
             role="menuitem"
+            tabIndex={-1}
             className={`menu-item ${e.danger ? "destructive" : ""}`}
             onClick={() => {
-              onClose();
+              dismiss();
               e.onSelect();
             }}
           >

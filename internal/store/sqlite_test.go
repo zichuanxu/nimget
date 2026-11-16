@@ -217,7 +217,10 @@ func TestSQLiteStoreSealsSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := settings.Default()
-	s.Sites = []settings.Site{{Host: "example.com", Username: "me", Password: "hunter2", Headers: map[string]string{"X-Token": "t"}}}
+	s.Sites = []settings.Site{
+		{Host: "example.com", Username: "me", Password: "hunter2", Headers: map[string]string{"X-Token": "t"}},
+		{Host: "unrelated.test"},
+	}
 	if err := db.SaveSettings(ctx, s); err != nil {
 		t.Fatal(err)
 	}
@@ -265,6 +268,15 @@ func TestSQLiteStoreSealsSecrets(t *testing.T) {
 	if err := db.SaveSettings(ctx, got); err != nil {
 		t.Fatal(err)
 	}
+	removed := got
+	removed.Sites = removed.Sites[1:]
+	if err := db.SaveSettings(ctx, removed); !errors.Is(err, download.ErrInvalidSettings) {
+		t.Fatalf("removing a site with inaccessible saved credentials = %v, want invalid settings", err)
+	}
+	got.Sites[1].Headers = map[string]string{"X-New": "replacement"}
+	if err := db.SaveSettings(ctx, got); !errors.Is(err, download.ErrInvalidSettings) {
+		t.Fatalf("writing headers with inaccessible saved credentials = %v, want invalid settings", err)
+	}
 	_ = db.Close()
 	key[0] = 0
 	db, err = store.Open(path, sealer)
@@ -274,7 +286,8 @@ func TestSQLiteStoreSealsSecrets(t *testing.T) {
 	if item, _ := db.Get(ctx, "x"); item.Headers["Cookie"] != "session=secret" || item.Status != download.StatusRunning {
 		t.Fatalf("after a foreign-key session: %+v", item)
 	}
-	if got, _, _ := db.LoadSettings(ctx); got.Sites[0].Password != "hunter2" || got.MaxConcurrent != 9 {
+	if got, _, _ := db.LoadSettings(ctx); len(got.Sites) != 2 || got.Sites[0].Host != "example.com" ||
+		got.Sites[0].Password != "hunter2" || got.Sites[1].Password != "" || got.Sites[1].Headers != nil || got.MaxConcurrent != 9 {
 		t.Fatalf("after a foreign-key session: settings %+v", got)
 	}
 }

@@ -5,7 +5,7 @@ const snapshotLifetime = 24 * 60 * 60;
 
 export const websiteSessionPrompt = "website-session.html";
 
-function websiteSessionPermission(link) {
+export function websiteSessionPermission(link) {
   const { protocol, hostname } = new URL(link);
   // Chromium checks permission against a cookie's host and its Secure flag,
   // without the download URL's port. HTTPS can use both kinds of cookies.

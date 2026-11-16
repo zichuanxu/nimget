@@ -228,3 +228,20 @@ test("uses snapshot order and skips replay of events already covered by the snap
   await emit(page, [download("progress", { ...running, completed: 896 }, 31)]);
   await expect(row(1)).toContainText("87%");
 });
+
+test("returns focus to search when a download dialog's row moves off-page", async ({ page }) => {
+  const items = Array.from({ length: 50 }, (_, i) => task(i + 1));
+  await mockDesktop(page, { List: () => items });
+  await page.goto("/");
+  const button = page.getByRole("button", { name: "Details for task-0050.zip" });
+  await button.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Download details" });
+  await expect(dialog).toBeVisible();
+
+  await emit(page, [download("updated", task(0))]);
+  await expect(page.locator("#task-row-task-0050")).toHaveCount(0);
+  await expect(dialog).toContainText("task-0050.zip");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Search downloads" })).toBeFocused();
+});

@@ -723,11 +723,12 @@ function Shell() {
           }}
         />
       )}
-      {deleting && <DeleteDialog item={items.get(deleting.id) ?? deleting} onClose={() => setDeleting(null)} onError={fail} />}
+      {deleting && <DeleteDialog item={items.get(deleting.id) ?? deleting} onClose={() => setDeleting(null)} onError={fail} focusFallback={focusSearch} />}
       {details && (
         <TaskDetailsDialog
           key={details.id}
           item={details}
+          focusFallback={focusSearch}
           onClose={() => setDetailsId(null)}
           onRecover={() => {
             setDetailsId(null);
@@ -735,7 +736,7 @@ function Shell() {
           }}
         />
       )}
-      {reauth && <ReauthDialog item={items.get(reauth.id) ?? reauth} onClose={() => setReauth(null)} />}
+      {reauth && <ReauthDialog item={items.get(reauth.id) ?? reauth} onClose={() => setReauth(null)} focusFallback={focusSearch} />}
     </div>
   );
 }

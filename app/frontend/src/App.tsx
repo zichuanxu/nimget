@@ -43,6 +43,7 @@ import { CountdownDialog, DeleteDialog, ReauthDialog } from "./dialogs";
 import Sparkline from "./Sparkline";
 import { baseName, bytes, eta, fileKind, looksLikeCurl, looksLikeURL, speed, type FileKind } from "./format";
 import { I18n, resolveLang, translator, useI18n, type T } from "./i18n";
+import { taskFailure } from "./taskFailure";
 import { Menu, type MenuEntry } from "./ui";
 
 type Sample = { at: number; done: number; bps: number };
@@ -572,7 +573,17 @@ function Shell() {
         />
       )}
       {deleting && <DeleteDialog item={items.get(deleting.id) ?? deleting} onClose={() => setDeleting(null)} onError={fail} />}
-      {details && <TaskDetailsDialog key={details.id} item={details} onClose={() => setDetailsId(null)} />}
+      {details && (
+        <TaskDetailsDialog
+          key={details.id}
+          item={details}
+          onClose={() => setDetailsId(null)}
+          onRecover={() => {
+            setDetailsId(null);
+            setReauth(details);
+          }}
+        />
+      )}
       {reauth && <ReauthDialog item={items.get(reauth.id) ?? reauth} onClose={() => setReauth(null)} />}
     </div>
   );
@@ -711,7 +722,7 @@ function SpeedCard({ running, queued, rate, bps, history }: { running: Item[]; q
 
 function Meta({ item, bps, t }: { item: Item; bps: number; t: T }) {
   if (item.recovery === Recovery.RecoveryRestartRequired) return <span className="meta error-text">{t("reauth.restartRequired")}</span>;
-  if (item.status === Status.StatusFailed && item.error) return <span className="meta error-text">{item.error}</span>;
+  if (item.status === Status.StatusFailed) return <span className="meta error-text">{t(`failure.title.${taskFailure(item) || "unknown"}`)}</span>;
   if (item.status === Status.StatusCompleted) return null;
   const parts: string[] = [];
   const known = item.total > 0;

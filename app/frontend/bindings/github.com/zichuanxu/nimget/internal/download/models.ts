@@ -46,6 +46,19 @@ export enum EventType {
     EventDeleted = "deleted",
 };
 
+export enum Failure {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    FailureAuthorization = "authorization",
+    FailureDiskSpace = "disk-space",
+    FailureFilesystemPermission = "filesystem-permission",
+    FailureNetwork = "network",
+    FailureUnsupportedMedia = "unsupported-media",
+};
+
 export class Item {
     "id": string;
     "url": string;
@@ -54,6 +67,7 @@ export class Item {
     "completed": number;
     "total": number;
     "error"?: string;
+    "failure"?: Failure;
     "recovery"?: Recovery;
     "priority": number;
 

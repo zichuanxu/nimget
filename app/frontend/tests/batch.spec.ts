@@ -103,3 +103,32 @@ test("accepts duplicate URLs when entered intentionally in a batch or in a new d
   await expect(dialog).toHaveCount(0);
   expect(submissions).toEqual([firstURL, rejectedURL, firstURL, firstURL]);
 });
+
+test("offers a dropped link as a new download when a partial batch is retained", async ({ page }) => {
+  await mockDesktop(page, {
+    Add: (input) => {
+      const { url } = input as Request;
+      if (url === rejectedURL) throw new Error("Invalid download URL");
+      return { id: "task-first", url };
+    },
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "New download" }).first().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: /^Links/ }).fill([firstURL, rejectedURL].join("\n"));
+  await dialog.getByRole("button", { name: "Add 2 downloads" }).click();
+  await expect(dialog.getByRole("status")).toHaveText("1 accepted, 1 rejected");
+  await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
+
+  const dataTransfer = await page.evaluateHandle((url) => {
+    const transfer = new DataTransfer();
+    transfer.setData("text/uri-list", url);
+    return transfer;
+  }, lastURL);
+  await page.locator(".shell").dispatchEvent("drop", { dataTransfer });
+
+  await expect(dialog.getByRole("status")).toHaveText("1 accepted, 1 rejected");
+  await dialog.getByRole("button", { name: "Start new download with supplied link" }).click();
+  await expect(dialog.getByRole("textbox", { name: /^Links/ })).toHaveValue(lastURL);
+});

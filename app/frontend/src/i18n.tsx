@@ -118,6 +118,7 @@ const en = {
   "add.rejectedLink": "Rejected link {n}",
   "add.retryRejected": "Retry rejected links",
   "add.startNew": "Start new download",
+  "add.startNewWithLink": "Start new download with supplied link",
 
   "settings.title": "Settings",
   "settings.general": "General",
@@ -302,6 +303,7 @@ const zh: Record<Key, string> = {
   "add.rejectedLink": "已拒绝的链接 {n}",
   "add.retryRejected": "重试被拒绝的链接",
   "add.startNew": "开始新的下载",
+  "add.startNewWithLink": "使用传入的链接开始新下载",
 
   "settings.title": "设置",
   "settings.general": "通用",

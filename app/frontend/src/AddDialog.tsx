@@ -21,6 +21,7 @@ function hostOf(url: string): string {
 
 type Props = {
   prefill: AddPrefill | null;
+  hasNewPrefill: boolean;
   defaultDirectory: string;
   onClose: (keepDraft: boolean) => void;
   onStartNew: () => void;
@@ -28,7 +29,7 @@ type Props = {
 };
 
 /** AddDialog queues one download per URL line, or one from a cURL command. */
-export default function AddDialog({ prefill, defaultDirectory, onClose, onStartNew, onError }: Props) {
+export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, onClose, onStartNew, onError }: Props) {
   const { t } = useI18n();
   const [text, setText] = useState(prefill?.text ?? "");
   const [headers, setHeaders] = useState<Record<string, string>>({});
@@ -188,7 +189,7 @@ export default function AddDialog({ prefill, defaultDirectory, onClose, onStartN
         <>
           {batch && !busy && (
             <button type="button" className="ghost" onClick={onStartNew}>
-              {t("add.startNew")}
+              {t(hasNewPrefill ? "add.startNewWithLink" : "add.startNew")}
             </button>
           )}
           <button type="button" disabled={busy && !batch} onClick={close}>

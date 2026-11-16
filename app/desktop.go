@@ -189,6 +189,14 @@ func (d *Desktop) Delete(id string, removeFiles bool) error {
 	return d.do(func(m *manager.Manager) error { return m.Delete(context.Background(), id, removeFiles) })
 }
 
+func (d *Desktop) ApplyTaskAction(action download.TaskAction, ids []string) ([]download.TaskActionResult, error) {
+	m, err := d.manager()
+	if err != nil {
+		return nil, err
+	}
+	return m.ApplyTaskAction(context.Background(), action, ids)
+}
+
 func (d *Desktop) Update(id string, patch download.Patch) error {
 	return d.do(func(m *manager.Manager) error { return m.Update(context.Background(), id, patch) })
 }

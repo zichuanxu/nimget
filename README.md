@@ -10,9 +10,13 @@ NimGet is a lightweight, open-source download manager built in Go for macOS and 
 - Desktop app: tray icon, notifications, drag and drop, cURL import, clipboard monitor, batch URLs, sleep or shut down when done; English and Simplified Chinese, light and dark themes.
 - Chrome and Edge [extension pairing](docs/browser-pairing.md) with desktop approval and revocation.
 
+## Install on Windows
+
+See the [Windows installation guide](docs/windows-installer.md) for the x64 installer, WebView2 requirement, upgrades, and uninstall.
+
 ## Run from source
 
-NimGet is distributed as source code. Requires Git and Go 1.25+. The desktop app also needs Node.js 22.12+ and, on macOS, the Xcode command line tools; on Windows it needs the WebView2 Runtime.
+Building from source requires Git and Go 1.25+. The desktop app also needs Node.js 22.12+ and, on macOS, the Xcode command line tools. On Windows it needs the WebView2 Runtime.
 
 ```bash
 git clone https://github.com/zichuanxu/nimget.git

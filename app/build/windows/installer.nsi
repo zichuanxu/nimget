@@ -6,6 +6,7 @@ Unicode true
 !include "x64.nsh"
 
 !define PRODUCT "NimGet"
+!define INSTALL_KEY "Software\nimget"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\nimget"
 !define RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 !define WEBVIEW2_KEY "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
@@ -14,7 +15,7 @@ Unicode true
 Name "${PRODUCT} ${VERSION}"
 OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\nimget"
-InstallDirRegKey HKCU "Software\nimget" "InstallDir"
+InstallDirRegKey HKCU "${INSTALL_KEY}" "InstallDir"
 RequestExecutionLevel user
 AllowSkipFiles off
 SetCompressor /SOLID lzma
@@ -31,6 +32,7 @@ VIAddVersionKey "LegalCopyright" "Copyright 2026 zichuanxu. Apache-2.0."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\nimget.exe"
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipUpgradeDirectoryPage
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -64,6 +66,8 @@ VIAddVersionKey "LegalCopyright" "Copyright 2026 zichuanxu. Apache-2.0."
   ${EndIf}
 !macroend
 
+Var RegisteredInstallDir
+
 Function .onInit
   ${IfNot} ${AtLeastWin10}
   ${OrIfNot} ${IsNativeAMD64}
@@ -73,6 +77,11 @@ Function .onInit
   ${EndIf}
   !insertmacro CheckNimGetIsClosed
   !insertmacro LockLifecycle
+  ReadRegStr $RegisteredInstallDir HKCU "${INSTALL_KEY}" "InstallDir"
+  ${If} $RegisteredInstallDir != ""
+    ; The command-line /D option can override InstallDirRegKey.
+    StrCpy $INSTDIR $RegisteredInstallDir
+  ${EndIf}
   ; The 32-bit view reads the documented WOW6432Node HKLM location.
   SetRegView 32
   ReadRegStr $0 HKLM "${WEBVIEW2_KEY}" "pv"
@@ -90,6 +99,12 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 
+Function SkipUpgradeDirectoryPage
+  ${If} $RegisteredInstallDir != ""
+    Abort
+  ${EndIf}
+FunctionEnd
+
 Section "NimGet"
   !insertmacro CheckNimGetIsClosed
   SetShellVarContext current
@@ -99,7 +114,7 @@ Section "NimGet"
   File "/oname=NOTICE.txt" "${NOTICE}"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   CreateShortcut "$SMPROGRAMS\NimGet.lnk" "$INSTDIR\nimget.exe"
-  WriteRegStr HKCU "Software\nimget" "InstallDir" "$INSTDIR"
+  WriteRegStr HKCU "${INSTALL_KEY}" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "zichuanxu"
@@ -115,6 +130,12 @@ SectionEnd
 Function un.onInit
   !insertmacro CheckNimGetIsClosed
   !insertmacro LockLifecycle
+  ReadRegStr $RegisteredInstallDir HKCU "${INSTALL_KEY}" "InstallDir"
+  ${If} $RegisteredInstallDir != $INSTDIR
+    MessageBox MB_OK|MB_ICONEXCLAMATION "This folder is not the registered NimGet installation. Uninstall NimGet from Windows Settings." /SD IDOK
+    SetErrorLevel 6
+    Quit
+  ${EndIf}
 FunctionEnd
 
 ; Delete only installed files. Even downloads saved in the install folder stay.
@@ -133,8 +154,8 @@ Section "Uninstall"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
   DeleteRegKey HKCU "${UNINST_KEY}"
-  DeleteRegValue HKCU "Software\nimget" "InstallDir"
-  DeleteRegKey /ifempty HKCU "Software\nimget"
+  DeleteRegValue HKCU "${INSTALL_KEY}" "InstallDir"
+  DeleteRegKey /ifempty HKCU "${INSTALL_KEY}"
   ReadRegStr $0 HKCU "${RUN_KEY}" "nimget"
   ${If} $0 == '"$INSTDIR\nimget.exe"'
   ${OrIf} $0 == "$INSTDIR\nimget.exe"

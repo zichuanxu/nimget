@@ -2,7 +2,7 @@
 
 Use the x64 installer on Windows 10 or 11 with the Microsoft Edge WebView2 Evergreen Runtime. Go and Node.js are build tools. The installed desktop app includes its frontend and local download service. FFmpeg is optional for converting supported HLS downloads to MP4.
 
-1. Obtain the versioned NimGet Windows installer and its published SHA-256 checksum from the same trusted source. Run Get-FileHash in PowerShell and compare the result before opening the installer.
+1. Download the installer and `SHA256SUMS.txt` from the same [NimGet release](windows-release.md). Run Get-FileHash in PowerShell and compare the result to the installer line in `SHA256SUMS.txt` before opening Setup.
 
    ~~~powershell
    Get-FileHash -Algorithm SHA256 .\NimGet-v1.2.3-windows-x64-setup.exe
@@ -16,7 +16,7 @@ The installer and app are unsigned. Windows may show a Microsoft Defender SmartS
 
 ## Upgrade
 
-Choose **Quit NimGet** from the tray menu, then run the newer installer under the same Windows account. Setup upgrades the registered install location. Launch NimGet to reopen the saved queue and continue eligible tasks. Paused tasks and schedule restrictions still apply. Settings and the queue database live in %APPDATA%\nimget. The packaged app's WebView2 profile lives in %APPDATA%\nimget.exe and holds local interface preferences.
+Download and verify the newer installer from the [release page](windows-release.md). Choose **Quit NimGet** from the tray menu, then run Setup under the same Windows account. Setup upgrades the registered install location. Launch NimGet to reopen the saved queue and continue eligible tasks. Paused tasks and schedule restrictions still apply. Settings and the queue database live in %APPDATA%\nimget. The packaged app's WebView2 profile lives in %APPDATA%\nimget.exe and holds local interface preferences. If you use Chrome or Edge integration, [update the unpacked extension](browser-pairing.md#update-the-extension) from the same release.
 
 ## Uninstall and retained data
 

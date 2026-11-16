@@ -6,12 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"time"
 
 	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/httporigin"
 )
+
+const websiteSessionRecovery = "Sign in to the site again and use Refresh download link in NimGet, or send the link with the browser's website session."
 
 // AcceptHandoff queues a browser request using the same settings, destination
 // selection and notifications as a task added in the desktop app.
@@ -67,9 +67,4 @@ func handoffDigest(req download.Request, credential string) ([32]byte, error) {
 	hash := hmac.New(sha256.New, []byte(credential))
 	_, _ = hash.Write(payload)
 	return [32]byte(hash.Sum(nil)), nil
-}
-
-func websiteSessionRejected(err error) bool {
-	var status *httporigin.StatusError
-	return errors.As(err, &status) && (status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden)
 }

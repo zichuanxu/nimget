@@ -88,7 +88,7 @@ func TestWebsiteSessionHandoff(t *testing.T) {
 		reply := extensionPost(t, svc.Address(), handoffPath, pairingOrigin, token,
 			websiteHandoffBody(t, tc.id, site.URL+tc.path, tc.cookie, site.URL+"/", userAgent, tc.expiry), http.StatusCreated)
 		item := waitWebsiteTask(t, svc, reply.TaskID, download.StatusFailed)
-		if !strings.Contains(item.Error, "website session") {
+		if item.Failure != download.FailureAuthorization || !strings.Contains(item.Error, "website session") {
 			t.Errorf("protected download lacks recovery guidance: %q", item.Error)
 		}
 	}
@@ -200,7 +200,7 @@ func TestWebsiteSessionHandoffRestart(t *testing.T) {
 				t.Fatal(err)
 			}
 			item := waitWebsiteTask(t, svc, receipt.TaskID, tc.want)
-			if tc.want == download.StatusFailed && !strings.Contains(item.Error, "website session") {
+			if tc.want == download.StatusFailed && (item.Failure != download.FailureAuthorization || !strings.Contains(item.Error, "website session")) {
 				t.Fatalf("lost session lacked recovery guidance: %q", item.Error)
 			}
 		})

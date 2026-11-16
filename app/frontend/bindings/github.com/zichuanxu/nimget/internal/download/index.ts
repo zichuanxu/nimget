@@ -9,5 +9,7 @@ export {
     Patch,
     Recovery,
     Request,
-    Status
+    Status,
+    TaskAction,
+    TaskActionResult
 } from "./models.js";

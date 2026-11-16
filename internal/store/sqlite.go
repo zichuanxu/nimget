@@ -73,6 +73,13 @@ CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NUL
     expires_at INTEGER NOT NULL
 );`,
 	`ALTER TABLE downloads ADD COLUMN recovery TEXT NOT NULL DEFAULT '';`,
+	`CREATE TABLE extension_handoffs (
+    pairing_id TEXT NOT NULL REFERENCES extension_pairings(id),
+    handoff_id TEXT NOT NULL,
+    request_digest BLOB NOT NULL CHECK (length(request_digest) = 32),
+    task_id TEXT NOT NULL,
+    PRIMARY KEY (pairing_id, handoff_id)
+) WITHOUT ROWID;`,
 }
 
 func migrate(db *sql.DB) error {
@@ -111,13 +118,21 @@ func (s *SQLite) Close() error {
 }
 
 func (s *SQLite) Create(ctx context.Context, item download.Item) error {
+	return s.create(ctx, s.db, item)
+}
+
+type executor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func (s *SQLite) create(ctx context.Context, db executor, item download.Item) error {
 	headers, err := s.encodeHeaders(item.Headers)
 	if err != nil {
 		return err
 	}
 	const query = `INSERT INTO downloads (id, url, destination, status, completed, total, error, priority, connections, speed_limit, checksum, headers, created_at, updated_at, recovery)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err = s.db.ExecContext(ctx, query, item.ID, item.URL, item.Destination, item.Status,
+	_, err = db.ExecContext(ctx, query, item.ID, item.URL, item.Destination, item.Status,
 		item.Completed, item.Total, item.Error, item.Priority, item.Connections, item.SpeedLimit, item.Checksum, headers,
 		item.CreatedAt.Format(time.RFC3339Nano), item.UpdatedAt.Format(time.RFC3339Nano), item.Recovery)
 	if err != nil {

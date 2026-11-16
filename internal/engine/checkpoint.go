@@ -17,6 +17,7 @@ type checkpoint struct {
 	Version      int        `json:"version"`
 	Identity     string     `json:"identity"`
 	Size         int64      `json:"size"`
+	SourceScope  string     `json:"sourceScope,omitempty"`
 	ETag         string     `json:"etag,omitempty"`
 	LastModified string     `json:"lastModified,omitempty"`
 	Remaining    []interval `json:"remaining"`
@@ -29,6 +30,7 @@ func (c checkpoint) resumable(want checkpoint) bool {
 		return false
 	}
 	return c.Version == checkpointVersion && c.Identity == want.Identity && c.Size == want.Size &&
+		(c.SourceScope == "" || c.SourceScope == want.SourceScope) &&
 		c.ETag == want.ETag && c.LastModified == want.LastModified
 }
 

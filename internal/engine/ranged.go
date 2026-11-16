@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,8 +52,11 @@ type rangedRun struct {
 
 func (j *job) ranged(ctx context.Context, info probeInfo) error {
 	e := j.engine
-	want := checkpoint{Version: checkpointVersion, Identity: j.identity, Size: info.size, ETag: info.etag, LastModified: info.lastModified}
-	f, remaining, err := j.openPart(want)
+	want := checkpoint{
+		Version: checkpointVersion, Identity: j.identity, Size: info.size,
+		SourceScope: info.sourceScope, ETag: info.etag, LastModified: info.lastModified,
+	}
+	f, remaining, err := j.openPart(ctx, info, want)
 	if err != nil {
 		return err
 	}
@@ -117,7 +122,8 @@ func (j *job) ranged(ctx context.Context, info probeInfo) error {
 
 // openPart resumes a compatible checkpoint or creates a preallocated .part
 // file. Workers write through this same validated handle.
-func (j *job) openPart(want checkpoint) (*os.File, []interval, error) {
+func (j *job) openPart(ctx context.Context, source probeInfo, want checkpoint) (*os.File, []interval, error) {
+	validateSource := j.engine.cfg.ValidateSource
 	f, err := partialfile.Open(j.part, os.O_RDWR, 0)
 	if err == nil {
 		info, statErr := f.Stat()
@@ -125,8 +131,33 @@ func (j *job) openPart(want checkpoint) (*os.File, []interval, error) {
 			_ = f.Close()
 			return nil, nil, fmt.Errorf("stat partial file: %w", statErr)
 		}
-		if cp, err := readCheckpoint(j.meta); err == nil && cp.resumable(want) && info.Size() == want.Size {
-			return f, cp.Remaining, nil
+		if cp, err := readCheckpoint(j.meta); err == nil && info.Size() == want.Size {
+			expected := want
+			if !validateSource && cp.Identity == j.url {
+				// Checkpoints made before task IDs were used are valid for
+				// the original URL. Successful runs rewrite them with the ID.
+				expected.Identity = j.url
+			}
+			if cp.resumable(expected) &&
+				(!validateSource || (cp.ETag != "" && cp.SourceScope != "")) {
+				return f, cp.Remaining, nil
+			}
+			// The same strong ETag can describe unrelated resources.
+			// When the final URI changes, compare all saved bytes before use.
+			if cp.ETag != "" && cp.SourceScope != "" && cp.SourceScope != want.SourceScope &&
+				(validateSource || j.engine.cfg.ResumeKey != "") {
+				expected.SourceScope = cp.SourceScope
+				if cp.resumable(expected) {
+					r := rangedRun{job: j, info: source, file: f}
+					verifyErr := r.verifySaved(ctx, cp)
+					if verifyErr == nil {
+						return f, cp.Remaining, nil
+					}
+					if validateSource || !errors.Is(verifyErr, ErrSourceChanged) {
+						return nil, nil, errors.Join(verifyErr, f.Close())
+					}
+				}
+			}
 		}
 		if err := f.Close(); err != nil {
 			return nil, nil, fmt.Errorf("close stale partial file: %w", err)
@@ -134,7 +165,13 @@ func (j *job) openPart(want checkpoint) (*os.File, []interval, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, nil, fmt.Errorf("open partial file: %w", err)
 	}
-	j.discard()
+	if validateSource {
+		if err := partialfile.RequireAbsent(j.part, j.meta); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		j.discard()
+	}
 	if free, err := freeSpace(filepath.Dir(j.part)); err == nil && free < want.Size+freeSpaceMargin {
 		return nil, nil, fmt.Errorf("%w: need %d bytes plus margin, %d available", ErrInsufficientSpace, want.Size, free)
 	}
@@ -157,6 +194,28 @@ func (j *job) openPart(want checkpoint) (*os.File, []interval, error) {
 		}
 	}
 	return f, remaining, nil
+}
+
+// verifySaved compares the complement of the missing ranges without writing
+// the file, updating progress, or changing the old checkpoint on interruption.
+func (r *rangedRun) verifySaved(ctx context.Context, cp checkpoint) error {
+	sort.Slice(cp.Remaining, func(i, j int) bool { return cp.Remaining[i].Start < cp.Remaining[j].Start })
+	buf, saved := make([]byte, bufferSize), make([]byte, bufferSize)
+	verify := func(start, end int64) error {
+		if start == end {
+			return nil
+		}
+		_, err := r.fetch(ctx, &segment{cursor: start, end: end}, buf, saved)
+		return err
+	}
+	var start int64
+	for _, missing := range cp.Remaining {
+		if err := verify(start, missing.Start); err != nil {
+			return err
+		}
+		start = missing.End
+	}
+	return verify(start, cp.Size)
 }
 
 // checkpoint persists progress. The snapshot is taken before the data sync:
@@ -241,7 +300,7 @@ func (r *rangedRun) worker(ctx context.Context, fail context.CancelCauseFunc) {
 		if seg == nil {
 			return
 		}
-		progressed, err := r.fetch(ctx, seg, buf)
+		progressed, err := r.fetch(ctx, seg, buf, nil)
 		r.sched.release(seg)
 		if err == nil {
 			failures = 0
@@ -278,9 +337,8 @@ func (r *rangedRun) worker(ctx context.Context, fail context.CancelCauseFunc) {
 	}
 }
 
-// fetch downloads seg with one request until the segment is done, the
-// request fails, or a steal shrinks the segment to what was already read.
-func (r *rangedRun) fetch(ctx context.Context, seg *segment, buf []byte) (progressed bool, err error) {
+// fetch downloads a segment, or compares it to the file when saved is supplied.
+func (r *rangedRun) fetch(ctx context.Context, seg *segment, buf, saved []byte) (progressed bool, err error) {
 	e := r.job.engine
 	seg.mu.Lock()
 	start, end := seg.cursor, seg.end
@@ -351,13 +409,24 @@ func (r *rangedRun) fetch(ctx context.Context, seg *segment, buf []byte) (progre
 			if err := e.wait(ctx, m); err != nil {
 				return progressed, interrupted(err)
 			}
-			if _, err := r.file.WriteAt(buf[:m], cursor); err != nil {
-				return progressed, fatal(fmt.Errorf("write partial file: %w", err))
+			if saved == nil {
+				if _, err := r.file.WriteAt(buf[:m], cursor); err != nil {
+					return progressed, fatal(fmt.Errorf("write partial file: %w", err))
+				}
+			} else {
+				if _, err := r.file.ReadAt(saved[:m], cursor); err != nil {
+					return progressed, fatal(fmt.Errorf("read partial file: %w", err))
+				}
+				if !bytes.Equal(buf[:m], saved[:m]) {
+					return progressed, fatal(ErrSourceChanged)
+				}
 			}
 			stall.Reset(e.cfg.StallTimeout)
 			seg.advance(int64(m))
 			seg.bytes.Add(int64(m))
-			r.job.progress.completed.Add(int64(m))
+			if saved == nil {
+				r.job.progress.completed.Add(int64(m))
+			}
 			progressed = true
 		}
 		if readErr != nil {
@@ -410,6 +479,9 @@ func (r *rangedRun) validate(req *http.Request, resp *http.Response, start, end 
 
 // changed reports a response whose validators differ from the probe's.
 func (r *rangedRun) changed(resp *http.Response) bool {
+	if r.info.sourceScope != sourceScope(resp.Request.URL) {
+		return true
+	}
 	if r.info.etag != "" {
 		return strongETag(resp.Header.Get("ETag")) != r.info.etag
 	}

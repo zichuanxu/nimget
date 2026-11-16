@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -274,30 +273,24 @@ func (d *Desktop) ParseCurl(command string) (download.Request, error) {
 	return download.Request{URL: r.URL, Headers: r.Headers}, nil
 }
 
-// Reauthenticate replaces a download's request headers with those of a fresh
-// curl command for the same host and retries it; used after a 401 or 403.
-func (d *Desktop) Reauthenticate(id, command string) error {
-	r, err := curlimport.Parse(command)
-	if err != nil {
-		return err
-	}
-	item, err := d.item(id)
-	if err != nil {
-		return err
-	}
-	if host(r.URL) != host(item.URL) {
-		return fmt.Errorf("the command is for %s, but the download is from %s", host(r.URL), host(item.URL))
-	}
-	return d.do(func(m *manager.Manager) error {
-		if err := m.Update(context.Background(), id, download.Patch{Headers: &r.Headers}); err != nil {
-			return err
+// Reauthenticate queues a stopped download with a fresh URL or copied cURL
+// request. The service checks that any saved bytes match the new source.
+func (d *Desktop) Reauthenticate(id, source string) error {
+	rawURL := strings.TrimSpace(source)
+	var headers map[string]string
+	if curlimport.Looks(rawURL) {
+		r, err := curlimport.Parse(rawURL)
+		if err != nil {
+			return errors.New("paste a fresh download URL or a valid Copy as cURL command")
 		}
-		err := m.Retry(context.Background(), id)
-		if errors.Is(err, download.ErrInvalidTransition) {
-			return nil // not failed: the new headers apply from the next start
-		}
-		return err
-	})
+		rawURL, headers = r.URL, r.Headers
+	}
+	return d.Update(id, download.Patch{URL: &rawURL, Headers: &headers})
+}
+
+// Restart discards partial data and queues the download from the beginning.
+func (d *Desktop) Restart(id string) error {
+	return d.do(func(m *manager.Manager) error { return m.Restart(context.Background(), id) })
 }
 
 // PickDirectory asks for a folder and allows downloads into it.
@@ -454,14 +447,6 @@ func (d *Desktop) watchClipboard(ctx context.Context) {
 			d.app.Event.Emit(eventClipboard, strings.TrimSpace(text))
 		}
 	}
-}
-
-func host(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-	return strings.ToLower(u.Hostname())
 }
 
 // watchReleases checks for a newer version shortly after startup and then

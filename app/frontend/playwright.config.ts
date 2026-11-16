@@ -11,7 +11,9 @@ export default defineConfig({
     locale: "en-US",
   },
   webServer: {
-    command: `npm run dev -- --port ${port}`,
+    command: process.env.NIMGET_TEST_PREVIEW
+      ? `npx vite preview --host 127.0.0.1 --strictPort --port ${port}`
+      : `npm run dev -- --port ${port}`,
     url: baseURL,
   },
 });

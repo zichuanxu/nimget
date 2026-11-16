@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Browser, Events } from "@wailsio/runtime";
 import {
   ArrowDownToLine,
@@ -84,6 +84,7 @@ function matches(item: Item, f: Filter): boolean {
   return true;
 }
 
+const tasksPerPage = 50;
 const isMac = navigator.userAgent.includes("Mac");
 
 /** App owns the interface language and renders the window. */
@@ -114,6 +115,7 @@ function Shell() {
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedTaskIDs, setSelectedTaskIDs] = useState<Set<string>>(() => new Set());
   const [bulkConfirming, setBulkConfirming] = useState<Item[] | null>(null);
+  const [pageIndex, setPageIndex] = useState(0);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState<AddPrefill | null>(null);
@@ -140,8 +142,13 @@ function Shell() {
     }
   });
   const samples = useRef(new Map<string, Sample>());
+  const refreshChanges = useRef<Map<string, Item | null> | null>(null);
+  const listElement = useRef<HTMLDivElement>(null);
+  const rowToFocus = useRef<string | null>(null);
   const newDownload = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  const focusSearch = useCallback(() => search.current?.focus({ preventScroll: true }), []);
+  const pageControls = useFocusFallbackOnRemove<HTMLElement>(focusSearch);
   const dragDepth = useRef(0);
   const [, setTick] = useState(0);
 
@@ -149,11 +156,25 @@ function Shell() {
   const ok = useCallback((text: string) => setToast({ kind: "ok", text }), []);
 
   const reload = useCallback(async () => {
+    // A snapshot can come back after newer events have already reached the UI.
+    const changes = new Map<string, Item | null>();
+    refreshChanges.current = changes;
     try {
       const list = await Desktop.List();
-      setItems(new Map((list ?? []).map((i) => [i.id, i])));
+      if (refreshChanges.current !== changes) return;
+      const next = new Map((list ?? []).map((item) => [item.id, item]));
+      for (const [id, item] of changes) {
+        if (item) next.set(id, item);
+        else next.delete(id);
+      }
+      for (const id of samples.current.keys()) {
+        if (next.get(id)?.status !== Status.StatusRunning) samples.current.delete(id);
+      }
+      setItems(next);
     } catch (err) {
-      fail(err);
+      if (refreshChanges.current === changes) fail(err);
+    } finally {
+      if (refreshChanges.current === changes) refreshChanges.current = null;
     }
   }, [fail]);
 
@@ -164,6 +185,7 @@ function Shell() {
     const offDownload = Events.On("download", (ev) => {
       const e = ev.data;
       const item = e.item;
+      refreshChanges.current?.set(item.id, e.type === EventType.EventDeleted ? null : item);
       if (e.type === EventType.EventDeleted) {
         samples.current.delete(item.id);
         setItems((prev) => {
@@ -203,6 +225,7 @@ function Shell() {
       setTick((n) => n + 1);
     }, 1000);
     return () => {
+      refreshChanges.current = null;
       offDownload();
       offResync();
       offStopped();
@@ -248,17 +271,17 @@ function Shell() {
     }
   };
 
-  const run = (fn: () => Promise<unknown>) => () => {
+  const run = useCallback((fn: () => Promise<unknown>) => () => {
     fn().catch(fail);
-  };
+  }, [fail]);
 
-  const convert = (item: Item) => {
+  const convert = useCallback((item: Item) => {
     setConverting(item.id);
     Desktop.ConvertToMP4(item.id)
       .then((out) => ok(t("toast.saved", { name: baseName(out) })))
       .catch(fail)
       .finally(() => setConverting(null));
-  };
+  }, [ok, fail, t]);
 
   // RFC 3339 strings with trimmed fractions do not sort as text.
   const all = useMemo(() => [...items.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)), [items]);
@@ -268,6 +291,21 @@ function Shell() {
     () => all.filter((i) => matches(i, filter) && (!q || baseName(i.destination).toLowerCase().includes(q) || i.url.toLowerCase().includes(q))),
     [all, filter, q],
   );
+  const lastPage = Math.max(0, Math.ceil(rows.length / tasksPerPage) - 1);
+  const page = Math.min(pageIndex, lastPage);
+  const pageStart = page * tasksPerPage;
+  const pageRows = rows.slice(pageStart, pageStart + tasksPerPage);
+  useLayoutEffect(() => {
+    if (listElement.current) listElement.current.scrollTop = 0;
+    if (rowToFocus.current) {
+      document.getElementById(taskRowId(rowToFocus.current))?.focus();
+      rowToFocus.current = null;
+    }
+  }, [page, filter, q]);
+  useEffect(() => {
+    if (page !== pageIndex) setPageIndex(page);
+  }, [page, pageIndex]);
+
   const selectedTasks = useMemo(
     () => selectedTaskIDs.size ? rows.filter((item) => selectedTaskIDs.has(item.id)) : [],
     [rows, selectedTaskIDs],
@@ -280,19 +318,45 @@ function Shell() {
 
   const changeQuery = (value: string) => {
     setQuery(value);
+    setPageIndex(0);
     setSelected(null);
     setSelectedTaskIDs(new Set());
   };
-  const current = selected && selectedTasks.length === 0 ? rows.find((item) => item.id === selected) : undefined;
+  const current = selected && selectedTasks.length === 0 ? pageRows.find((item) => item.id === selected) : undefined;
   const totalSpeed = history[history.length - 1] ?? 0;
   const details = detailsId ? items.get(detailsId) : undefined;
-  const contextItem = context ? rows.find((item) => item.id === context.id) : undefined;
+  const contextItem = context ? pageRows.find((item) => item.id === context.id) : undefined;
   const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming);
   useEffect(() => {
     if (context && !contextItem) setContext(null);
   }, [context, contextItem]);
 
-  const actions = (item: Item): Action[] => {
+  const checkTask = useCallback((id: string, checked: boolean) => {
+    setSelectedTaskIDs((previous) => {
+      const next = new Set(previous);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  const showContext = useCallback((id: string, x: number, y: number, trigger: HTMLElement) => {
+    setSelected(id);
+    setContext((open) => {
+      if (open?.trigger === trigger && trigger instanceof HTMLButtonElement) return null;
+      return { x, y, id, trigger };
+    });
+  }, []);
+  const openTask = useCallback((item: Item) => {
+    run(() => (item.status === Status.StatusCompleted ? Desktop.Open(item.id) : Desktop.Reveal(item.id)))();
+  }, [run]);
+  const changePage = (index: number) => {
+    if (index < 0 || index > lastPage) return;
+    setPageIndex(index);
+    setSelected(null);
+    setContext(null);
+  };
+
+  const actions = useCallback((item: Item): Action[] => {
     const list: Action[] = [];
     if (item.status === Status.StatusRunning || item.status === Status.StatusQueued) list.push({ icon: Pause, label: t("row.pause"), onSelect: run(() => Desktop.Pause(item.id)) });
     if (item.status === Status.StatusPaused) list.push({ icon: Play, label: t("row.resume"), onSelect: run(() => Desktop.Resume(item.id)) });
@@ -310,7 +374,7 @@ function Shell() {
     list.push({ icon: FolderOpen, label: t("row.reveal"), onSelect: run(() => Desktop.Reveal(item.id)) });
     list.push({ icon: Trash2, label: t("row.delete"), onSelect: () => setDeleting(item), danger: true });
     return list;
-  };
+  }, [canConvert, converting, convert, run, t]);
 
   // Keyboard: ⌘/Ctrl+N add, ⌘/Ctrl+, settings, ⌘/Ctrl+F search, arrows move
   // the selection, Space pauses or resumes, Enter opens, Delete removes.
@@ -336,12 +400,19 @@ function Shell() {
         // Keep the native keyboard behavior of focused controls.
         return;
       } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        const i = rows.findIndex((r) => r.id === selected);
-        const next = rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
+        const i = pageRows.findIndex((r) => r.id === selected);
+        const offset = e.key === "ArrowDown" ? 1 : -1;
+        const nextIndex = i < 0 ? pageStart : Math.max(0, Math.min(rows.length - 1, pageStart + i + offset));
+        const next = rows[nextIndex];
         if (next) {
           e.preventDefault();
           setSelected(next.id);
-          document.getElementById(`task-row-${next.id}`)?.focus();
+          const nextPage = Math.floor(nextIndex / tasksPerPage);
+          if (nextPage === page) document.getElementById(taskRowId(next.id))?.focus();
+          else {
+            rowToFocus.current = next.id;
+            setPageIndex(nextPage);
+          }
         }
       } else if (current && e.key === " ") {
         e.preventDefault();
@@ -350,7 +421,7 @@ function Shell() {
       } else if (current && (e.key === "Delete" || (isMac && e.key === "Backspace" && e.metaKey))) {
         setDeleting(current);
       } else if (current && e.key === "Enter") {
-        run(() => (current.status === Status.StatusCompleted ? Desktop.Open(current.id) : Desktop.Reveal(current.id)))();
+        openTask(current);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -403,6 +474,7 @@ function Shell() {
             <button key={f.id} className={`nav-item ${filter === f.id ? "on" : ""} ${f.id}`} aria-current={filter === f.id || undefined} onClick={() => {
               if (filter === f.id) return;
               setFilter(f.id);
+              setPageIndex(0);
               setSelected(null);
               setSelectedTaskIDs(new Set());
             }}>
@@ -498,6 +570,7 @@ function Shell() {
 
         <BulkTaskActions
           visibleCount={rows.length}
+          multiplePages={lastPage > 0}
           selected={selectedTasks}
           disabled={!state || !!state.error}
           onSelectAll={(checked) => setSelectedTaskIDs(checked ? new Set(rows.map((item) => item.id)) : new Set())}
@@ -506,37 +579,34 @@ function Shell() {
           refresh={reload}
         />
 
-        <div className="list" onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}>
+        {lastPage > 0 && (
+          <nav ref={pageControls} className="task-pages" aria-label={t("queue.pages")}>
+            <span role="status">{t("queue.range", { from: pageStart + 1, to: pageStart + pageRows.length, total: rows.length })}</span>
+            <button className="small" aria-disabled={page === 0} onClick={() => changePage(page - 1)}>{t("queue.previous")}</button>
+            <button className="small" aria-disabled={page === lastPage} onClick={() => changePage(page + 1)}>{t("queue.next")}</button>
+          </nav>
+        )}
+        <div ref={listElement} className="list" onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}>
           {rows.length === 0 ? (
             <Empty all={all.length} query={query} onAdd={() => setAdding({})} />
           ) : (
             <ul className="task-rows" role="list" aria-label={title}>
-              {rows.map((item) => (
+              {pageRows.map((item) => (
                 <Row
                   key={item.id}
                   item={item}
                   bps={samples.current.get(item.id)?.bps ?? 0}
                   current={current?.id === item.id}
                   checked={selectedTaskIDs.has(item.id)}
-                  onCheck={(checked) => setSelectedTaskIDs((previous) => {
-                    const next = new Set(previous);
-                    if (checked) next.add(item.id);
-                    else next.delete(item.id);
-                    return next;
-                  })}
+                  onCheck={checkTask}
                   converting={converting === item.id}
-                  actions={actions(item)}
+                  actions={actions}
                   menuId={context?.id === item.id ? contextMenuId : undefined}
-                  onSelect={() => setSelected(item.id)}
-                  onDetails={() => setDetailsId(item.id)}
-                  onOpen={run(() => (item.status === Status.StatusCompleted ? Desktop.Open(item.id) : Desktop.Reveal(item.id)))}
-                  onContext={(x, y, trigger) => {
-                    setSelected(item.id);
-                    setContext((open) => {
-                      if (open?.trigger === trigger && trigger instanceof HTMLButtonElement) return null;
-                      return { x, y, id: item.id, trigger };
-                    });
-                  }}
+                  onSelect={setSelected}
+                  onDetails={setDetailsId}
+                  onOpen={openTask}
+                  onContext={showContext}
+                  onRemovedFocus={focusSearch}
                 />
               ))}
             </ul>
@@ -655,7 +725,19 @@ function Shell() {
   );
 }
 
-function Row({
+function useFocusFallbackOnRemove<T extends HTMLElement>(fallback: () => void) {
+  const previous = useRef<T | null>(null);
+  return useCallback((node: T | null) => {
+    if (!node && previous.current?.contains(document.activeElement)) fallback();
+    previous.current = node;
+  }, [fallback]);
+}
+
+function taskRowId(id: string) {
+  return "task-row-" + id;
+}
+
+const Row = memo(function Row({
   item,
   bps,
   current,
@@ -668,50 +750,54 @@ function Row({
   onDetails,
   onOpen,
   onContext,
+  onRemovedFocus,
 }: {
   item: Item;
   bps: number;
   current: boolean;
   checked: boolean;
-  onCheck: (checked: boolean) => void;
+  onCheck: (id: string, checked: boolean) => void;
   converting: boolean;
-  actions: Action[];
+  actions: (item: Item) => Action[];
   menuId?: string;
-  onSelect: () => void;
-  onDetails: () => void;
-  onOpen: () => void;
-  onContext: (x: number, y: number, trigger: HTMLElement) => void;
+  onSelect: (id: string) => void;
+  onDetails: (id: string) => void;
+  onOpen: (item: Item) => void;
+  onContext: (id: string, x: number, y: number, trigger: HTMLElement) => void;
+  onRemovedFocus: () => void;
 }) {
   const { t } = useI18n();
+  const ref = useFocusFallbackOnRemove<HTMLLIElement>(onRemovedFocus);
   const name = baseName(item.destination);
   const kind = fileKind(name);
   const Icon = kindIcon[kind];
   const known = item.total > 0;
   const pct = known ? Math.min(100, (item.completed / item.total) * 100) : item.status === Status.StatusCompleted ? 100 : 0;
   // Two quick actions on the row; the rest are in the menu.
-  const quick = actions.filter((a) => !a.danger).slice(0, 2);
+  const quick = actions(item).filter((a) => !a.danger).slice(0, 2);
   return (
     <li
-      id={`task-row-${item.id}`}
+      ref={ref}
+      id={taskRowId(item.id)}
       className={`row ${item.status} ${current || checked ? "selected" : ""}`}
       aria-current={current || undefined}
       tabIndex={-1}
       onFocus={(event) => {
-        if (event.target === event.currentTarget) onSelect();
+        if (event.target === event.currentTarget) onSelect(item.id);
       }}
       onMouseDown={(event) => {
         event.currentTarget.focus({ preventScroll: true });
-        onSelect();
+        onSelect(item.id);
       }}
-      onDoubleClick={onOpen}
+      onDoubleClick={() => onOpen(item)}
       onContextMenu={(e) => {
         e.preventDefault();
-        onContext(e.clientX, e.clientY, e.currentTarget);
+        onContext(item.id, e.clientX, e.clientY, e.currentTarget);
       }}
       title={name}
     >
       <label className="task-checkbox" onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" checked={checked} aria-label={t("bulk.selectTask", { name })} onChange={(e) => onCheck(e.target.checked)} />
+        <input type="checkbox" checked={checked} aria-label={t("bulk.selectTask", { name })} onChange={(e) => onCheck(item.id, e.target.checked)} />
       </label>
       <div className={`kind ${kind}`}>
         <Icon size={18} strokeWidth={1.8} />
@@ -747,7 +833,7 @@ function Row({
             className="icon ghost"
             title={t("details.title")}
             aria-label={t("details.for", { name })}
-            onClick={onDetails}
+            onClick={() => onDetails(item.id)}
           >
             <Info size={15} />
           </button>
@@ -761,7 +847,7 @@ function Row({
             onClick={(event) => {
               const button = event.currentTarget;
               const { left, bottom } = button.getBoundingClientRect();
-              onContext(event.detail === 0 ? left : event.clientX, event.detail === 0 ? bottom : event.clientY, button);
+              onContext(item.id, event.detail === 0 ? left : event.clientX, event.detail === 0 ? bottom : event.clientY, button);
             }}
           >
             <Ellipsis size={15} />
@@ -770,7 +856,7 @@ function Row({
       </div>
     </li>
   );
-}
+});
 
 /** SpeedCard is a compact status line when idle and a live readout while downloading. */
 function SpeedCard({ running, queued, rate, bps, history }: { running: Item[]; queued: number; rate: (id: string) => number; bps: number; history: number[] }) {

@@ -7,7 +7,7 @@ const maskedPassword = "********"; // settings.Masked in the service contract.
 const headerName = /^[!#$%&'*+.\-^_`|~0-9A-Za-z]+$/;
 const invalidHost = /[\s/:@?#\\]/;
 
-type HeaderDraft = { id: number; name: string; value: string };
+type HeaderDraft = { id: number; name: string; value: string; originalName?: string };
 export type SiteDraft = {
   id: number;
   original: Site;
@@ -32,7 +32,7 @@ export function draftSite(id: number, original = new Site()): SiteDraft {
     hostConnections: original.hostConnections ? String(original.hostConnections) : "",
     username: original.username ?? "",
     password: original.password ?? "",
-    headers: Object.entries(original.headers ?? {}).map(([name, value], id) => ({ id, name, value: value ?? "" })),
+    headers: Object.entries(original.headers ?? {}).map(([name, value], id) => ({ id, name, value: value ?? "", originalName: name })),
   };
 }
 
@@ -54,16 +54,19 @@ export function siteSettingsErrors(sites: SiteDraft[], t: T) {
     if (site.password === maskedPassword && (site.original.password !== maskedPassword || site.host.toLowerCase() !== site.original.host.toLowerCase())) {
       errors.set(`${id}-password`, t("settings.sitePasswordError"));
     }
-    const seenNames = new Set<string>();
+    const nameCounts = new Map<string, number>();
+    for (const header of site.headers) {
+      const name = header.name.toLowerCase();
+      nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+    }
     for (const header of site.headers) {
       const field = `${id}-header-${header.id}-name`;
-      const originalName = Object.prototype.hasOwnProperty.call(site.original.headers ?? {}, header.name);
-      if (!header.name || (!originalName && !headerName.test(header.name))) {
+      const nameChanged = header.name !== header.originalName;
+      if (!header.name || (nameChanged && !headerName.test(header.name))) {
         errors.set(field, t("settings.siteHeaderNameError"));
-      } else if (seenNames.has(header.name)) {
+      } else if (nameChanged && (nameCounts.get(header.name.toLowerCase()) ?? 0) > 1) {
         errors.set(field, t("settings.siteHeaderDuplicate"));
       }
-      seenNames.add(header.name);
     }
   }
   return errors;

@@ -35,7 +35,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { Desktop, EventType, Item, Recovery, State, Status, message } from "./api";
+import { Desktop, EventType, Item, Recovery, State, Status, message, type Event as DownloadEvent } from "./api";
 import AddDialog, { type AddPrefill } from "./AddDialog";
 import BulkTaskActions from "./BulkTaskActions";
 import SettingsDialog from "./SettingsDialog";
@@ -142,13 +142,18 @@ function Shell() {
     }
   });
   const samples = useRef(new Map<string, Sample>());
-  const refreshChanges = useRef<Map<string, Item | null> | null>(null);
+  const queueSync = useRef({
+    snapshotSequence: 0,
+    eventSequence: 0,
+    pending: new Set<symbol>(),
+    changes: new Map<string, DownloadEvent>(),
+  });
   const listElement = useRef<HTMLDivElement>(null);
   const rowToFocus = useRef<string | null>(null);
   const newDownload = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const focusSearch = useCallback(() => search.current?.focus({ preventScroll: true }), []);
-  const pageControls = useFocusFallbackOnRemove<HTMLElement>(focusSearch);
+  const { ref: pageControls } = useFocusFallbackOnRemove<HTMLElement>(focusSearch);
   const dragDepth = useRef(0);
   const [, setTick] = useState(0);
 
@@ -156,25 +161,29 @@ function Shell() {
   const ok = useCallback((text: string) => setToast({ kind: "ok", text }), []);
 
   const reload = useCallback(async () => {
-    // A snapshot can come back after newer events have already reached the UI.
-    const changes = new Map<string, Item | null>();
-    refreshChanges.current = changes;
+    const sync = queueSync.current;
+    const request = Symbol();
+    sync.pending.add(request);
     try {
-      const list = await Desktop.List();
-      if (refreshChanges.current !== changes) return;
+      const { items: list, sequence } = await Desktop.QueueSnapshot();
+      if (!sync.pending.has(request) || sequence < sync.snapshotSequence) return;
       const next = new Map((list ?? []).map((item) => [item.id, item]));
-      for (const [id, item] of changes) {
-        if (item) next.set(id, item);
-        else next.delete(id);
+      // A delayed response can overlap events on either side of its snapshot.
+      for (const [id, change] of sync.changes) {
+        if ((change.sequence ?? 0) <= sequence) continue;
+        if (change.type === EventType.EventDeleted) next.delete(id);
+        else next.set(id, change.item);
       }
+      sync.snapshotSequence = sequence;
       for (const id of samples.current.keys()) {
         if (next.get(id)?.status !== Status.StatusRunning) samples.current.delete(id);
       }
       setItems(next);
     } catch (err) {
-      if (refreshChanges.current === changes) fail(err);
+      if (sync.pending.has(request)) fail(err);
     } finally {
-      if (refreshChanges.current === changes) refreshChanges.current = null;
+      sync.pending.delete(request);
+      if (!sync.pending.size) sync.changes.clear();
     }
   }, [fail]);
 
@@ -184,8 +193,12 @@ function Shell() {
     reload();
     const offDownload = Events.On("download", (ev) => {
       const e = ev.data;
+      const sequence = e.sequence ?? 0;
+      const sync = queueSync.current;
+      if (sequence <= sync.snapshotSequence || sequence <= sync.eventSequence) return;
+      sync.eventSequence = sequence;
       const item = e.item;
-      refreshChanges.current?.set(item.id, e.type === EventType.EventDeleted ? null : item);
+      if (sync.pending.size) sync.changes.set(item.id, e);
       if (e.type === EventType.EventDeleted) {
         samples.current.delete(item.id);
         setItems((prev) => {
@@ -225,7 +238,8 @@ function Shell() {
       setTick((n) => n + 1);
     }, 1000);
     return () => {
-      refreshChanges.current = null;
+      queueSync.current.pending.clear();
+      queueSync.current.changes.clear();
       offDownload();
       offResync();
       offStopped();
@@ -378,7 +392,7 @@ function Shell() {
 
   // Keyboard: ⌘/Ctrl+N add, ⌘/Ctrl+, settings, ⌘/Ctrl+F search, arrows move
   // the selection, Space pauses or resumes, Enter opens, Delete removes.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (modalOpen || contextItem || e.defaultPrevented || e.isComposing) return;
       const target = e.target instanceof HTMLElement ? e.target : null;
@@ -623,6 +637,7 @@ function Shell() {
           trigger={context.trigger}
           entries={[{ icon: Info, label: t("details.title"), onSelect: () => setDetailsId(contextItem.id) }, ...actions(contextItem)]}
           onClose={closeContext}
+          onRemovedFocus={focusSearch}
         />
       )}
 
@@ -726,11 +741,12 @@ function Shell() {
 }
 
 function useFocusFallbackOnRemove<T extends HTMLElement>(fallback: () => void) {
-  const previous = useRef<T | null>(null);
-  return useCallback((node: T | null) => {
-    if (!node && previous.current?.contains(document.activeElement)) fallback();
-    previous.current = node;
+  const element = useRef<T | null>(null);
+  const ref = useCallback((node: T | null) => {
+    if (!node && element.current?.contains(document.activeElement)) fallback();
+    element.current = node;
   }, [fallback]);
+  return { element, ref };
 }
 
 function taskRowId(id: string) {
@@ -767,7 +783,7 @@ const Row = memo(function Row({
   onRemovedFocus: () => void;
 }) {
   const { t } = useI18n();
-  const ref = useFocusFallbackOnRemove<HTMLLIElement>(onRemovedFocus);
+  const { ref } = useFocusFallbackOnRemove<HTMLLIElement>(onRemovedFocus);
   const name = baseName(item.destination);
   const kind = fileKind(name);
   const Icon = kindIcon[kind];
@@ -948,7 +964,7 @@ function Empty({ all, query, onAdd }: { all: number; query: string; onAdd: () =>
   );
 }
 
-function ContextMenu({ id, label, x, y, trigger, entries, onClose }: {
+function ContextMenu({ id, label, x, y, trigger, entries, onClose, onRemovedFocus }: {
   id: string;
   label: string;
   x: number;
@@ -956,23 +972,24 @@ function ContextMenu({ id, label, x, y, trigger, entries, onClose }: {
   trigger: HTMLElement;
   entries: Action[];
   onClose: () => void;
+  onRemovedFocus: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const { element: menu, ref } = useFocusFallbackOnRemove<HTMLDivElement>(onRemovedFocus);
   const [pos, setPos] = useState({ left: x, top: y });
   useLayoutEffect(() => {
-    const el = ref.current!;
+    const el = menu.current!;
     setPos({ left: Math.min(x, window.innerWidth - el.offsetWidth - 8), top: Math.min(y, window.innerHeight - el.offsetHeight - 8) });
     el.querySelector("button")?.focus({ preventScroll: true });
   }, [x, y, trigger]);
   useLayoutEffect(() => {
     // A download update can remove the focused action without moving focus.
     if (document.activeElement === document.body) {
-      ref.current?.querySelector("button")?.focus({ preventScroll: true });
+      menu.current?.querySelector("button")?.focus({ preventScroll: true });
     }
   });
   useEffect(() => {
     const close = (e: MouseEvent) => {
-      if (!(e.target instanceof Node) || ref.current?.contains(e.target)) return;
+      if (!(e.target instanceof Node) || menu.current?.contains(e.target)) return;
       if (trigger instanceof HTMLButtonElement && trigger.contains(e.target)) return;
       onClose();
     };

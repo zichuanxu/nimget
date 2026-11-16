@@ -95,6 +95,7 @@ type Manager struct {
 	// and job items, and orders published events with the state they
 	// describe. Publish must not block.
 	mu        sync.Mutex
+	sequence  int64
 	active    map[string]*job
 	retryAt   map[string]time.Time
 	hostConns map[string]int
@@ -323,6 +324,23 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 func (m *Manager) List(ctx context.Context) ([]download.Item, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.listLocked(ctx)
+}
+
+// ListSnapshot returns a list and its position in the same sequence as
+// published events. Consumers can discard delayed events covered by the list.
+func (m *Manager) ListSnapshot(ctx context.Context) ([]download.Item, int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	items, err := m.listLocked(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	m.sequence++
+	return items, m.sequence, nil
+}
+
+func (m *Manager) listLocked(ctx context.Context) ([]download.Item, error) {
 	items, err := m.repo.List(ctx)
 	if err != nil {
 		return nil, err
@@ -867,8 +885,10 @@ func (m *Manager) signal() {
 	}
 }
 
+// The caller holds m.mu, so snapshots and events share one order.
 func (m *Manager) publish(eventType download.EventType, item download.Item) {
-	m.opts.Publish(download.Event{Type: eventType, Item: item})
+	m.sequence++
+	m.opts.Publish(download.Event{Sequence: m.sequence, Type: eventType, Item: item})
 }
 
 func validateURL(rawURL string) error {

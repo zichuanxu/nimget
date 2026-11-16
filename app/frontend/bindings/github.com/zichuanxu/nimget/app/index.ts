@@ -8,5 +8,6 @@ export {
 
 export {
     ImportResult,
+    QueueSnapshot,
     State
 } from "./models.js";

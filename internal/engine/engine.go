@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -497,8 +498,17 @@ const maxErrorBody = 200
 // out.
 func errorBody(resp *http.Response) string {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	contentType := resp.Header.Get("Content-Type")
+	var finalURL string
+	if resp.Request != nil {
+		finalURL = resp.Request.URL.String()
+	}
+	// Playlists can contain signed resource URLs even when the request is public.
+	if hls.Detect(contentType, finalURL, bytes.TrimSpace(body)) || isDASHManifest(contentType, finalURL) {
+		return ""
+	}
 	text := strings.Join(strings.Fields(string(body)), " ")
-	if text == "" || strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "html") || strings.HasPrefix(text, "<") || !utf8.ValidString(text) {
+	if text == "" || strings.Contains(strings.ToLower(contentType), "html") || strings.HasPrefix(text, "<") || !utf8.ValidString(text) {
 		return ""
 	}
 	if runes := []rune(text); len(runes) > maxErrorBody {

@@ -1,12 +1,16 @@
 package engine
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/zichuanxu/nimget/internal/download"
+	"time"
 )
 
 func TestUnownedOrdinaryPartialIsPreserved(t *testing.T) {
@@ -39,5 +43,51 @@ func TestHTTPErrorOmitsPathCredential(t *testing.T) {
 	err := run(t, testConfig(), server.URL+"/"+marker+"/download.bin", filepath.Join(t.TempDir(), "out.bin"))
 	if err == nil || strings.Contains(err.Error(), marker) {
 		t.Fatalf("wanted HTTP failure with no credential, got %v", err)
+	}
+}
+
+func TestLegacyCheckpointRequiresSavedByteProofBeforeAdoption(t *testing.T) {
+	for _, substituted := range []bool{false, true} {
+		name := "compatible legacy bytes"
+		if substituted {
+			name = "unrelated replacement"
+		}
+		t.Run(name, func(t *testing.T) {
+			payload := randomData(t, 4<<20)
+			fixture := &fileServer{data: payload, etag: `"legacy"`, piece: 64 << 10, pause: 2 * time.Millisecond}
+			server := fixture.start(t)
+			dest := filepath.Join(t.TempDir(), "out.bin")
+			cfg := testConfig()
+			if err := cancelAfter(t, cfg, fixture, server.URL, dest, 1<<20); err == nil {
+				t.Fatal("first download unexpectedly completed")
+			}
+			cp, err := readCheckpoint(dest + ".part.meta")
+			if err != nil || totalSize(cp.Remaining) >= cp.Size {
+				t.Fatalf("expected saved legacy bytes: %v", err)
+			}
+			cp.FileID = ""
+			cp.SourceScope = ""
+			if err := writeCheckpoint(dest+".part.meta", cp); err != nil {
+				t.Fatal(err)
+			}
+			if substituted {
+				original := bytes.Repeat([]byte{'?'}, len(payload))
+				if err := os.WriteFile(dest+".part", original, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := run(t, cfg, server.URL, dest); err == nil {
+					t.Fatal("same-sized unrelated file adopted as legacy download")
+				}
+				if err := (&Runner{}).Discard(download.Spec{URL: server.URL, Destination: dest}); err == nil {
+					t.Fatal("unverified legacy state was discarded")
+				}
+				requireFile(t, dest+".part", original)
+				return
+			}
+			if err := run(t, cfg, server.URL, dest); err != nil {
+				t.Fatal(err)
+			}
+			requireFile(t, dest, payload)
+		})
 	}
 }

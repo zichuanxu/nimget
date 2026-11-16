@@ -285,7 +285,7 @@ type job struct {
 }
 
 func (j *job) discard() error {
-	return removePartial(j.part, j.meta, j.identity, j.url)
+	return removePartial(j.part, j.meta, j.identity)
 }
 
 // loadPartial validates ownership separately from remote byte continuity.
@@ -295,21 +295,24 @@ func loadPartial(part, meta, identity, legacyURL string) (*os.File, checkpoint, 
 		return nil, checkpoint{}, err
 	}
 	cp, readErr := readCheckpoint(meta)
-	stat, statErr := f.Stat()
-	fileID, idErr := partialfile.Identity(f)
-	if readErr != nil || statErr != nil || idErr != nil ||
-		(identity != "" && cp.Identity != identity && cp.Identity != legacyURL) ||
-		(cp.FileID != "" && cp.FileID != fileID) ||
-		(cp.FileID == "" && cp.Size != stat.Size()) {
-		_ = f.Close()
-		return nil, checkpoint{}, partialfile.Collision("an existing file has no matching download state")
+	if readErr == nil && identity != "" && (cp.Identity == identity ||
+		(cp.FileID == "" && cp.Identity == legacyURL)) {
+		if cp.FileID != "" {
+			if fileID, err := partialfile.Identity(f); err == nil && cp.FileID == fileID {
+				return f, cp, nil
+			}
+		} else if info, err := f.Stat(); err == nil && cp.Size == info.Size() {
+			// An older sidecar may guide read-only comparison. It cannot
+			// authorize writing or discarding the current file.
+			return f, cp, nil
+		}
 	}
-	cp.FileID = fileID
-	return f, cp, nil
+	_ = f.Close()
+	return nil, checkpoint{}, partialfile.Collision("an existing file has no matching download state")
 }
 
-func removePartial(part, meta, identity, legacyURL string) error {
-	f, _, err := loadPartial(part, meta, identity, legacyURL)
+func removePartial(part, meta, identity string) error {
+	f, cp, err := loadPartial(part, meta, identity, "")
 	if os.IsNotExist(err) {
 		return partialfile.RejectExisting(meta)
 	}
@@ -318,6 +321,9 @@ func removePartial(part, meta, identity, legacyURL string) error {
 	}
 	if err := f.Close(); err != nil {
 		return err
+	}
+	if cp.FileID == "" {
+		return partialfile.Collision("legacy partial ownership could not be verified")
 	}
 	if err := os.Remove(part); err != nil {
 		return err

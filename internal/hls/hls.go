@@ -56,6 +56,8 @@ type Options struct {
 	Limiters                []Limiter
 	// RequireFresh refuses to replace saved segments when a source is refreshed.
 	RequireFresh bool
+	// ResumeKey identifies the task that owns the work directory.
+	ResumeKey string
 }
 
 // Progress reports a download's state. Callbacks are serialized.
@@ -137,7 +139,12 @@ func Download(ctx context.Context, rawURL, dest string, opts Options, progress f
 	if err != nil {
 		return err
 	}
-	if err := prepareWorkDir(work, rawURL, opts, items); err != nil {
+	identity := opts.ResumeKey
+	if identity == "" {
+		identity = rawURL
+	}
+	owner := workOwner(identity)
+	if err := prepareWorkDir(work, rawURL, owner, opts, items); err != nil {
 		return err
 	}
 	d.prog.segments = len(items)
@@ -156,17 +163,17 @@ func Download(ctx context.Context, rawURL, dest string, opts Options, progress f
 		d.prog.report(true)
 		return err
 	}
-	return commit(work, dest, len(items))
+	return commit(work, dest, owner, len(items))
 }
 
 // Discard removes the owned segment directory kept for dest.
-func Discard(dest string) error {
+func Discard(dest, identity string) error {
 	release, err := lock(dest)
 	if err != nil {
 		return err
 	}
 	defer release()
-	return removeWorkDir(dest + ".hls")
+	return removeWorkDir(dest+".hls", workOwner(identity))
 }
 
 // Detect reports whether a response looks like an HLS playlist, judging by its
@@ -344,7 +351,7 @@ func decryptFile(in *os.File, out io.Writer, size int64, key, iv []byte) error {
 func segPath(work string, i int) string { return filepath.Join(work, fmt.Sprintf("%06d.seg", i)) }
 
 // prepareWorkDir keeps cached segments only for the same playlist plan.
-func prepareWorkDir(work, playlistURL string, opts Options, items []item) error {
+func prepareWorkDir(work, playlistURL, owner string, opts Options, items []item) error {
 	raw, err := json.Marshal(struct {
 		Playlist  string
 		UserAgent string
@@ -357,7 +364,7 @@ func prepareWorkDir(work, playlistURL string, opts Options, items []item) error 
 	// Exact segment and key request URLs distinguish query-selected bytes.
 	// Persist only their fingerprint.
 	sum := sha256.Sum256(raw)
-	state := workState{Version: 1, Fingerprint: hex.EncodeToString(sum[:])}
+	state := workState{Version: 2, Owner: owner, Fingerprint: hex.EncodeToString(sum[:])}
 	existing, err := readWorkState(work)
 	if err == nil && existing == state {
 		return nil
@@ -365,7 +372,7 @@ func prepareWorkDir(work, playlistURL string, opts Options, items []item) error 
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if err := removeWorkDir(work); err != nil {
+	if err := removeWorkDir(work, owner); err != nil {
 		return err
 	}
 	if err := os.Mkdir(work, 0o755); err != nil {
@@ -376,6 +383,7 @@ func prepareWorkDir(work, playlistURL string, opts Options, items []item) error 
 }
 
 type workState struct {
+	Owner       string `json:"owner,omitempty"`
 	Version     int    `json:"version,omitempty"`
 	Fingerprint string `json:"fingerprint"`
 }
@@ -398,7 +406,7 @@ func readWorkState(work string) (workState, error) {
 		return workState{}, invalid
 	}
 	if hash, err := hex.DecodeString(state.Fingerprint); err != nil || len(hash) != sha256.Size ||
-		(state.Version != 0 && state.Version != 1) {
+		(state.Version < 0 || state.Version > 2) {
 		return workState{}, invalid
 	}
 	return state, nil
@@ -406,12 +414,24 @@ func readWorkState(work string) (workState, error) {
 
 var workArtifact = regexp.MustCompile(`^(state\.json|[0-9]{6,}\.seg|\.(dl|dec|tmp|assembly)-[0-9]+)$`)
 
-// Only recognized work directories containing download artifacts can be removed.
-func removeWorkDir(work string) error {
-	if _, err := readWorkState(work); errors.Is(err, fs.ErrNotExist) {
+func workOwner(identity string) string {
+	if identity == "" {
+		return ""
+	}
+	hash := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(hash[:])
+}
+
+// Only work directories whose marker belongs to the caller can be removed.
+func removeWorkDir(work, owner string) error {
+	state, err := readWorkState(work)
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	} else if err != nil {
 		return err
+	}
+	if owner == "" || state.Owner != owner {
+		return partialfile.Collision("HLS work belongs to a different or unverified download")
 	}
 	entries, err := os.ReadDir(work)
 	if err != nil {
@@ -456,7 +476,7 @@ func writeFileSynced(path string, data []byte) error {
 // ponytail: the work dir doubles disk use until this concat; to avoid it,
 // append items to .part in order as they finish and persist an in-order
 // watermark instead of keeping per-segment files.
-func commit(work, dest string, n int) error {
+func commit(work, dest, owner string, n int) error {
 	f, err := os.CreateTemp(work, ".assembly-*")
 	if err != nil {
 		return fmt.Errorf("open partial file: %w", err)
@@ -485,7 +505,7 @@ func commit(work, dest string, n int) error {
 		return err
 	}
 	syncDir(filepath.Dir(dest))
-	_ = removeWorkDir(work) // dest is committed; leftovers are harmless
+	_ = removeWorkDir(work, owner) // dest is committed; leftovers are harmless
 	return nil
 }
 

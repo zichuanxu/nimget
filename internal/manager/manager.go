@@ -492,7 +492,7 @@ func (m *Manager) Restart(ctx context.Context, id string) error {
 		if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
 			return err
 		}
-		if err := m.runner.Discard(item.Destination); err != nil {
+		if err := m.discardPartial(*item); err != nil {
 			return err
 		}
 		item.Completed, item.Total = 0, 0
@@ -505,6 +505,10 @@ func (m *Manager) Restart(ctx context.Context, id string) error {
 		m.signal()
 	}
 	return err
+}
+
+func (m *Manager) discardPartial(item download.Item) error {
+	return m.runner.Discard(download.Spec{URL: item.URL, Destination: item.Destination, ResumeKey: item.ID})
 }
 
 // transition applies change to the stored item under the manager lock, then
@@ -569,7 +573,7 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 	if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
 		return fmt.Errorf("download deleted, but its files were kept: %w", err)
 	}
-	errs := []error{m.runner.Discard(item.Destination)}
+	errs := []error{m.discardPartial(item)}
 	if item.Status == download.StatusCompleted {
 		if err := os.Remove(item.Destination); err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, err)

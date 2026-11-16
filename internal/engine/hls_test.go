@@ -149,7 +149,10 @@ func TestHLSResumesAndDiscards(t *testing.T) {
 	if _, err := os.Stat(other + ".hls"); err != nil {
 		t.Fatalf("partial segment directory missing: %v", err)
 	}
-	if err := runner.Discard(other); err != nil {
+	if err := runner.Discard(download.Spec{URL: spec.URL, Destination: other, ResumeKey: "another-task"}); err == nil {
+		t.Fatal("another task discarded the retained HLS work")
+	}
+	if err := runner.Discard(download.Spec{URL: spec.URL, Destination: other}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(other + ".hls"); !errors.Is(err, os.ErrNotExist) {
@@ -225,7 +228,7 @@ func TestRenewOrdinarySourceAsHLSRequiresExplicitRestart(t *testing.T) {
 		t.Fatalf("renewal did not offer explicit restart: %v", err)
 	}
 	requireFile(t, dest+".part.meta", previous)
-	if err := (&Runner{}).Discard(dest); err != nil {
+	if err := (&Runner{}).Discard(download.Spec{URL: renewed, Destination: dest, ResumeKey: cfg.ResumeKey}); err != nil {
 		t.Fatal(err)
 	}
 	cfg.ValidateSource = false

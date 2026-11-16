@@ -162,6 +162,6 @@ A client that falls behind is disconnected and should reconnect for a fresh snap
 ## Security model
 
 - The service listens on loopback only and requires the bearer token on every command.
-- Requests whose `Host` is not `127.0.0.1`, `localhost`, or `::1` are rejected (DNS-rebinding defense), and so is any request carrying an `Origin` header, which blocks browser pages.
+- The service accepts only `127.0.0.1`, `localhost`, and `::1` as the request host. CLI commands reject browser origins. The dedicated [extension pairing routes](browser-pairing.md#loopback-api) accept only the NimGet extension origin.
 - Destinations must resolve, after following symlinks, inside a `--download-root`, and never inside known autostart directories.
 - Logs never contain request headers, and URLs are logged with credentials and signature parameters redacted. Do not share the token file.

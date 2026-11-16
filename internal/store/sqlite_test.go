@@ -192,6 +192,11 @@ INSERT INTO downloads VALUES ('old', 'https://example.com/f', '/tmp/f', 'paused'
 	if err != nil || item.Completed != 5 || item.Priority != 0 || item.Headers != nil {
 		t.Fatalf("migrated item = %+v, err %v", item, err)
 	}
+	const credential = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	pending, err := db.RequestExtensionPairing(context.Background(), credential, "chrome")
+	if err != nil || pending.Status != "awaiting-approval" || pending.ID == "" {
+		t.Fatalf("pairing on migrated database = %q, err %v", pending.Status, err)
+	}
 }
 
 // Headers and site credentials are sealed at rest; with another key they read

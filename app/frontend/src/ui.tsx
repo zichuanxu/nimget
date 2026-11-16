@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { X, type LucideIcon } from "lucide-react";
 import { useI18n } from "./i18n";
 
@@ -22,29 +22,48 @@ export function Modal({
 }) {
   const { t } = useI18n();
   const titleId = useId();
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const ref = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    const dialog = ref.current!;
+    const initial = dialog.querySelector("[data-initial-focus]");
+    // React's autoFocus prop focuses on mount, before a native dialog is open.
+    initial?.setAttribute("autofocus", "");
+    dialog.setAttribute("closedby", "any");
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
   return (
-    <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal ${size}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <header className="modal-head">
-          {Icon && (
-            <span className={`modal-icon ${tone}`}>
-              <Icon size={18} strokeWidth={2} />
-            </span>
-          )}
-          <h2 id={titleId}>{title}</h2>
-          <button className="icon ghost" onClick={onClose} aria-label={t("common.close")} title={t("common.close")}>
-            <X size={16} />
-          </button>
-        </header>
-        <div className="modal-body">{children}</div>
-        {footer && <footer className="modal-foot">{footer}</footer>}
-      </div>
-    </div>
+    <dialog
+      ref={ref}
+      className={`modal ${size}`}
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onMouseDown={(event) => {
+        if ("closedBy" in HTMLDialogElement.prototype || event.target !== event.currentTarget) return;
+        const { left, right, top, bottom } = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom) {
+          event.preventDefault();
+          onClose();
+        }
+      }}
+    >
+      <header className="modal-head">
+        {Icon && (
+          <span className={`modal-icon ${tone}`}>
+            <Icon size={18} strokeWidth={2} />
+          </span>
+        )}
+        <h2 id={titleId}>{title}</h2>
+        <button type="button" className="icon ghost" onClick={onClose} aria-label={t("common.close")} title={t("common.close")}>
+          <X size={16} />
+        </button>
+      </header>
+      <div className="modal-body">{children}</div>
+      {footer && <footer className="modal-foot">{footer}</footer>}
+    </dialog>
   );
 }
 

@@ -2,7 +2,9 @@ package service_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -273,25 +275,44 @@ func TestManualHandoffRespectsQueueScheduleAndLimits(t *testing.T) {
 
 func TestManualHandoffMigratesExistingPairingAndDownload(t *testing.T) {
 	cfg := handoffServiceConfig(t)
-	svc := startHandoffService(t, cfg)
-	token := approveHandoffPairing(t, svc, 'a')
-	ctx := context.Background()
-	old, err := svc.Manager().Add(ctx, download.Request{URL: "https://example.com/existing.zip"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Close(); err != nil {
-		t.Fatal(err)
-	}
 	fixture := handoffFixtureDB(t, cfg.DatabasePath)
-	if _, err := fixture.Exec(`DROP TABLE extension_handoffs; PRAGMA user_version = 4;`); err != nil {
+	// Schema 4 shipped tasks, settings and extension pairings before handoff.
+	if _, err := fixture.Exec(`CREATE TABLE downloads (
+    id TEXT PRIMARY KEY, url TEXT NOT NULL, destination TEXT NOT NULL, status TEXT NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 0,
+    connections INTEGER NOT NULL DEFAULT 0, speed_limit INTEGER NOT NULL DEFAULT 0,
+    checksum TEXT NOT NULL DEFAULT '', headers TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX downloads_created_at ON downloads(created_at, id);
+CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL, secrets TEXT NOT NULL DEFAULT '');
+CREATE TABLE extension_pairings (
+    id TEXT PRIMARY KEY, token_digest BLOB NOT NULL UNIQUE CHECK (length(token_digest) = 32),
+    browser TEXT NOT NULL CHECK (browser IN ('chrome', 'edge')),
+    status TEXT NOT NULL CHECK (status IN ('awaiting-approval', 'connected', 'denied', 'revoked')),
+    code TEXT NOT NULL, requested_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
+);
+PRAGMA user_version = 4;`); err != nil {
 		t.Fatal(err)
 	}
-	svc = startHandoffService(t, cfg)
+	const existingID = "existing-download"
+	if _, err := fixture.Exec(`INSERT INTO downloads (id, url, destination, status, created_at, updated_at)
+VALUES (?, 'https://example.com/existing.zip', ?, 'paused', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+		existingID, filepath.Join(cfg.DownloadRoots[0], "existing.zip")); err != nil {
+		t.Fatal(err)
+	}
+	credential := make([]byte, 32)
+	digest := sha256.Sum256(credential)
+	if _, err := fixture.Exec(`INSERT INTO extension_pairings
+(id, token_digest, browser, status, code, requested_at, expires_at) VALUES ('test-pairing', ?, 'chrome', 'connected', '', 0, 0)`, digest[:]); err != nil {
+		t.Fatal(err)
+	}
+	svc := startHandoffService(t, cfg)
+	token := hex.EncodeToString(credential)
 	accepted := extensionPost(t, svc.Address(), handoffPath, pairingOrigin, token, handoffBody, http.StatusCreated)
-	items, err := svc.Manager().List(ctx)
-	if err != nil || len(items) != 2 || items[0].ID != old.ID || items[1].ID != accepted.TaskID {
-		t.Fatalf("migrated queue = %+v (%v), want %q and %q", items, err, old.ID, accepted.TaskID)
+	items, err := svc.Manager().List(context.Background())
+	if err != nil || len(items) != 2 || items[0].ID != existingID || items[1].ID != accepted.TaskID {
+		t.Fatalf("migrated queue = %+v (%v), want %q and %q", items, err, existingID, accepted.TaskID)
 	}
 }
 

@@ -23,22 +23,31 @@
     <button type="button" id="pair" hidden></button>
     <p id="handoff-result" class="handoff-result" role="status"></p>
     <ul id="handoff-retries" hidden></ul>
-    <form id="capture-settings" aria-labelledby="capture-settings-title">
-      <h2 id="capture-settings-title"></h2>
-      <p class="capture-check">
-        <input type="checkbox" id="capture-enabled" name="enabled" aria-describedby="capture-help">
-        <label id="capture-enabled-label" for="capture-enabled"></label>
-      </p>
-      <p id="capture-help" class="capture-help"></p>
-      <label id="capture-sites-label" for="capture-sites"></label>
-      <p id="capture-sites-help" class="capture-help"></p>
-      <textarea id="capture-sites" name="sites" rows="2" maxlength="2048" spellcheck="false" autocapitalize="none" aria-describedby="capture-sites-help"></textarea>
-      <label id="capture-types-label" for="capture-types"></label>
-      <p id="capture-types-help" class="capture-help"></p>
-      <textarea id="capture-types" name="types" rows="2" maxlength="1024" spellcheck="false" autocapitalize="none" aria-describedby="capture-types-help"></textarea>
-      <button id="capture-save" type="submit" disabled></button>
-      <p id="capture-settings-result" class="handoff-result" role="status"></p>
-    </form>
+    <details id="capture-settings-panel">
+      <summary id="capture-settings-title"></summary>
+      <form id="capture-settings" aria-labelledby="capture-settings-title">
+        <p class="capture-check">
+          <input type="checkbox" id="capture-enabled" name="enabled" aria-describedby="capture-help">
+          <label id="capture-enabled-label" for="capture-enabled"></label>
+        </p>
+        <p id="capture-help" class="capture-help"></p>
+        <label id="capture-sites-label" for="capture-sites"></label>
+        <p id="capture-sites-help" class="capture-help"></p>
+        <textarea id="capture-sites" name="sites" rows="2" maxlength="2048" spellcheck="false" autocapitalize="none" aria-describedby="capture-sites-help"></textarea>
+        <label id="capture-types-label" for="capture-types"></label>
+        <p id="capture-types-help" class="capture-help"></p>
+        <textarea id="capture-types" name="types" rows="2" maxlength="1024" spellcheck="false" autocapitalize="none" aria-describedby="capture-types-help"></textarea>
+        <button id="capture-save" type="submit" disabled></button>
+        <p id="capture-settings-result" class="handoff-result" role="status"></p>
+      </form>
+      <form id="capture-session-settings" aria-labelledby="capture-session-origins-label">
+        <label id="capture-session-origins-label" for="capture-session-origins"></label>
+        <p id="capture-session-origins-help" class="capture-help"></p>
+        <textarea id="capture-session-origins" name="origins" rows="2" maxlength="2048" spellcheck="false" autocapitalize="none" aria-describedby="capture-session-origins-help"></textarea>
+        <button id="capture-session-save" type="submit" disabled></button>
+        <p id="capture-session-result" class="handoff-result" role="status"></p>
+      </form>
+    </details>
     <p id="capture-result" class="handoff-result" role="status"></p>
     <ul id="capture-handoffs" hidden></ul>
   </main>

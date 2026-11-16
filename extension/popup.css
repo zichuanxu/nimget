@@ -73,7 +73,7 @@ button:focus-visible {
   margin-inline-end: 6px;
 }
 
-#capture-settings {
+#capture-settings-panel {
   border-block-start: 1px solid color-mix(in srgb, CanvasText 28%, Canvas);
   margin-block-start: 16px;
   padding-block-start: 12px;
@@ -81,10 +81,15 @@ button:focus-visible {
 
 #capture-settings-title {
   font-size: 1rem;
-  margin: 0 0 8px;
+  font-weight: 650;
+  cursor: pointer;
 }
 
-#capture-settings label {
+#capture-settings-panel form {
+  margin-block-start: 12px;
+}
+
+#capture-settings-panel label {
   font-weight: 600;
 }
 
@@ -107,7 +112,7 @@ button:focus-visible {
   margin-block-end: 10px;
 }
 
-#capture-settings textarea {
+#capture-settings-panel textarea {
   box-sizing: border-box;
   display: block;
   inline-size: 100%;
@@ -117,7 +122,7 @@ button:focus-visible {
   font: inherit;
 }
 
-#capture-save {
+#capture-settings-panel button {
   margin-block-start: 0;
 }
 

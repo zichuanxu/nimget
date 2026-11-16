@@ -33,7 +33,8 @@ $archivePaths = @($sourcePaths -creplace '^extension/', '')
 $manifest = git -C $repo show "${sourceCommit}:extension/manifest.json" | ConvertFrom-Json -AsHashtable
 $manifest.version = $numericVersion
 $manifest.version_name = $Version
-$manifestJson = $manifest | ConvertTo-Json -Depth 16
+$manifestJson = ($manifest | ConvertTo-Json -Depth 16) -replace "`r`n", "`n"
+$manifestBytes = [Text.Encoding]::UTF8.GetBytes($manifestJson)
 
 function Get-ReleaseChecksums([string]$Directory) {
     foreach ($name in $assetNames) {
@@ -42,7 +43,47 @@ function Get-ReleaseChecksums([string]$Directory) {
     }
 }
 
+function Get-EntryHash([IO.Compression.ZipArchiveEntry]$Entry) {
+    $stream = $Entry.Open()
+    try { (Get-FileHash -Algorithm SHA256 -InputStream $stream).Hash } finally { $stream.Dispose() }
+}
+
+function Assert-ExtensionArchive([string]$Path) {
+    $sourcePath = [IO.Path]::GetTempFileName()
+    $source = $null
+    $archive = $null
+    try {
+        git -C $repo archive --format=zip -o $sourcePath $sourceCommit -- LICENSE NOTICE extension
+        $source = [IO.Compression.ZipFile]::OpenRead($sourcePath)
+        $archive = [IO.Compression.ZipFile]::OpenRead($Path)
+        if (($archive.Entries.FullName -join "`n") -cne ($archivePaths -join "`n")) {
+            throw 'Unexpected extension archive contents.'
+        }
+        $manifestEntry = $archive.GetEntry('manifest.json')
+        $manifestHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($manifestBytes))
+        if ($manifestEntry.Length -ne $manifestBytes.Length -or (Get-EntryHash $manifestEntry) -cne $manifestHash) {
+            throw 'Extension manifest does not match the release version and source manifest.'
+        }
+        foreach ($entry in $source.Entries) {
+            if (!$entry.Name -or $entry.FullName -ceq 'extension/manifest.json') { continue }
+            $name = $entry.FullName -creplace '^extension/', ''
+            $asset = $archive.GetEntry($name)
+            if ($asset.Length -ne $entry.Length -or (Get-EntryHash $asset) -cne (Get-EntryHash $entry)) {
+                throw "Extension archive file does not match source: $name"
+            }
+        }
+    } finally {
+        if ($archive) { $archive.Dispose() }
+        if ($source) { $source.Dispose() }
+        [IO.File]::Delete($sourcePath)
+    }
+}
+
 function Assert-ReleaseBundle([string]$Directory) {
+    $bundleDirectory = Get-Item -LiteralPath $Directory -Force
+    if (!$bundleDirectory.PSIsContainer -or ($bundleDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "Expected a regular release bundle directory: $Directory"
+    }
     $files = @(Get-ChildItem -LiteralPath $Directory -Force)
     if ($files.Count -ne $expectedFiles.Count -or ($files | Where-Object {
         $_.PSIsContainer -or ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $_.Name -cnotin $expectedFiles
@@ -57,7 +98,7 @@ function Assert-ReleaseBundle([string]$Directory) {
     $metadata = Get-Content -LiteralPath (Join-Path $Directory $metadataName) -Raw | ConvertFrom-Json
     if ($metadata.version -cne $Version -or $metadata.sourceCommit -cne $sourceCommit -or
         $metadata.windows.installer -cne $installerName -or $metadata.windows.architecture -cne 'x64' -or
-        $metadata.windows.signed -ne $false -or $metadata.extension.archive -cne $archiveName -or
+        $metadata.windows.signed -isnot [bool] -or $metadata.windows.signed -or $metadata.extension.archive -cne $archiveName -or
         $metadata.extension.version -cne $numericVersion) {
         throw 'Release metadata does not match the requested version, source commit, or assets.'
     }
@@ -67,21 +108,14 @@ function Assert-ReleaseBundle([string]$Directory) {
     if ($info.ProductName -cne 'NimGet' -or $info.ProductVersion -cne $Version -or $fileVersion -cne $numericVersion) {
         throw 'Windows setup version resources do not match the release version.'
     }
+    if ($info.Comments -cne "Source commit: $sourceCommit") {
+        throw 'Windows setup source commit does not match the current checkout.'
+    }
     if ((Get-AuthenticodeSignature -LiteralPath $installer).Status -ne 'NotSigned') {
         throw 'Unexpected code-signing status for Windows setup.'
     }
 
-    $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $Directory $archiveName))
-    try {
-        if (($archive.Entries.FullName -join "`n") -cne ($archivePaths -join "`n")) {
-            throw 'Unexpected extension archive contents.'
-        }
-        $reader = [IO.StreamReader]::new($archive.GetEntry('manifest.json').Open())
-        try { $archiveManifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
-        if ($archiveManifest -cne ($manifestJson -replace "`r`n", "`n")) {
-            throw 'Extension manifest does not match the release version and source manifest.'
-        }
-    } finally { $archive.Dispose() }
+    Assert-ExtensionArchive (Join-Path $Directory $archiveName)
     Write-Host "Verified $Version from $sourceCommit in $Directory"
 }
 
@@ -111,8 +145,7 @@ try {
             $data = $outputEntry.Open()
             try {
                 if ($name -ceq 'manifest.json') {
-                    $bytes = [Text.Encoding]::UTF8.GetBytes(($manifestJson -replace "`r`n", "`n"))
-                    $data.Write($bytes, 0, $bytes.Length)
+                    $data.Write($manifestBytes, 0, $manifestBytes.Length)
                 } else {
                     $inputData = $entry.Open()
                     try { $inputData.CopyTo($data) } finally { $inputData.Dispose() }

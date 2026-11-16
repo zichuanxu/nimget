@@ -9,7 +9,7 @@ For releases with a Windows bundle, download all four assets from the same versi
 | `NimGet-v1.2.3-release.json` | Release version, source commit, and build tool versions |
 | `SHA256SUMS.txt` | SHA-256 hashes for the installer, extension archive, and metadata |
 
-Open PowerShell in the download directory. Compare each hash to the line for the same filename in `SHA256SUMS.txt` from that release before running the installer or extracting the extension.
+Open PowerShell in the download directory. Compare each hash to the line for the same filename in `SHA256SUMS.txt` from the trusted NimGet Release page before running the installer or extracting the extension.
 
 ```powershell
 Get-FileHash -Algorithm SHA256 -LiteralPath .\NimGet-v1.2.3-windows-x64-setup.exe,
@@ -29,7 +29,7 @@ On Windows, check out the intended source commit with a clean working tree. Use 
 .\scripts\prepare-windows-release.ps1 -Version v1.2.3 -VerifyOnly
 ```
 
-The script writes the four verified assets to `dist/release/v1.2.3`. Use `-MakeNSIS` if `makensis.exe` is outside `PATH` and `-OutputDirectory` to choose another parent directory. Each preparation requires a new output directory for that version. `-VerifyOnly` checks an existing bundle against the current checkout. The extension's display version matches the release tag, including any prerelease suffix. Its numeric version uses the three numeric fields of the tag.
+The script writes the four verified assets to `dist/release/v1.2.3`. Use `-MakeNSIS` if `makensis.exe` is outside `PATH` and `-OutputDirectory` to choose another parent directory. Each preparation requires a new output directory for that version. `-VerifyOnly` checks the checksums, the source commit in the installer and release metadata, and the extension archive contents against the current checkout. The extension's display version matches the release tag, including any prerelease suffix. Its numeric version uses the three numeric fields of the tag.
 
 To validate repeatability and rejection of changed or extra assets locally, run the release test on the same checkout. It writes to `dist/release-test` by default.
 

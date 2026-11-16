@@ -23,6 +23,12 @@ function Assert-Rejected([scriptblock]$Action, [string]$ExpectedError) {
     throw "Expected release preparation to reject: $ExpectedError"
 }
 
+function Update-ReleaseChecksum([string]$Path, [string]$OriginalHash) {
+    $newHash = (Get-FileHash -LiteralPath $Path).Hash.ToLowerInvariant()
+    $lines = (Get-Content -LiteralPath $checksums -Raw).Replace($OriginalHash, $newHash)
+    [IO.File]::WriteAllText($checksums, $lines)
+}
+
 & $prepare -Version $Version -OutputDirectory $output -MakeNSIS $MakeNSIS
 & $prepare -Version $Version -OutputDirectory $secondOutput -MakeNSIS $MakeNSIS
 & $prepare -Version $Version -OutputDirectory $output -VerifyOnly
@@ -42,21 +48,37 @@ try {
 } finally { Remove-Item -LiteralPath $extra }
 
 $zip = Join-Path $bundle $names[1]
+$checksums = Join-Path $bundle $names[3]
 try {
     [IO.File]::AppendAllText($zip, 'tampered')
     Assert-Rejected { & $prepare -Version $Version -OutputDirectory $output -VerifyOnly } 'SHA-256 mismatch'
 } finally { Copy-Item -LiteralPath (Join-Path $secondBundle $names[1]) -Destination $zip -Force }
 
+try {
+    $originalHash = (Get-FileHash -LiteralPath $zip).Hash.ToLowerInvariant()
+    $archive = [IO.Compression.ZipFile]::Open($zip, 'Update')
+    try {
+        $entry = $archive.GetEntry('background.js').Open()
+        try {
+            $firstByte = $entry.ReadByte()
+            $entry.Position = 0
+            $entry.WriteByte($firstByte -bxor 1)
+        } finally { $entry.Dispose() }
+    } finally { $archive.Dispose() }
+    Update-ReleaseChecksum $zip $originalHash
+    Assert-Rejected { & $prepare -Version $Version -OutputDirectory $output -VerifyOnly } 'Extension archive file does not match source'
+} finally {
+    Copy-Item -LiteralPath (Join-Path $secondBundle $names[1]) -Destination $zip -Force
+    Copy-Item -LiteralPath (Join-Path $secondBundle $names[3]) -Destination $checksums -Force
+}
+
 $metadata = Join-Path $bundle $names[2]
-$checksums = Join-Path $bundle $names[3]
 try {
     $originalHash = (Get-FileHash -LiteralPath $metadata).Hash.ToLowerInvariant()
     $contents = Get-Content -LiteralPath $metadata -Raw | ConvertFrom-Json -AsHashtable
     $contents.sourceCommit = '0' * 40
     $contents | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $metadata
-    $newHash = (Get-FileHash -LiteralPath $metadata).Hash.ToLowerInvariant()
-    $lines = (Get-Content -LiteralPath $checksums -Raw).Replace($originalHash, $newHash)
-    [IO.File]::WriteAllText($checksums, $lines)
+    Update-ReleaseChecksum $metadata $originalHash
     Assert-Rejected { & $prepare -Version $Version -OutputDirectory $output -VerifyOnly } 'Release metadata does not match'
 } finally {
     Copy-Item -LiteralPath (Join-Path $secondBundle $names[2]) -Destination $metadata -Force

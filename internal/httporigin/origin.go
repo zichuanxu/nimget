@@ -10,6 +10,15 @@ import (
 	"strings"
 )
 
+// StatusError keeps an HTTP status available for recovery decisions alongside
+// the diagnostic chosen by the downloader.
+type StatusError struct {
+	Code       int
+	Diagnostic string
+}
+
+func (e *StatusError) Error() string { return e.Diagnostic }
+
 // Client copies a client's configuration, preserving its transport and
 // redirect policy while restricting headers on any cross-origin hop.
 func Client(client *http.Client) *http.Client {

@@ -1,11 +1,12 @@
 import { useId, useState, type FormEvent } from "react";
 import { Info } from "lucide-react";
-import { Desktop, Item, Patch } from "./api";
+import { Desktop, Failure, Item, Patch, Recovery, Status } from "./api";
 import { bytes, parseSpeed, speedText } from "./format";
 import { useI18n } from "./i18n";
+import { taskFailure } from "./taskFailure";
 import { Modal } from "./ui";
 
-export default function TaskDetailsDialog({ item, onClose }: { item: Item; onClose: () => void }) {
+export default function TaskDetailsDialog({ item, onClose, onRecover }: { item: Item; onClose: () => void; onRecover: () => void }) {
   const { t } = useI18n();
   const id = useId();
   const [priority, setPriority] = useState(item.priority);
@@ -15,6 +16,9 @@ export default function TaskDetailsDialog({ item, onClose }: { item: Item; onClo
   const [invalid, setInvalid] = useState<"connections" | "speedLimit" | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const failure = taskFailure(item);
+  const restartRequired = item.recovery === Recovery.RecoveryRestartRequired;
+  const failed = item.status === Status.StatusFailed;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -59,6 +63,18 @@ export default function TaskDetailsDialog({ item, onClose }: { item: Item; onClo
 
   const describe = (field: "connections" | "speedLimit") => `${id}-${field}-hint${invalid === field ? ` ${id}-error` : ""}`;
   const done = bytes(item.completed);
+  const retry = async () => {
+    setBusy(true);
+    setError("");
+    setInvalid(null);
+    try {
+      await Desktop.Retry(item.id);
+      onClose();
+    } catch {
+      setError(t("details.retryError"));
+      setBusy(false);
+    }
+  };
 
   return (
     <Modal
@@ -82,6 +98,25 @@ export default function TaskDetailsDialog({ item, onClose }: { item: Item; onClo
         <dt>{t("details.progress")}</dt>
         <dd>{item.total > 0 ? t("row.of", { done, total: bytes(item.total) }) : done}</dd>
       </dl>
+      {restartRequired ? (
+        <div className="task-recovery">
+          <p>{t("reauth.restartRequired")}</p>
+          <button type="button" disabled={busy} onClick={onRecover}>{t("row.recover")}</button>
+        </div>
+      ) : failed ? (
+        <div className="task-recovery">
+          <strong className="error-text">{t(`failure.title.${failure || "unknown"}`)}</strong>
+          <p>{t(`failure.help.${failure || "unknown"}`)}</p>
+          <div className="task-recovery-actions">
+            {failure === Failure.FailureAuthorization && (
+              <button type="button" disabled={busy} onClick={onRecover}>{t("row.reauth")}</button>
+            )}
+            <button type="button" disabled={busy} onClick={() => void retry()}>{t("row.retry")}</button>
+          </div>
+        </div>
+      ) : item.recovery === Recovery.RecoveryValidateSource ? (
+        <p className="hint">{t("details.validating")}</p>
+      ) : null}
       <form id={`${id}-form`} className="task-options" onSubmit={submit}>
         <div className="field">
           <label className="field-label" htmlFor={`${id}-priority`}>{t("add.priority")}</label>

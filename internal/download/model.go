@@ -28,6 +28,9 @@ var (
 	ErrDestinationBusy = errors.New("destination is locked by another download")
 	// ErrInvalidSettings reports settings that failed validation.
 	ErrInvalidSettings = errors.New("invalid settings")
+	// Runner errors used to classify task failures without exposing diagnostics.
+	ErrStalled   = errors.New("connection stalled")
+	ErrDiskSpace = errors.New("not enough free disk space")
 )
 
 type Status string
@@ -54,6 +57,16 @@ const (
 	RecoveryRestartRequired Recovery = "restart-required"
 )
 
+type Failure string
+
+const (
+	FailureAuthorization        Failure = "authorization"
+	FailureDiskSpace            Failure = "disk-space"
+	FailureFilesystemPermission Failure = "filesystem-permission"
+	FailureNetwork              Failure = "network"
+	FailureUnsupportedMedia     Failure = "unsupported-media"
+)
+
 type Item struct {
 	ID          string   `json:"id"`
 	URL         string   `json:"url"`
@@ -62,6 +75,7 @@ type Item struct {
 	Completed   int64    `json:"completed"`
 	Total       int64    `json:"total"`
 	Error       string   `json:"error,omitempty"`
+	Failure     Failure  `json:"failure,omitempty"`
 	Recovery    Recovery `json:"recovery,omitempty"`
 	Priority    int      `json:"priority"`
 	// Connections overrides the site and default connection count when set.

@@ -32,9 +32,10 @@ func TestUnsupportedMediaTasksReportWhyTheyFailed(t *testing.T) {
 		{"key request rejected", "/manifest.m3u8", "application/vnd.apple.mpegurl", "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key-path-secret.bin?token=key-secret\"\n#EXTINF:4,\nvideo.ts\n#EXT-X-ENDLIST\n", "HTTP 403"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			signedPath := strings.Replace(tt.path, "/manifest", "/manifest-path-secret", 1)
 			source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
-				case tt.path:
+				case signedPath:
 					w.Header().Set("Content-Type", tt.contentType)
 					_, _ = io.WriteString(w, tt.playlist)
 				case "/media.m3u8":
@@ -61,7 +62,7 @@ func TestUnsupportedMediaTasksReportWhyTheyFailed(t *testing.T) {
 			})
 			dest := filepath.Join(dir, "video.ts")
 			_, err = api.Add(ctx, download.Request{
-				URL: source.URL + tt.path + "?sig=playlist-secret", Destination: dest,
+				URL: source.URL + signedPath + "?sig=playlist-secret", Destination: dest,
 				Headers: map[string]string{"Authorization": "Bearer credential-secret"},
 			})
 			if err != nil {

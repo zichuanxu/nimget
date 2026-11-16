@@ -346,7 +346,7 @@ func (m *Manager) Pause(ctx context.Context, id string) error {
 			item.Completed, item.Total = j.progress()
 		}
 		item.Status = download.StatusPaused
-		item.Error = ""
+		item.Error, item.Failure = "", ""
 		return nil
 	})
 }
@@ -402,7 +402,7 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 			item.Headers = nil
 			item.Recovery = download.RecoveryValidateSource
 			item.Status = download.StatusQueued
-			item.Error = ""
+			item.Error, item.Failure = "", ""
 		}
 		if p.Priority != nil {
 			item.Priority = priority
@@ -419,10 +419,6 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 		if p.URL != nil || p.Headers != nil {
 			item.WebsiteSession = nil
 			item.WebsiteSessionUnavailable = false
-		}
-		if j, ok := m.active[id]; ok {
-			j.item.Priority, j.item.Connections, j.item.SpeedLimit = item.Priority, item.Connections, item.SpeedLimit
-			j.limiter.SetLimit(limitOf(item.SpeedLimit))
 		}
 		return nil
 	})
@@ -446,7 +442,7 @@ func (m *Manager) requeue(ctx context.Context, id string, from download.Status) 
 			return ErrActive
 		}
 		item.Status = download.StatusQueued
-		item.Error = ""
+		item.Error, item.Failure = "", ""
 		return nil
 	})
 	if err == nil {
@@ -473,7 +469,7 @@ func (m *Manager) Restart(ctx context.Context, id string) error {
 		}
 		item.Completed, item.Total = 0, 0
 		item.Status = download.StatusQueued
-		item.Error = ""
+		item.Error, item.Failure = "", ""
 		item.Recovery = ""
 		return nil
 	})
@@ -505,6 +501,12 @@ func (m *Manager) transition(ctx context.Context, id string, withHeaders bool, c
 	}
 	if err := save(ctx, item); err != nil {
 		return err
+	}
+	if j := m.active[id]; j != nil {
+		if j.item.SpeedLimit != item.SpeedLimit {
+			j.limiter.SetLimit(limitOf(item.SpeedLimit))
+		}
+		j.item.Priority, j.item.Connections, j.item.SpeedLimit = item.Priority, item.Connections, item.SpeedLimit
 	}
 	m.publish(download.EventUpdated, item)
 	return nil
@@ -689,7 +691,8 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	item.UpdatedAt = now.UTC()
 	if item.WebsiteSessionUnavailable || (item.WebsiteSession != nil && !item.WebsiteSession.Usable(now)) {
 		item.Status = download.StatusFailed
-		item.Error = "The website session is no longer available. Sign in to the site again and use Refresh download link in NimGet, or send the link with the browser's website session."
+		item.Failure = download.FailureAuthorization
+		item.Error = "The website session is no longer available. " + websiteSessionRecovery
 		if err := m.repo.Update(ctx, item); err != nil {
 			return err
 		}
@@ -700,6 +703,7 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
 		item.Status = download.StatusFailed
 		item.Error = err.Error()
+		item.Failure = classifyFailure(err)
 		if err := m.repo.Update(ctx, item); err != nil {
 			return err
 		}
@@ -707,7 +711,7 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 		return nil
 	}
 	item.Status = download.StatusRunning
-	item.Error = ""
+	item.Error, item.Failure = "", ""
 	if err := m.repo.Update(ctx, item); err != nil {
 		return err
 	}
@@ -771,7 +775,7 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 		// Checked first: a Pause that raced the final rename must not hide a
 		// finished file, which a later Resume would reject as already existing.
 		item.Status = download.StatusCompleted
-		item.Error = ""
+		item.Error, item.Failure = "", ""
 		item.Recovery = ""
 		item.WebsiteSession = nil
 		item.WebsiteSessionUnavailable = false
@@ -791,8 +795,9 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	default:
 		item.Status = download.StatusFailed
 		item.Error = runErr.Error()
-		if j.item.WebsiteSession != nil && websiteSessionRejected(runErr) {
-			item.Error += ". The website session may have expired. Sign in to the site again and use Refresh download link in NimGet, or send the link with the browser's website session."
+		item.Failure = classifyFailure(runErr)
+		if j.item.WebsiteSession != nil && item.Failure == download.FailureAuthorization {
+			item.Error += ". The website session may have expired. " + websiteSessionRecovery
 		}
 		if errors.Is(runErr, download.ErrRestartRequired) {
 			item.Recovery = download.RecoveryRestartRequired

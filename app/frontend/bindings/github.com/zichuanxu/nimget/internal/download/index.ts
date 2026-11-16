@@ -4,6 +4,7 @@
 export {
     Event,
     EventType,
+    Failure,
     Item,
     Patch,
     Recovery,

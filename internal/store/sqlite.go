@@ -80,6 +80,7 @@ CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NUL
     task_id TEXT NOT NULL,
     PRIMARY KEY (pairing_id, handoff_id)
 ) WITHOUT ROWID;`,
+	`ALTER TABLE downloads ADD COLUMN failure TEXT NOT NULL DEFAULT '';`,
 	`ALTER TABLE downloads ADD COLUMN website_session TEXT NOT NULL DEFAULT '';
 ALTER TABLE extension_handoffs ADD COLUMN website_session_persistence TEXT NOT NULL DEFAULT '';`,
 }
@@ -136,11 +137,11 @@ func (s *SQLite) create(ctx context.Context, db executor, item download.Item) er
 	if err != nil {
 		return err
 	}
-	const query = `INSERT INTO downloads (id, url, destination, status, completed, total, error, priority, connections, speed_limit, checksum, headers, created_at, updated_at, recovery, website_session)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	const query = `INSERT INTO downloads (id, url, destination, status, completed, total, error, priority, connections, speed_limit, checksum, headers, created_at, updated_at, recovery, failure, website_session)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err = db.ExecContext(ctx, query, item.ID, item.URL, item.Destination, item.Status,
 		item.Completed, item.Total, item.Error, item.Priority, item.Connections, item.SpeedLimit, item.Checksum, headers,
-		item.CreatedAt.Format(time.RFC3339Nano), item.UpdatedAt.Format(time.RFC3339Nano), item.Recovery, websiteSession)
+		item.CreatedAt.Format(time.RFC3339Nano), item.UpdatedAt.Format(time.RFC3339Nano), item.Recovery, item.Failure, websiteSession)
 	if err != nil {
 		return fmt.Errorf("create download %s: %w", item.ID, err)
 	}
@@ -148,7 +149,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 }
 
 func (s *SQLite) Get(ctx context.Context, id string) (download.Item, error) {
-	const query = `SELECT id, url, destination, status, completed, total, error, priority, connections, speed_limit, checksum, headers, created_at, updated_at, recovery, website_session
+	const query = `SELECT id, url, destination, status, completed, total, error, priority, connections, speed_limit, checksum, headers, created_at, updated_at, recovery, failure, website_session
 FROM downloads WHERE id = ?`
 	item, err := s.scanItem(s.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -161,7 +162,7 @@ FROM downloads WHERE id = ?`
 }
 
 func (s *SQLite) List(ctx context.Context) ([]download.Item, error) {
-	const query = `SELECT id, url, destination, status, completed, total, error, priority, connections, speed_limit, checksum, headers, created_at, updated_at, recovery, website_session
+	const query = `SELECT id, url, destination, status, completed, total, error, priority, connections, speed_limit, checksum, headers, created_at, updated_at, recovery, failure, website_session
 FROM downloads ORDER BY created_at, id`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
@@ -205,11 +206,11 @@ func (s *SQLite) UpdateWithHeaders(ctx context.Context, item download.Item) erro
 
 func (s *SQLite) update(ctx context.Context, item download.Item, headers, websiteSession *string) error {
 	const query = `UPDATE downloads SET url = ?, destination = ?, status = ?, completed = ?, total = ?, error = ?,
-priority = ?, connections = ?, speed_limit = ?, checksum = ?, updated_at = ?, recovery = ?,
+priority = ?, connections = ?, speed_limit = ?, checksum = ?, updated_at = ?, recovery = ?, failure = ?,
 headers = COALESCE(?, headers), website_session = COALESCE(?, website_session) WHERE id = ?`
 	result, err := s.db.ExecContext(ctx, query, item.URL, item.Destination, item.Status, item.Completed,
 		item.Total, item.Error, item.Priority, item.Connections, item.SpeedLimit, item.Checksum,
-		item.UpdatedAt.Format(time.RFC3339Nano), item.Recovery, headers, websiteSession, item.ID)
+		item.UpdatedAt.Format(time.RFC3339Nano), item.Recovery, item.Failure, headers, websiteSession, item.ID)
 	if err != nil {
 		return fmt.Errorf("update download %s: %w", item.ID, err)
 	}
@@ -259,7 +260,7 @@ func (s *SQLite) scanItem(row scanner) (download.Item, error) {
 	var headers, createdAt, updatedAt, websiteSession string
 	if err := row.Scan(&item.ID, &item.URL, &item.Destination, &item.Status, &item.Completed,
 		&item.Total, &item.Error, &item.Priority, &item.Connections, &item.SpeedLimit, &item.Checksum, &headers,
-		&createdAt, &updatedAt, &item.Recovery, &websiteSession); err != nil {
+		&createdAt, &updatedAt, &item.Recovery, &item.Failure, &websiteSession); err != nil {
 		return download.Item{}, err
 	}
 	var err error

@@ -108,6 +108,9 @@ func TestProtectedDownloadsKeepCredentialsOutOfDiagnosticsAndExports(t *testing.
 		if !strings.Contains(item.Error, "403") && !strings.Contains(item.Error, "redirect") {
 			t.Errorf("failure for %s lacked an HTTP status or redirect diagnostic", item.Destination)
 		}
+		if strings.Contains(item.Error, "HTTP 403") && item.Failure != download.FailureAuthorization {
+			t.Errorf("failure for %s = %q, want authorization", item.Destination, item.Failure)
+		}
 		diagnostics["task error "+item.ID] = item.Error
 	}
 	for label, diagnostic := range diagnostics {

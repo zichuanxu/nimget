@@ -1,6 +1,6 @@
 # Running NimGet from source
 
-NimGet is distributed as source code. The desktop app runs on macOS and Windows; the CLI and headless service also run on Linux.
+The desktop app runs on macOS and Windows. The CLI and headless service also run on Linux. See the [Windows installation guide](windows-installer.md) for installer and upgrade steps.
 
 ## Prerequisites
 

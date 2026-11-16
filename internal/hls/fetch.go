@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zichuanxu/nimget/internal/download"
 	"github.com/zichuanxu/nimget/internal/httporigin"
 	"github.com/zichuanxu/nimget/internal/logging"
 )
@@ -23,8 +24,6 @@ import (
 // maxInMemory bounds a playlist or key, the only resources held in memory;
 // segments stream to disk.
 const maxInMemory = 16 << 20
-
-var errStalled = errors.New("connection stalled")
 
 // sink receives one response body; reset rewinds it before a retry.
 type sink interface {
@@ -98,12 +97,12 @@ func (d *downloader) fetch(ctx context.Context, uri string, off, n int64, counte
 func (d *downloader) getOnce(ctx context.Context, uri string, off, n, limit int64, w sink, onRead func(int)) (*url.URL, int64, *attemptError) {
 	reqCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	stall := newStallTimer(d.opts.StallTimeout, func() { cancel(errStalled) })
+	stall := newStallTimer(d.opts.StallTimeout, func() { cancel(download.ErrStalled) })
 	defer stall.Stop()
 	label := logging.RedactURL(uri)
 	interrupted := func(err error) *attemptError {
-		if errors.Is(context.Cause(reqCtx), errStalled) && ctx.Err() == nil {
-			err = errStalled
+		if errors.Is(context.Cause(reqCtx), download.ErrStalled) && ctx.Err() == nil {
+			err = download.ErrStalled
 		}
 		return retryable(fmt.Errorf("GET %s: %w", label, err))
 	}
@@ -230,7 +229,7 @@ func statusError(label string, resp *http.Response) *attemptError {
 	code := resp.StatusCode
 	retry := code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
 	return &attemptError{
-		err:        &httporigin.StatusError{Code: code, Message: fmt.Sprintf("GET %s: HTTP %d %s", label, code, http.StatusText(code))},
+		err:        &httporigin.StatusError{Code: code, Diagnostic: fmt.Sprintf("GET %s: HTTP %d %s", label, code, http.StatusText(code))},
 		retryable:  retry,
 		retryAfter: resp.Header.Get("Retry-After"),
 	}

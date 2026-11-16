@@ -9,6 +9,7 @@ export function Modal({
   title,
   size = "",
   onClose,
+  focusFallback,
   children,
   footer,
 }: {
@@ -17,6 +18,7 @@ export function Modal({
   title: ReactNode;
   size?: "" | "small" | "wide";
   onClose: () => void;
+  focusFallback?: () => void;
   children: ReactNode;
   footer?: ReactNode;
 }) {
@@ -25,13 +27,20 @@ export function Modal({
   const ref = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
     const dialog = ref.current!;
+    const trigger = document.activeElement;
     const initial = dialog.querySelector("[data-initial-focus]");
     // React's autoFocus prop focuses on mount, before a native dialog is open.
     initial?.setAttribute("autofocus", "");
     dialog.setAttribute("closedby", "any");
     dialog.showModal();
-    return () => dialog.close();
-  }, []);
+    return () => {
+      dialog.close();
+      const active = document.activeElement;
+      if (trigger && !trigger.isConnected && (active === document.body || dialog.contains(active))) {
+        focusFallback?.();
+      }
+    };
+  }, [focusFallback]);
   return (
     <dialog
       ref={ref}

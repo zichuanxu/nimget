@@ -44,10 +44,10 @@ Baseline commit `1451b0ea4c548ee0cd0f9d3068eb4aa5df42bf8f`. Each side ran three 
 | --- | ---: | ---: |
 | Rows mounted after opening the queue | 2,000 | 50 |
 | DOM elements after opening the queue | 76,705 | 2,024 |
-| Queue ready, median | 1,775 ms | 240 ms |
-| Time to deliver 128 updates, range | 18.43–21.56 s | 3.22–3.31 s |
-| Main-thread script time during workload, median | 15,518 ms | 240 ms |
+| Queue ready, median | 1,775 ms | 191 ms |
+| Time to deliver 128 updates, range | 18.43–21.56 s | 3.24–3.27 s |
+| Main-thread script time during workload, median | 15,518 ms | 207 ms |
 | Long tasks per run, range | 128–130 | 0 |
-| Longest sampled interaction per run, median | 613 ms | 85 ms |
+| Longest sampled interaction per run, median | 613 ms | 48 ms |
 
 Queue readiness includes navigation, transport stub delivery, and Playwright's first successful visibility checks. Interaction samples measure an input or click to the second animation frame. When actions share a frame, the benchmark keeps the latest sample. Under load, the JavaScript timer waits for the main thread, so a delayed interval extends the fixed-count workload. The timings cover the local browser harness with controlled progress and are specific to this desktop and workload. Native WebView timing and actual transfer speeds require separate measurements.

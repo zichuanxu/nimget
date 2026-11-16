@@ -5,7 +5,12 @@ import { baseName } from "./format";
 import { useI18n } from "./i18n";
 import { Modal } from "./ui";
 
-export function DeleteDialog({ item, onClose, onError }: { item: Item; onClose: () => void; onError: (e: unknown) => void }) {
+export function DeleteDialog({ item, onClose, onError, focusFallback }: {
+  item: Item;
+  onClose: () => void;
+  onError: (e: unknown) => void;
+  focusFallback: () => void;
+}) {
   const { t } = useI18n();
   const [files, setFiles] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -37,6 +42,7 @@ export function DeleteDialog({ item, onClose, onError }: { item: Item; onClose: 
       size="small"
       title={t("delete.title")}
       onClose={onClose}
+      focusFallback={focusFallback}
       footer={
         <>
           <button onClick={onClose} data-initial-focus>{t("common.cancel")}</button>
@@ -56,7 +62,11 @@ export function DeleteDialog({ item, onClose, onError }: { item: Item; onClose: 
   );
 }
 
-export function ReauthDialog({ item, onClose }: { item: Item; onClose: () => void }) {
+export function ReauthDialog({ item, onClose, focusFallback }: {
+  item: Item;
+  onClose: () => void;
+  focusFallback: () => void;
+}) {
   const { t } = useI18n();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -87,6 +97,7 @@ export function ReauthDialog({ item, onClose }: { item: Item; onClose: () => voi
       tone="warn"
       title={t("reauth.title")}
       onClose={onClose}
+      focusFallback={focusFallback}
       footer={
         <>
           <button type="button" onClick={onClose}>{t("common.cancel")}</button>

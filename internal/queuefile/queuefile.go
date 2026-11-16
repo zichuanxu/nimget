@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/zichuanxu/nimget/internal/download"
+	"github.com/zichuanxu/nimget/internal/logging"
 )
 
 const version = 1
@@ -20,8 +21,8 @@ type file struct {
 	Downloads []download.Request `json:"downloads"`
 }
 
-// Export writes the downloads that are not completed. Request headers are
-// left out unless withHeaders is set: they often hold session cookies.
+// Export writes the downloads that are not completed. Ordinary exports omit
+// request headers and URL credentials.
 func Export(items []download.Item, withHeaders bool) ([]byte, error) {
 	f := file{Version: version, Downloads: []download.Request{}}
 	for _, item := range items {
@@ -34,6 +35,8 @@ func Export(items []download.Item, withHeaders bool) ([]byte, error) {
 		}
 		if withHeaders {
 			req.Headers = item.Headers
+		} else {
+			req.URL = logging.RedactURL(req.URL)
 		}
 		f.Downloads = append(f.Downloads, req)
 	}

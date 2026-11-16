@@ -12,10 +12,12 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/zichuanxu/nimget/internal/httporigin"
+	"github.com/zichuanxu/nimget/internal/logging"
 )
 
 // maxInMemory bounds a playlist or key, the only resources held in memory;
@@ -93,61 +95,58 @@ func (d *downloader) fetch(ctx context.Context, uri string, off, n int64, counte
 	return nil, 0, last
 }
 
-// portableHeaders may go to a host other than the playlist's. Playlists name
-// segment and key URIs on any host, and credentials, cookies, and API keys
-// configured for the playlist's host must not follow them there.
-var portableHeaders = map[string]bool{"User-Agent": true, "Accept": true, "Accept-Language": true, "Referer": true}
-
 func (d *downloader) getOnce(ctx context.Context, uri string, off, n, limit int64, w sink, onRead func(int)) (*url.URL, int64, *attemptError) {
 	reqCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	stall := newStallTimer(d.opts.StallTimeout, func() { cancel(errStalled) })
 	defer stall.Stop()
+	label := logging.RedactURL(uri)
 	interrupted := func(err error) *attemptError {
 		if errors.Is(context.Cause(reqCtx), errStalled) && ctx.Err() == nil {
 			err = errStalled
 		}
-		return retryable(fmt.Errorf("GET %s: %w", uri, err))
+		return retryable(fmt.Errorf("GET %s: %w", label, err))
 	}
 
 	req, err := http.NewRequestWithContext(stall.trace(reqCtx), http.MethodGet, uri, nil)
 	if err != nil {
-		return nil, 0, fatal(err)
+		return nil, 0, fatal(errors.New("invalid HLS resource URL"))
 	}
-	sameHost := strings.EqualFold(req.URL.Hostname(), d.origin)
-	for k, v := range d.opts.Headers {
-		if sameHost || portableHeaders[http.CanonicalHeaderKey(k)] {
-			req.Header[k] = slices.Clone(v)
-		}
+	req.Header = d.opts.Headers.Clone()
+	if req.Header == nil {
+		req.Header = make(http.Header)
 	}
-	req.Header.Set("User-Agent", d.opts.UserAgent)
+	httporigin.Restrict(req, d.origin)
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", d.opts.UserAgent)
+	}
 	req.Header.Set("Accept-Encoding", "identity")
 	if n >= 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", off, off+n-1))
 	}
 	resp, err := d.opts.Client.Do(req)
 	if err != nil {
-		return nil, 0, interrupted(err)
+		return nil, 0, interrupted(logging.HTTPError(err))
 	}
 	defer resp.Body.Close()
 	if enc := strings.TrimSpace(resp.Header.Get("Content-Encoding")); enc != "" && !strings.EqualFold(enc, "identity") {
-		return nil, 0, fatal(fmt.Errorf("GET %s: unsupported Content-Encoding %q", uri, enc))
+		return nil, 0, fatal(fmt.Errorf("GET %s: unsupported Content-Encoding", label))
 	}
 	skip, want := int64(0), n
 	switch {
 	case resp.StatusCode == http.StatusPartialContent && n >= 0:
 		if start, ok := rangeStart(resp.Header.Get("Content-Range")); !ok || start != off {
-			return nil, 0, fatal(fmt.Errorf("GET %s: Content-Range %q does not start at %d", uri, resp.Header.Get("Content-Range"), off))
+			return nil, 0, fatal(fmt.Errorf("GET %s: Content-Range does not start at %d", label, off))
 		}
 	case resp.StatusCode == http.StatusOK && n >= 0:
 		skip = off // the server ignored Range; cut the sub-range out ourselves
 	case resp.StatusCode == http.StatusOK:
 		want = resp.ContentLength
 	default:
-		return nil, 0, statusError(uri, resp)
+		return nil, 0, statusError(label, resp)
 	}
 	if limit >= 0 && want > limit {
-		return nil, 0, fatal(fmt.Errorf("GET %s: %d bytes exceeds the %d-byte limit", uri, want, limit))
+		return nil, 0, fatal(fmt.Errorf("GET %s: %d bytes exceeds the %d-byte limit", label, want, limit))
 	}
 
 	var written int64
@@ -171,12 +170,12 @@ func (d *downloader) getOnce(ctx context.Context, uri string, off, n, limit int6
 				keep = keep[:min(int64(len(keep)), want-written)]
 			}
 			if _, err := w.Write(keep); err != nil {
-				return nil, 0, fatal(fmt.Errorf("GET %s: write: %w", uri, err))
+				return nil, 0, fatal(fmt.Errorf("GET %s: write: %w", label, err))
 			}
 			written += int64(len(keep))
 			onRead(len(keep))
 			if limit >= 0 && written > limit {
-				return nil, 0, fatal(fmt.Errorf("GET %s: body exceeds the %d-byte limit", uri, limit))
+				return nil, 0, fatal(fmt.Errorf("GET %s: body exceeds the %d-byte limit", label, limit))
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
@@ -187,7 +186,7 @@ func (d *downloader) getOnce(ctx context.Context, uri string, off, n, limit int6
 		}
 	}
 	if want >= 0 && written != want {
-		return nil, 0, retryable(fmt.Errorf("GET %s: short response: got %d bytes, want %d", uri, written, want))
+		return nil, 0, retryable(fmt.Errorf("GET %s: short response: got %d bytes, want %d", label, written, want))
 	}
 	return resp.Request.URL, written, nil
 }
@@ -227,11 +226,11 @@ func (e *attemptError) Unwrap() error { return e.err }
 func fatal(err error) *attemptError     { return &attemptError{err: err} }
 func retryable(err error) *attemptError { return &attemptError{err: err, retryable: true} }
 
-func statusError(uri string, resp *http.Response) *attemptError {
+func statusError(label string, resp *http.Response) *attemptError {
 	code := resp.StatusCode
 	retry := code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
 	return &attemptError{
-		err:        fmt.Errorf("GET %s: HTTP %s", uri, resp.Status),
+		err:        fmt.Errorf("GET %s: HTTP %d %s", label, code, http.StatusText(code)),
 		retryable:  retry,
 		retryAfter: resp.Header.Get("Retry-After"),
 	}

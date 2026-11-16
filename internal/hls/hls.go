@@ -25,6 +25,8 @@ import (
 	"time"
 
 	"github.com/zichuanxu/nimget/internal/filelock"
+	"github.com/zichuanxu/nimget/internal/httporigin"
+	"github.com/zichuanxu/nimget/internal/logging"
 )
 
 var (
@@ -44,7 +46,7 @@ type Limiter interface {
 // Options configures Download. Zero values select the defaults.
 type Options struct {
 	Client                  *http.Client // default: DefaultTransport clone without compression
-	Headers                 http.Header  // sent with every request
+	Headers                 http.Header  // credentials are sent only to the playlist origin
 	UserAgent               string       // default "nimget/1.0"
 	Concurrency             int          // parallel segment fetches, default 4
 	MaxAttempts             int          // per request, default 5
@@ -66,6 +68,7 @@ func (o *Options) normalize() {
 		t.DisableCompression = true
 		o.Client = &http.Client{Transport: t}
 	}
+	o.Client = httporigin.Client(o.Client)
 	if o.UserAgent == "" {
 		o.UserAgent = "nimget/1.0"
 	}
@@ -88,8 +91,8 @@ func (o *Options) normalize() {
 
 type downloader struct {
 	opts Options
-	// origin is the playlist's host, the only one that gets every header.
-	origin string
+	// origin is the original playlist URL's security origin.
+	origin *url.URL
 	prog   *tracker
 	mu     sync.Mutex
 	keys   map[string]*keyEntry
@@ -117,7 +120,7 @@ func Download(ctx context.Context, rawURL, dest string, opts Options, progress f
 
 	d := &downloader{opts: opts, prog: &tracker{cb: progress}, keys: map[string]*keyEntry{}}
 	if u, err := url.Parse(rawURL); err == nil {
-		d.origin = u.Hostname()
+		d.origin = u
 	}
 	items, err := d.resolve(ctx, rawURL)
 	if err != nil {
@@ -199,7 +202,7 @@ func (d *downloader) resolve(ctx context.Context, rawURL string) ([]item, error)
 		}
 		rawURL = variant
 	}
-	return nil, fmt.Errorf("variant playlist %s is itself a master playlist", rawURL)
+	return nil, fmt.Errorf("variant playlist %s is itself a master playlist", logging.RedactURL(rawURL))
 }
 
 // fetchAll downloads the pending items with bounded concurrency. The first
@@ -289,9 +292,9 @@ func (d *downloader) key(ctx context.Context, uri string) ([]byte, error) {
 		body, _, err := d.get(ctx, uri)
 		switch {
 		case err != nil:
-			e.err = fmt.Errorf("key %s: %w", uri, err)
+			e.err = fmt.Errorf("key %s: %w", logging.RedactURL(uri), err)
 		case len(body) != 16:
-			e.err = fmt.Errorf("key %s: got %d bytes, want 16", uri, len(body))
+			e.err = fmt.Errorf("key %s: got %d bytes, want 16", logging.RedactURL(uri), len(body))
 		default:
 			e.key = body
 		}

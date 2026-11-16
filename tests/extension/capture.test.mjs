@@ -35,7 +35,7 @@ async function startCapture(t) {
   };
   const transport = t.mock.method(globalThis, "fetch", async () => Response.json({ taskId: "saved" }, { status: 201 }));
   const webRequest = Object.fromEntries([
-    "onBeforeRequest", "onHeadersReceived", "onBeforeRedirect", "onCompleted", "onErrorOccurred",
+    "onBeforeRequest", "onSendHeaders", "onHeadersReceived", "onBeforeRedirect", "onCompleted", "onErrorOccurred",
   ].map((name) => [name, browserEvent()]));
   const downloads = {
     onCreated: browserEvent(),
@@ -131,4 +131,21 @@ test("navigation tracking overflow leaves downloads with the browser", { timeout
 
   assert.equal(await item(), "captureUnsupported");
   assert.equal(transport.mock.callCount(), 0);
+});
+
+test("an unmarked cookie download stays with the browser when replay is rejected", { timeout: 2500 }, async (t) => {
+  const { webRequest, transport, downloads, item } = await startCapture(t);
+  transport.mock.mockImplementation(async (_url, options) => {
+    const request = JSON.parse(options.body);
+    assert.match(request.captureProof, /^[0-9a-f]{64}$/);
+    assert.equal(request.websiteSession, undefined);
+    return Response.json({ error: { code: "CAPTURE_NOT_REPLAYABLE" } }, { status: 400 });
+  });
+  await webRequest.onBeforeRequest.dispatch(get);
+  await webRequest.onSendHeaders.dispatch({ ...get, requestHeaders: [{ name: "Cookie", value: "fixture=private" }] });
+  await webRequest.onHeadersReceived.dispatch(attachment);
+
+  assert.equal(await item(), "captureSessionUnavailable");
+  assert.equal(transport.mock.callCount(), 1);
+  assert.equal(downloads.cancel.mock.callCount(), 0);
 });

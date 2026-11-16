@@ -291,7 +291,7 @@ func (d *Desktop) SetAutostart(enabled bool) error {
 func (d *Desktop) ParseCurl(command string) (download.Request, error) {
 	r, err := curlimport.Parse(command)
 	if err != nil {
-		return download.Request{}, err
+		return download.Request{}, errors.New("paste a valid Copy as cURL command for an HTTP or HTTPS download")
 	}
 	return download.Request{URL: r.URL, Headers: r.Headers}, nil
 }

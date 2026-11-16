@@ -19,6 +19,7 @@ import (
 	"github.com/zichuanxu/nimget/internal/client"
 	"github.com/zichuanxu/nimget/internal/download"
 	"github.com/zichuanxu/nimget/internal/service"
+	"github.com/zichuanxu/nimget/internal/settings"
 )
 
 const mainEnv = "NIMGET_TEST_RUN_MAIN"
@@ -76,8 +77,9 @@ func throttledServer(t *testing.T, data []byte, sent *atomic.Int64) *httptest.Se
 }
 
 type serviceProcess struct {
-	cmd    *exec.Cmd
-	client *client.Client
+	cmd     *exec.Cmd
+	client  *client.Client
+	address string
 }
 
 func startServiceProcess(t *testing.T, dir, root string) *serviceProcess {
@@ -114,7 +116,7 @@ func startServiceProcess(t *testing.T, dir, root string) *serviceProcess {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &serviceProcess{cmd: cmd, client: client.New("http://"+address, token, nil)}
+	return &serviceProcess{cmd: cmd, address: "http://" + address, client: client.New("http://"+address, token, nil)}
 }
 
 func (p *serviceProcess) item(t *testing.T) download.Item {
@@ -238,4 +240,90 @@ func TestParseSpeedAndPriority(t *testing.T) {
 	if _, err := parsePriority("urgent"); err == nil {
 		t.Fatal("unknown priority accepted")
 	}
+}
+
+func TestQueueCommandsKeepSourceCredentialsOutOfSharedOutput(t *testing.T) {
+	dir := t.TempDir()
+	p := startServiceProcess(t, dir, dir)
+	cfg, err := p.client.Settings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	cfg.Schedule = settings.Schedule{Start: now.Add(time.Hour).Format("15:04"), Stop: now.Add(2 * time.Hour).Format("15:04")}
+	if _, err := p.client.PutSettings(t.Context(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.RequestURI != "/path-secret/file-secret.zip?sig=query-secret" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		_, _ = w.Write([]byte("expected bytes"))
+	}))
+	defer fixture.Close()
+	url := fixture.URL + "/path-secret/file-secret.zip?sig=query-secret"
+	if _, err := p.client.Add(t.Context(), download.Request{URL: url, Headers: map[string]string{"Cookie": "cookie-secret"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	command := func(args ...string) *exec.Cmd {
+		return nimget(append([]string{"--address", p.address, "--token-file", filepath.Join(dir, "token")}, args...)...)
+	}
+	summary, err := command("export").CombinedOutput()
+	if err != nil || !bytes.Contains(summary, []byte(`"mode": "summary"`)) {
+		t.Fatalf("export summary: %v, %s", err, summary)
+	}
+	assertSafe := func(output []byte) {
+		t.Helper()
+		for _, marker := range []string{"path-secret", "file-secret", "query-secret", "cookie-secret"} {
+			if bytes.Contains(output, []byte(marker)) {
+				t.Errorf("ordinary output exposed %s", marker)
+			}
+		}
+	}
+	assertSafe(summary)
+	summaryImport := command("import", "-")
+	summaryImport.Stdin = bytes.NewReader(summary)
+	if output, err := summaryImport.CombinedOutput(); err == nil || !bytes.Contains(output, []byte("contain no source URLs")) {
+		t.Fatalf("import summary = %q, %v", output, err)
+	}
+	if output, err := command("export", "--include-source-urls", "-").CombinedOutput(); err == nil {
+		t.Fatal("backup was written to standard output")
+	} else {
+		assertSafe(output)
+	}
+
+	backupPath := filepath.Join(dir, "backup.json")
+	if output, err := command("export", "--include-source-urls", backupPath).CombinedOutput(); err != nil {
+		t.Fatalf("export backup = %q, %v", output, err)
+	}
+	backup, err := os.ReadFile(backupPath)
+	if err != nil || !bytes.Contains(backup, []byte(url)) || bytes.Contains(backup, []byte("cookie-secret")) {
+		t.Fatalf("invalid source backup with exact link and omitted credentials: %v", err)
+	}
+	if count, err := p.client.List(t.Context()); err != nil || len(count) != 1 {
+		t.Fatalf("summary import added tasks: %d, %v", len(count), err)
+	}
+
+	original := p.item(t)
+	if err := p.client.Delete(t.Context(), original.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := command("import", backupPath).CombinedOutput(); err != nil {
+		t.Fatalf("import backup = %q, %v", output, err)
+	} else {
+		assertSafe(output)
+	}
+	if restored := p.item(t); restored.URL != url || restored.Destination != original.Destination {
+		t.Fatal("backup did not restore exact source and destination")
+	}
+
+	input := command("import", "-")
+	input.Stdin = strings.NewReader(fmt.Sprintf(`{"version":1,"downloads":[{"url":%q},{"url":%q,"priority":2}]}`, url, url))
+	output, err := input.CombinedOutput()
+	if err == nil || !bytes.Contains(output, []byte("Entry 2")) || !bytes.Contains(output, []byte("Added 1 of 2 downloads")) {
+		t.Fatalf("partial import result = %q, %v", output, err)
+	}
+	assertSafe(output)
 }

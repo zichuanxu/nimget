@@ -224,6 +224,44 @@ func (s Settings) Validate() error {
 	return errors.Join(errs...)
 }
 
+// ValidateHeaderEdits permits an existing collision to remain unchanged
+// while other settings are edited, but rejects new or modified duplicates.
+func (s Settings) ValidateHeaderEdits(previous Settings) error {
+	type group struct{ host, folded string }
+	legacy := make(map[group][]map[string]string)
+	for _, site := range previous.Sites {
+		for folded, headers := range headerCollisions(site.Headers) {
+			key := group{siteHost(site.Host), folded}
+			legacy[key] = append(legacy[key], headers)
+		}
+	}
+	for _, site := range s.Sites {
+		for folded, headers := range headerCollisions(site.Headers) {
+			key := group{siteHost(site.Host), folded}
+			available := legacy[key]
+			index := slices.IndexFunc(available, func(old map[string]string) bool { return maps.Equal(headers, old) })
+			if index < 0 {
+				return errors.New("site request header names must be unique regardless of case")
+			}
+			legacy[key] = slices.Delete(available, index, index+1)
+		}
+	}
+	return nil
+}
+
+func headerCollisions(headers map[string]string) map[string]map[string]string {
+	groups := make(map[string]map[string]string)
+	for name, value := range headers {
+		folded := strings.ToLower(name)
+		if groups[folded] == nil {
+			groups[folded] = make(map[string]string)
+		}
+		groups[folded][name] = value
+	}
+	maps.DeleteFunc(groups, func(_ string, names map[string]string) bool { return len(names) < 2 })
+	return groups
+}
+
 func (s Site) validate() error {
 	host := siteHost(s.Host)
 	if host == "" || strings.ContainsAny(host, "/:@ ") {
@@ -253,7 +291,7 @@ func checkConnections(prefix string, conns, hostConns int, optional bool) error 
 // ValidateHeader rejects header names and values that cannot be sent verbatim.
 func ValidateHeader(name, value string) error {
 	if name == "" || strings.ContainsAny(name, " :\r\n\t") || strings.ContainsAny(value, "\r\n") {
-		return fmt.Errorf("invalid header %q", name)
+		return errors.New("invalid request header name or value")
 	}
 	return nil
 }
@@ -299,8 +337,13 @@ func (s Settings) HostConnectionsFor(host string) int {
 func (s Settings) HeadersFor(host string) http.Header {
 	site := s.Site(host)
 	req := http.Request{Header: make(http.Header)}
-	for name, value := range site.Headers {
-		req.Header.Set(name, value)
+	// For legacy case collisions, prefer a canonical spelling, then a
+	// stable spelling order. New settings edits reject such collisions.
+	for _, name := range slices.Sorted(maps.Keys(site.Headers)) {
+		canonical := http.CanonicalHeaderKey(name)
+		if _, exists := req.Header[canonical]; !exists || name == canonical {
+			req.Header.Set(name, site.Headers[name])
+		}
 	}
 	if site.Username != "" || site.Password != "" {
 		req.SetBasicAuth(site.Username, site.Password)

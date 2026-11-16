@@ -17,7 +17,8 @@ import * as update$0 from "../internal/update/models.js";
  */
 export class ImportResult {
     "added": number;
-    "failed": string[];
+    "failed": number[];
+    "problem"?: string;
 
     /** Creates a new ImportResult instance. */
     constructor($$source: Partial<ImportResult> = {}) {

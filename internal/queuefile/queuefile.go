@@ -7,57 +7,96 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/logging"
 )
 
-const version = 1
+const (
+	version     = 2
+	summaryMode = "summary"
+	backupMode  = "source-backup"
+)
 
-type file struct {
-	Version   int                `json:"version"`
-	Downloads []download.Request `json:"downloads"`
+var ErrSummary = errors.New("queue summaries contain no source URLs; import a source URL backup or a list of download links")
+
+type file[T any] struct {
+	Version   int    `json:"version"`
+	Mode      string `json:"mode,omitempty"`
+	Downloads []T    `json:"downloads"`
 }
 
-// Export writes the downloads that are not completed. Ordinary exports omit
-// request headers and URL credentials.
-func Export(items []download.Item, withHeaders bool) ([]byte, error) {
-	f := file{Version: version, Downloads: []download.Request{}}
+type options struct {
+	Priority    int   `json:"priority"`
+	Connections int   `json:"connections,omitempty"`
+	SpeedLimit  int64 `json:"speedLimit,omitempty"`
+}
+
+type summaryEntry struct {
+	options
+	Status    download.Status `json:"status"`
+	Completed int64           `json:"completed"`
+	Total     int64           `json:"total"`
+}
+
+type sourceEntry struct {
+	options
+	URL         string `json:"url"`
+	Destination string `json:"destination,omitempty"`
+	Checksum    string `json:"checksum,omitempty"`
+}
+
+// ExportSummary records unfinished queue progress and options without source
+// or destination strings, which may both carry credentials.
+func ExportSummary(items []download.Item) ([]byte, error) {
+	return export(items, summaryMode, func(item download.Item, settings options) summaryEntry {
+		return summaryEntry{options: settings, Status: item.Status, Completed: item.Completed, Total: item.Total}
+	})
+}
+
+// ExportSources backs up exact unfinished source URLs and queue options.
+// URLs and destinations may contain secrets. Headers and sessions are omitted.
+func ExportSources(items []download.Item) ([]byte, error) {
+	return export(items, backupMode, func(item download.Item, settings options) sourceEntry {
+		return sourceEntry{options: settings, URL: item.URL, Destination: item.Destination, Checksum: item.Checksum}
+	})
+}
+
+// Write atomically replaces a queue file using a new owner-writable file.
+func Write(path string, data []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".nimget-queue-*")
+	if err != nil {
+		return errors.New("could not save queue file")
+	}
+	defer os.Remove(temporary.Name())
+	_, err = temporary.Write(append(data, '\n'))
+	if errors.Join(err, temporary.Sync(), temporary.Close()) != nil {
+		return errors.New("could not save queue file")
+	}
+	if err := os.Rename(temporary.Name(), path); err != nil {
+		return errors.New("could not save queue file")
+	}
+	return nil
+}
+
+func export[T any](items []download.Item, mode string, entry func(download.Item, options) T) ([]byte, error) {
+	f := file[T]{Version: version, Mode: mode, Downloads: []T{}}
 	for _, item := range items {
-		if item.Status == download.StatusCompleted {
-			continue
+		if item.Status != download.StatusCompleted {
+			f.Downloads = append(f.Downloads, entry(item, options{item.Priority, item.Connections, item.SpeedLimit}))
 		}
-		req := download.Request{
-			URL: item.URL, Destination: item.Destination, Priority: item.Priority,
-			Connections: item.Connections, SpeedLimit: item.SpeedLimit, Checksum: item.Checksum,
-		}
-		if withHeaders {
-			req.Headers = item.Headers
-		} else {
-			req.URL = logging.RedactURL(req.URL)
-		}
-		f.Downloads = append(f.Downloads, req)
 	}
 	return json.MarshalIndent(f, "", "  ")
 }
 
-// Import reads an exported file, or text with one URL per line ("#" starts
-// a comment).
+// Import reads source backups, legacy queue files, or a text list of URLs
+// (lines starting with "#" are comments).
 func Import(data []byte) ([]download.Request, error) {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) > 0 && trimmed[0] == '{' {
-		var f file
-		dec := json.NewDecoder(bytes.NewReader(trimmed))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&f); err != nil {
-			return nil, fmt.Errorf("read queue file: %w", err)
-		}
-		if f.Version != version {
-			return nil, fmt.Errorf("unsupported queue file version %d", f.Version)
-		}
-		return f.Downloads, nil
+		return importJSON(trimmed)
 	}
 	var reqs []download.Request
 	scanner := bufio.NewScanner(bytes.NewReader(trimmed))
@@ -76,4 +115,43 @@ func Import(data []byte) ([]download.Request, error) {
 		return nil, errors.New("no downloads found")
 	}
 	return reqs, nil
+}
+
+func importJSON(data []byte) ([]download.Request, error) {
+	var format struct {
+		Version int    `json:"version"`
+		Mode    string `json:"mode"`
+	}
+	invalid := errors.New("invalid queue file")
+	if err := json.Unmarshal(data, &format); err != nil {
+		return nil, invalid
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	switch {
+	case format.Version == 1 && format.Mode == "":
+		var legacy file[download.Request]
+		if err := decoder.Decode(&legacy); err != nil {
+			return nil, invalid
+		}
+		return legacy.Downloads, nil
+	case format.Version == version && format.Mode == summaryMode:
+		return nil, ErrSummary
+	case format.Version == version && format.Mode == backupMode:
+		var backup file[sourceEntry]
+		if err := decoder.Decode(&backup); err != nil {
+			return nil, invalid
+		}
+		requests := make([]download.Request, 0, len(backup.Downloads))
+		for _, entry := range backup.Downloads {
+			requests = append(requests, download.Request{
+				URL: entry.URL, Destination: entry.Destination, Checksum: entry.Checksum,
+				Priority: entry.Priority, Connections: entry.Connections, SpeedLimit: entry.SpeedLimit,
+			})
+		}
+		return requests, nil
+	default:
+		return nil, errors.New("unsupported queue file format")
+	}
 }

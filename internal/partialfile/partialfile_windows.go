@@ -1,6 +1,7 @@
 package partialfile
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -43,7 +44,13 @@ func open(path string, flag int, _ fs.FileMode) (*os.File, error) {
 			disposition = windows.CREATE_NEW
 		}
 	}
-	handle, err := windows.CreateFile(name, access, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil,
+	share := uint32(windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE)
+	if flag == os.O_RDONLY {
+		// Checkpoint readers must allow an atomic replacement while holding
+		// the previous file open. Writable partial handles stay pinned.
+		share |= windows.FILE_SHARE_DELETE
+	}
+	handle, err := windows.CreateFile(name, access, share, nil,
 		disposition, windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 	if err != nil {
 		return nil, &os.PathError{Op: "open", Path: path, Err: err}
@@ -62,7 +69,16 @@ func validate(f *os.File) error {
 	}
 	if info.FileAttributes&(windows.FILE_ATTRIBUTE_REPARSE_POINT|windows.FILE_ATTRIBUTE_DIRECTORY) != 0 ||
 		info.NumberOfLinks != 1 {
-		return unsafeCollision(f.Name(), "expected a regular file with one link and no reparse point")
+		return Collision("expected a regular file with one link and no reparse point")
 	}
 	return nil
+}
+
+// Identity binds a checkpoint to the file opened through its partial path.
+func Identity(f *os.File) (string, error) {
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(windows.Handle(f.Fd()), &info); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x:%x:%x", info.VolumeSerialNumber, info.FileIndexHigh, info.FileIndexLow), nil
 }

@@ -42,6 +42,13 @@ export function ApproveExtensionPairing(id: string, code: string): $CancellableP
 }
 
 /**
+ * BackupQueue saves exact source URLs and queue options without headers or sessions.
+ */
+export function BackupQueue(): $CancellablePromise<string> {
+    return $Call.ByID(1118041197);
+}
+
+/**
  * CanConvert reports whether ffmpeg is available for ConvertToMP4.
  */
 export function CanConvert(): $CancellablePromise<boolean> {
@@ -75,9 +82,7 @@ export function ExpandBatch(pattern: string): $CancellablePromise<string[]> {
 }
 
 /**
- * ExportQueue saves the unfinished downloads to a file the user picks. Request
- * headers are left out; they often hold session cookies. It returns the
- * path, or "" when the user cancels.
+ * ExportQueue saves a summary of unfinished tasks to a file the user picks.
  */
 export function ExportQueue(): $CancellablePromise<string> {
     return $Call.ByID(2600091605);

@@ -15,8 +15,18 @@ const task = {
 
 test("keeps keyboard focus within a named add dialog and restores its trigger", async ({ page }) => {
   await mockDesktop(page);
-  await page.goto("/");
+  let releaseStartup!: () => void;
+  const startup = new Promise<void>((resolve) => { releaseStartup = resolve; });
+  await page.route("**/*", async (route) => {
+    if (route.request().resourceType() === "script") await startup;
+    await route.fallback();
+  });
+  await page.goto("/", { waitUntil: "commit" });
   const trigger = page.getByRole("button", { name: "New download", exact: true }).first();
+  await expect(trigger).toHaveCount(0);
+  releaseStartup();
+  await expect(trigger).toBeEnabled();
+  await expect(trigger).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(trigger).toBeFocused();
   await page.keyboard.press("Enter");

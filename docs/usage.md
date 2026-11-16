@@ -126,7 +126,11 @@ Relative paths are resolved against the client's working directory. On restart, 
 | `proxy.mode` | `system` (macOS and Windows settings, else `HTTP_PROXY`/`HTTPS_PROXY`), `none`, or `manual` with `proxy.url`. Loopback addresses never use a proxy. |
 | `sites` | Overrides for a host and its subdomains: connections, host cap, extra headers, and basic-auth credentials. |
 
-Per-download priority, connections, and speed limit come from `add` or `set`; a new speed limit applies to a running download at once. Site passwords are shown as `********` by `settings get`; sending that value back keeps the stored password.
+Set per-download priority, connections, and speed limit with `add` or `set`, or open **Download details** from the task's info button or menu in the desktop app. Priority affects which queued task starts next. Connection changes apply on the next attempt and still respect the server's support and the site's connection cap. A new speed limit applies to subsequent reads on a running download. An existing limiter wait may finish at the previous rate, and the total speed limit still applies. In the desktop app, leave connections blank to use the site or app default and speed limit blank to clear the task limit.
+
+**Download details** shows the destination, progress, current status, and recovery guidance for failed tasks. Retry after fixing disk-space, folder permission, or network problems. If the website requires a fresh link or session, use **Refresh download link** on the same task.
+
+Site passwords are shown as `********` by `settings get`; sending that value back keeps the stored password.
 
 Download headers (such as cookies) and site credentials are encrypted in the database with AES-GCM under a key kept in the OS keyring (Keychain, Windows Credential Manager, or the Secret Service). Without a keyring, as on a headless server, the key lives in memory only: after a restart those values are gone and a download that needs them fails with 401 or 403 until its headers are supplied again.
 

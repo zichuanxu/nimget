@@ -254,7 +254,14 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 		if dir != "" && !filepath.IsAbs(dir) {
 			return invalid(errors.New("directory must be an absolute path"))
 		}
-		name := m.resolveName(ctx, rawURL, m.headers(hostOf(rawURL), req.Headers), inspectTimeout)
+		name := fileName("", rawURL)
+		if req.WebsiteSession == nil || req.WebsiteSession.Usable(m.opts.Now()) {
+			headers := m.headers(hostOf(rawURL), req.Headers)
+			if req.WebsiteSession != nil {
+				req.WebsiteSession.Apply(headers)
+			}
+			name = m.resolveName(ctx, rawURL, headers, inspectTimeout)
+		}
 		if dir == "" {
 			dir = filepath.Join(m.roots[0], category(name))
 		}
@@ -300,7 +307,7 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 		ID: id, URL: rawURL, Destination: destination, Status: download.StatusQueued,
 		Priority: req.Priority, Connections: req.Connections, SpeedLimit: req.SpeedLimit,
 		Checksum: strings.TrimSpace(req.Checksum), Headers: req.Headers,
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt: now, UpdatedAt: now, WebsiteSession: req.WebsiteSession,
 	}
 	created, err := persist(ctx, item)
 	if err != nil || !created {
@@ -339,7 +346,7 @@ func (m *Manager) Pause(ctx context.Context, id string) error {
 			item.Completed, item.Total = j.progress()
 		}
 		item.Status = download.StatusPaused
-		item.Error = ""
+		item.Error, item.Failure = "", ""
 		return nil
 	})
 }
@@ -395,7 +402,7 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 			item.Headers = nil
 			item.Recovery = download.RecoveryValidateSource
 			item.Status = download.StatusQueued
-			item.Error = ""
+			item.Error, item.Failure = "", ""
 		}
 		if p.Priority != nil {
 			item.Priority = priority
@@ -409,9 +416,9 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 		if p.Headers != nil {
 			item.Headers = *p.Headers
 		}
-		if j, ok := m.active[id]; ok {
-			j.item.Priority, j.item.Connections, j.item.SpeedLimit = item.Priority, item.Connections, item.SpeedLimit
-			j.limiter.SetLimit(limitOf(item.SpeedLimit))
+		if p.URL != nil || p.Headers != nil {
+			item.WebsiteSession = nil
+			item.WebsiteSessionUnavailable = false
 		}
 		return nil
 	})
@@ -435,7 +442,7 @@ func (m *Manager) requeue(ctx context.Context, id string, from download.Status) 
 			return ErrActive
 		}
 		item.Status = download.StatusQueued
-		item.Error = ""
+		item.Error, item.Failure = "", ""
 		return nil
 	})
 	if err == nil {
@@ -462,7 +469,7 @@ func (m *Manager) Restart(ctx context.Context, id string) error {
 		}
 		item.Completed, item.Total = 0, 0
 		item.Status = download.StatusQueued
-		item.Error = ""
+		item.Error, item.Failure = "", ""
 		item.Recovery = ""
 		return nil
 	})
@@ -494,6 +501,12 @@ func (m *Manager) transition(ctx context.Context, id string, withHeaders bool, c
 	}
 	if err := save(ctx, item); err != nil {
 		return err
+	}
+	if j := m.active[id]; j != nil {
+		if j.item.SpeedLimit != item.SpeedLimit {
+			j.limiter.SetLimit(limitOf(item.SpeedLimit))
+		}
+		j.item.Priority, j.item.Connections, j.item.SpeedLimit = item.Priority, item.Connections, item.SpeedLimit
 	}
 	m.publish(download.EventUpdated, item)
 	return nil
@@ -676,10 +689,21 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	}
 	delete(m.retryAt, id)
 	item.UpdatedAt = now.UTC()
+	if item.WebsiteSessionUnavailable || (item.WebsiteSession != nil && !item.WebsiteSession.Usable(now)) {
+		item.Status = download.StatusFailed
+		item.Failure = download.FailureAuthorization
+		item.Error = "The website session is no longer available. " + websiteSessionRecovery
+		if err := m.repo.Update(ctx, item); err != nil {
+			return err
+		}
+		m.publish(download.EventUpdated, item)
+		return nil
+	}
 	// Re-check confinement: a symlinked ancestor may have changed since Add.
 	if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
 		item.Status = download.StatusFailed
 		item.Error = err.Error()
+		item.Failure = classifyFailure(err)
 		if err := m.repo.Update(ctx, item); err != nil {
 			return err
 		}
@@ -687,7 +711,7 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 		return nil
 	}
 	item.Status = download.StatusRunning
-	item.Error = ""
+	item.Error, item.Failure = "", ""
 	if err := m.repo.Update(ctx, item); err != nil {
 		return err
 	}
@@ -695,9 +719,13 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	j := &job{cancel: cancel, item: item, host: host, conns: conns, limiter: rate.NewLimiter(limitOf(item.SpeedLimit), limiterBurst)}
 	j.completed.Store(item.Completed)
 	j.total.Store(item.Total)
+	headers := m.headers(host, item.Headers)
+	if item.WebsiteSession != nil {
+		item.WebsiteSession.Apply(headers)
+	}
 	spec := download.Spec{
 		URL: item.URL, Destination: item.Destination, Connections: conns,
-		Headers: m.headers(host, item.Headers), Checksum: item.Checksum,
+		Headers: headers, Checksum: item.Checksum,
 		ResumeKey: item.ID, ValidateSource: item.Recovery == download.RecoveryValidateSource,
 		Limiters: []*rate.Limiter{m.global, j.limiter},
 	}
@@ -747,8 +775,10 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 		// Checked first: a Pause that raced the final rename must not hide a
 		// finished file, which a later Resume would reject as already existing.
 		item.Status = download.StatusCompleted
-		item.Error = ""
+		item.Error, item.Failure = "", ""
 		item.Recovery = ""
+		item.WebsiteSession = nil
+		item.WebsiteSessionUnavailable = false
 		if item.Total > 0 {
 			item.Completed = item.Total
 		} else {
@@ -765,6 +795,10 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	default:
 		item.Status = download.StatusFailed
 		item.Error = runErr.Error()
+		item.Failure = classifyFailure(runErr)
+		if j.item.WebsiteSession != nil && item.Failure == download.FailureAuthorization {
+			item.Error += ". The website session may have expired. " + websiteSessionRecovery
+		}
 		if errors.Is(runErr, download.ErrRestartRequired) {
 			item.Recovery = download.RecoveryRestartRequired
 		}

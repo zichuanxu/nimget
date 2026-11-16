@@ -1,5 +1,6 @@
 import { useState, useEffect, type ReactNode } from "react";
-import { CircleAlert, Clock, Download, Globe, Monitor, Moon, Plus, Settings as SettingsIcon, SlidersHorizontal, Sun, Trash2, Wrench, type LucideIcon } from "lucide-react";
+import { CircleAlert, Clock, Download, Globe, Link2, Monitor, Moon, Plus, Settings as SettingsIcon, SlidersHorizontal, Sun, Trash2, Wrench, type LucideIcon } from "lucide-react";
+import BrowserPairings from "./BrowserPairings";
 import { Desktop, ProxyMode, Settings, SpeedRule, State, message } from "./api";
 import { parseSpeed, speedText } from "./format";
 import { useI18n } from "./i18n";
@@ -7,13 +8,14 @@ import { Modal, Segmented, Switch } from "./ui";
 import { applyTheme, loadTheme, saveTheme, type Theme } from "./theme";
 
 type Props = { state: State; onClose: () => void; onSaved: () => void };
-type Tab = "general" | "downloads" | "schedule" | "network" | "advanced";
+type Tab = "general" | "downloads" | "schedule" | "network" | "browser" | "advanced";
 
-const tabs: { id: Tab; icon: LucideIcon; label: "settings.general" | "settings.downloads" | "settings.schedule" | "settings.network" | "settings.advanced" }[] = [
+const tabs: { id: Tab; icon: LucideIcon; label: "settings.general" | "settings.downloads" | "settings.schedule" | "settings.network" | "settings.browser" | "settings.advanced" }[] = [
   { id: "general", icon: SlidersHorizontal, label: "settings.general" },
   { id: "downloads", icon: Download, label: "settings.downloads" },
   { id: "schedule", icon: Clock, label: "settings.schedule" },
   { id: "network", icon: Globe, label: "settings.network" },
+  { id: "browser", icon: Link2, label: "settings.browser" },
   { id: "advanced", icon: Wrench, label: "settings.advanced" },
 ];
 
@@ -251,6 +253,8 @@ export default function SettingsDialog({ state, onClose, onSaved }: Props) {
               </label>
             </>
           )}
+
+          {tab === "browser" && <BrowserPairings />}
 
           {tab === "advanced" && (
             <>

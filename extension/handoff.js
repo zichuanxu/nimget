@@ -8,16 +8,16 @@ export async function submitHandoff(request, credential) {
 }
 
 export function submitHandoffWithReceipt(request, credential) {
-  return requestReceipt("handoffs", request, credential);
+  return requestReceipt("handoffs", request, credential, [200, 201]);
 }
 
 export function lookupHandoffReceipt(handoffId, credential) {
-  return requestReceipt("handoffs/status", { handoffId }, credential);
+  return requestReceipt("handoffs/status", { handoffId }, credential, [200]);
 }
 
-async function requestReceipt(path, request, credential) {
-  const result = await requestExtension(path, request, credential);
-  if (typeof result.taskId !== "string" || result.taskId.length === 0) {
+async function requestReceipt(path, request, credential, statuses) {
+  const result = await requestExtension(path, request, credential, statuses);
+  if (typeof result.taskId !== "string" || !result.taskId.trim()) {
     throw new ExtensionRequestError("HANDOFF_UNCONFIRMED");
   }
   return result;

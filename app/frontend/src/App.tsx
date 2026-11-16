@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { Desktop, EventType, Item, Recovery, State, Status, message } from "./api";
 import AddDialog, { type AddPrefill } from "./AddDialog";
+import BulkTaskActions from "./BulkTaskActions";
 import SettingsDialog from "./SettingsDialog";
 import TaskDetailsDialog from "./TaskDetailsDialog";
 import { CountdownDialog, DeleteDialog, ReauthDialog } from "./dialogs";
@@ -112,6 +113,8 @@ function Shell() {
   const [state, setState] = useState<State | null>(null);
   const [items, setItems] = useState<Map<string, Item>>(new Map());
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedTaskIDs, setSelectedTaskIDs] = useState<Set<string>>(() => new Set());
+  const [bulkConfirming, setBulkConfirming] = useState<Item[] | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState<AddPrefill | null>(null);
@@ -260,11 +263,29 @@ function Shell() {
   const all = useMemo(() => [...items.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)), [items]);
   const counts = useMemo(() => Object.fromEntries(filters.map((f) => [f.id, all.filter((i) => matches(i, f.id)).length])) as Record<Filter, number>, [all]);
   const q = query.trim().toLowerCase();
-  const rows = all.filter((i) => matches(i, filter) && (!q || baseName(i.destination).toLowerCase().includes(q) || i.url.toLowerCase().includes(q)));
-  const current = selected ? items.get(selected) : undefined;
+  const rows = useMemo(
+    () => all.filter((i) => matches(i, filter) && (!q || baseName(i.destination).toLowerCase().includes(q) || i.url.toLowerCase().includes(q))),
+    [all, filter, q],
+  );
+  const selectedTasks = useMemo(
+    () => selectedTaskIDs.size ? rows.filter((item) => selectedTaskIDs.has(item.id)) : [],
+    [rows, selectedTaskIDs],
+  );
+  useEffect(() => {
+    if (selectedTasks.length !== selectedTaskIDs.size) {
+      setSelectedTaskIDs(new Set(selectedTasks.map((item) => item.id)));
+    }
+  }, [selectedTasks, selectedTaskIDs.size]);
+
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    setSelected(null);
+    setSelectedTaskIDs(new Set());
+  };
+  const current = selected && selectedTasks.length === 0 ? rows.find((item) => item.id === selected) : undefined;
   const totalSpeed = history[history.length - 1] ?? 0;
   const details = detailsId ? items.get(detailsId) : undefined;
-  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details);
+  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming);
 
   const actions = (item: Item): Action[] => {
     const list: Action[] = [];
@@ -303,6 +324,9 @@ function Shell() {
         search.current?.focus();
       } else if (isTyping(e)) {
         if (e.key === "Escape") (e.target as HTMLElement).blur();
+      } else if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest("button, a, summary"))) {
+        // Keep the native keyboard behavior of focused controls.
+        return;
       } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         const i = rows.findIndex((r) => r.id === selected);
@@ -366,7 +390,12 @@ function Shell() {
         </button>
         <nav className="nav">
           {filters.map((f) => (
-            <button key={f.id} className={`nav-item ${filter === f.id ? "on" : ""} ${f.id}`} onClick={() => setFilter(f.id)}>
+            <button key={f.id} className={`nav-item ${filter === f.id ? "on" : ""} ${f.id}`} onClick={() => {
+              if (filter === f.id) return;
+              setFilter(f.id);
+              setSelected(null);
+              setSelectedTaskIDs(new Set());
+            }}>
               <f.icon size={16} />
               <span className="grow">{t(f.label)}</span>
               {counts[f.id] > 0 && <span className="count">{counts[f.id]}</span>}
@@ -397,9 +426,9 @@ function Shell() {
           <div className="grow" />
           <div className="search no-drag">
             <Search size={14} />
-            <input ref={search} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("header.search")} spellCheck={false} />
+            <input ref={search} value={query} onChange={(e) => changeQuery(e.target.value)} placeholder={t("header.search")} spellCheck={false} />
             {query && (
-              <button className="icon ghost tiny" onClick={() => setQuery("")} aria-label={t("common.close")}>
+              <button className="icon ghost tiny" onClick={() => changeQuery("")} aria-label={t("common.close")}>
                 <X size={12} />
               </button>
             )}
@@ -457,6 +486,16 @@ function Shell() {
           </div>
         )}
 
+        <BulkTaskActions
+          visibleCount={rows.length}
+          selected={selectedTasks}
+          disabled={!state || !!state.error}
+          onSelectAll={(checked) => setSelectedTaskIDs(checked ? new Set(rows.map((item) => item.id)) : new Set())}
+          confirming={bulkConfirming}
+          onConfirm={setBulkConfirming}
+          refresh={reload}
+        />
+
         <div className="list" onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}>
           {rows.length === 0 ? (
             <Empty all={all.length} query={query} onAdd={() => setAdding({})} />
@@ -466,7 +505,14 @@ function Shell() {
                 key={item.id}
                 item={item}
                 bps={samples.current.get(item.id)?.bps ?? 0}
-                selected={item.id === selected}
+                selected={selectedTaskIDs.has(item.id) || current?.id === item.id}
+                checked={selectedTaskIDs.has(item.id)}
+                onCheck={(checked) => setSelectedTaskIDs((previous) => {
+                  const next = new Set(previous);
+                  if (checked) next.add(item.id);
+                  else next.delete(item.id);
+                  return next;
+                })}
                 converting={converting === item.id}
                 actions={actions(item)}
                 onSelect={() => setSelected(item.id)}
@@ -593,6 +639,8 @@ function Row({
   item,
   bps,
   selected,
+  checked,
+  onCheck,
   converting,
   actions,
   onSelect,
@@ -603,6 +651,8 @@ function Row({
   item: Item;
   bps: number;
   selected: boolean;
+  checked: boolean;
+  onCheck: (checked: boolean) => void;
   converting: boolean;
   actions: Action[];
   onSelect: () => void;
@@ -629,6 +679,9 @@ function Row({
       }}
       title={name}
     >
+      <label className="task-checkbox" onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+        <input type="checkbox" checked={checked} aria-label={t("bulk.selectTask", { name })} onChange={(e) => onCheck(e.target.checked)} />
+      </label>
       <div className={`kind ${kind}`}>
         <Icon size={18} strokeWidth={1.8} />
       </div>

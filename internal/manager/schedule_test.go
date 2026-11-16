@@ -59,6 +59,23 @@ type harness struct {
 	root   string
 }
 
+func (h *harness) waitForStart(t *testing.T, id string, count int) download.Spec {
+	t.Helper()
+	// The repository publishes Running before the runner goroutine starts.
+	waitFor(t, id+" to start", func() bool {
+		return h.repo.get(t, id).Status == download.StatusRunning && len(h.runner.started()) >= count
+	})
+	started := h.runner.started()
+	if len(started) != count {
+		t.Fatalf("%d downloads started, want %d", len(started), count)
+	}
+	last := started[count-1]
+	if want := h.repo.get(t, id).URL; last.URL != want {
+		t.Fatalf("last download started from %s, want %s", last.URL, want)
+	}
+	return last
+}
+
 func queued(id, url string, priority int, age time.Duration) download.Item {
 	created := time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC).Add(-age)
 	return download.Item{ID: id, URL: url, Destination: filepath.Join(tempRoot, id), Status: download.StatusQueued, Priority: priority, CreatedAt: created, UpdatedAt: created}
@@ -114,10 +131,7 @@ func TestSchedulerStartsHighestPriorityThenOldest(t *testing.T) {
 	})
 	want := []string{"old-high", "new-high", "old-normal", "oldest-low"}
 	for i, id := range want {
-		waitFor(t, id+" to start", func() bool { return h.repo.get(t, id).Status == download.StatusRunning })
-		if got := h.runner.started(); len(got) != i+1 {
-			t.Fatalf("%d downloads started, want %d", len(got), i+1)
-		}
+		h.waitForStart(t, id, i+1)
 		if err := h.m.Pause(context.Background(), id); err != nil {
 			t.Fatal(err)
 		}
@@ -161,9 +175,8 @@ func TestHostCapSharesConnectionsAcrossDownloads(t *testing.T) {
 	if err := h.m.Pause(context.Background(), "a1"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "a3 to start", func() bool { return h.repo.get(t, "a3").Status == download.StatusRunning })
-	last := h.runner.started()[3]
-	if last.URL != "https://a.test/3" || last.Connections != 8 {
+	last := h.waitForStart(t, "a3", 4)
+	if last.Connections != 8 {
 		t.Fatalf("a3 started with %+v", last)
 	}
 }
@@ -184,8 +197,7 @@ func TestScheduleWindowAndSpeedRulesFollowTheClock(t *testing.T) {
 	}
 
 	h.clock.Set("01:00")
-	waitFor(t, "the window to open", func() bool { return h.repo.get(t, "night").Status == download.StatusRunning })
-	global := h.runner.started()[0].Limiters[0]
+	global := h.waitForStart(t, "night", 1).Limiters[0]
 	waitFor(t, "the default global limit", func() bool { return global.Limit() == 1000 })
 
 	h.clock.Set("06:30")

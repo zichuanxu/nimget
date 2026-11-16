@@ -26,7 +26,6 @@ import (
 
 	"github.com/zichuanxu/nimget/internal/filelock"
 	"github.com/zichuanxu/nimget/internal/httporigin"
-	"github.com/zichuanxu/nimget/internal/logging"
 	"github.com/zichuanxu/nimget/internal/partialfile"
 )
 
@@ -203,9 +202,9 @@ func lock(dest string) (func() error, error) {
 // resolve fetches the playlist, following a master playlist to its best variant.
 func (d *downloader) resolve(ctx context.Context, rawURL string) ([]item, error) {
 	for range 2 {
-		body, final, err := d.get(ctx, rawURL)
+		body, final, err := d.get(ctx, rawURL, "HLS playlist")
 		if err != nil {
-			return nil, fmt.Errorf("playlist: %w", err)
+			return nil, err
 		}
 		variant, items, err := parsePlaylist(body, final)
 		if err != nil || variant == "" {
@@ -213,7 +212,7 @@ func (d *downloader) resolve(ctx context.Context, rawURL string) ([]item, error)
 		}
 		rawURL = variant
 	}
-	return nil, fmt.Errorf("variant playlist %s is itself a master playlist", logging.RedactURL(rawURL))
+	return nil, fmt.Errorf("%w: nested master playlists", ErrUnsupported)
 }
 
 // fetchAll downloads the pending items with bounded concurrency. The first
@@ -262,7 +261,7 @@ func (d *downloader) fetchItem(ctx context.Context, work string, i int, it item)
 	}
 	defer os.Remove(raw.Name())
 	defer raw.Close()
-	_, size, err := d.fetch(ctx, it.URI, it.Off, it.Len, true, -1, fileSink{raw})
+	_, size, err := d.fetch(ctx, it.URI, "HLS segment", it.Off, it.Len, true, -1, fileSink{raw})
 	if err != nil {
 		return fmt.Errorf("segment %d: %w", i, err)
 	}
@@ -300,12 +299,12 @@ func (d *downloader) key(ctx context.Context, uri string) ([]byte, error) {
 	}
 	d.mu.Unlock()
 	e.once.Do(func() {
-		body, _, err := d.get(ctx, uri)
+		body, _, err := d.get(ctx, uri, "HLS key")
 		switch {
 		case err != nil:
-			e.err = fmt.Errorf("key %s: %w", logging.RedactURL(uri), err)
+			e.err = err
 		case len(body) != 16:
-			e.err = fmt.Errorf("key %s: got %d bytes, want 16", logging.RedactURL(uri), len(body))
+			e.err = fmt.Errorf("HLS key has %d bytes, want 16", len(body))
 		default:
 			e.key = body
 		}

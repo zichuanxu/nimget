@@ -21,7 +21,6 @@ import (
 
 	"github.com/zichuanxu/nimget/internal/download"
 	"github.com/zichuanxu/nimget/internal/hls"
-	"github.com/zichuanxu/nimget/internal/logging"
 	"github.com/zichuanxu/nimget/internal/settings"
 	"golang.org/x/time/rate"
 )
@@ -313,7 +312,7 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 	if err != nil || !created {
 		return download.Item{}, err
 	}
-	m.log.Info("download added", "id", id, "url", logging.RedactURL(rawURL))
+	m.log.Info("download added", "id", id, "host", hostOf(rawURL))
 	m.publish(download.EventUpdated, item)
 	m.signal()
 	return item, nil
@@ -732,7 +731,7 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	m.active[id] = j
 	m.hostConns[host] += conns
 	m.wg.Add(1)
-	m.log.Info("download started", "id", id, "url", logging.RedactURL(item.URL), "connections", conns)
+	m.log.Info("download started", "id", id, "host", host, "connections", conns)
 	m.publish(download.EventUpdated, item)
 	go m.run(workCtx, j, spec)
 	return nil
@@ -902,7 +901,7 @@ func (m *Manager) resolveName(ctx context.Context, rawURL string, headers http.H
 	defer cancel()
 	remote, err := m.runner.Inspect(ctx, rawURL, headers)
 	if err != nil {
-		m.log.Warn("inspect download for its name", "url", logging.RedactURL(rawURL), "err", err)
+		m.log.Warn("inspect download for its name", "host", hostOf(rawURL), "err", err)
 		remote = download.Remote{}
 	}
 	if remote.URL == "" {

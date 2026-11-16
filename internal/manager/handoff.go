@@ -15,12 +15,12 @@ const websiteSessionRecovery = "Sign in to the site again and use Refresh downlo
 
 // AcceptHandoff queues a browser request using the same settings, destination
 // selection and notifications as a task added in the desktop app.
-func (m *Manager) AcceptHandoff(ctx context.Context, pairingID, handoffID, pairingCredential string, req download.Request) (download.HandoffReceipt, error) {
+func (m *Manager) AcceptHandoff(ctx context.Context, pairingID, handoffID, pairingCredential string, req download.Request, captureProof string) (download.HandoffReceipt, error) {
 	repo, ok := m.repo.(download.HandoffRepository)
 	if !ok {
 		return download.HandoffReceipt{}, errors.New("download repository does not support browser handoff")
 	}
-	digest, err := handoffDigest(req, pairingCredential)
+	digest, err := handoffDigest(req, pairingCredential, captureProof)
 	if err != nil {
 		return download.HandoffReceipt{}, err
 	}
@@ -33,7 +33,7 @@ func (m *Manager) AcceptHandoff(ctx context.Context, pairingID, handoffID, pairi
 	// Leave time for persistence inside the browser's acknowledgement window.
 	// A slow origin still gets the queue's existing URL-based name fallback.
 	inspectTimeout := min(m.opts.InspectTimeout, time.Second)
-	_, err = m.add(ctx, req, inspectTimeout, func(ctx context.Context, item download.Item) (bool, error) {
+	_, err = m.add(ctx, req, inspectTimeout, captureProof, func(ctx context.Context, item download.Item) (bool, error) {
 		var storeErr error
 		receipt, storeErr = repo.CreateHandoff(ctx, handoff, item)
 		return receipt.Created, storeErr
@@ -49,18 +49,19 @@ func (m *Manager) LookupHandoff(ctx context.Context, pairingID, handoffID string
 	return repo.LookupHandoff(ctx, pairingID, handoffID)
 }
 
-func handoffDigest(req download.Request, credential string) ([32]byte, error) {
+func handoffDigest(req download.Request, credential, captureProof string) ([32]byte, error) {
 	// Keep the digest for existing URL-only receipts stable. Bind the typed
 	// session as well for new protected requests, using a keyed digest so
 	// a copy of the database cannot be used to guess a cookie offline.
-	if req.WebsiteSession == nil {
+	if req.WebsiteSession == nil && captureProof == "" {
 		payload, err := json.Marshal(req)
 		return sha256.Sum256(payload), err
 	}
 	payload, err := json.Marshal(struct {
 		download.Request
-		Session *download.WebsiteSession `json:"websiteSession"`
-	}{req, req.WebsiteSession})
+		Session      *download.WebsiteSession `json:"websiteSession"`
+		CaptureProof string                   `json:"captureProof,omitempty"`
+	}{req, req.WebsiteSession, captureProof})
 	if err != nil {
 		return [32]byte{}, err
 	}

@@ -14,10 +14,9 @@ Section 10 describes Windows release preparation and source distribution.
 
 ## 0. Project conventions
 
-**English only, everywhere.** Source code, identifiers, comments, doc comments, commit
-messages, error strings, log messages, CLI help, GUI copy, extension strings, issue
-templates, and all documentation are written in English. No exceptions, including
-scratch and internal notes.
+**Language.** Write source, identifiers, comments, commits, CLI help, logs, and
+project documentation in English. Maintain the shipped English and Simplified
+Chinese translations for the desktop and browser extension interfaces.
 
 **Zero spend.** nimget is a personal open-source project. No paid certificates, developer
 accounts, update servers, or hosted services. Free CI for public repositories is fine.
@@ -196,9 +195,10 @@ unsupported-media failure.
 HLS resume granularity is **whole segments**. AES-128 key fetch and decryption are
 included. MPEG-TS segments are concatenated byte-for-byte into a playable `.ts`; fMP4
 segments are concatenated after their init segment. Segments stream to disk (never
-whole in memory) and finished ones are kept in a `dest.hls/` directory, fingerprinted by
-the playlist without query strings, so a playlist re-fetched with fresh CDN tokens still
-resumes. A structurally changed playlist restarts the download. Sensitive headers stay
+whole in memory) and finished ones are kept in a `dest.hls/` directory. The
+fingerprint includes exact media and key request URLs, byte ranges, and the
+playlist request context. A changed plan restarts assembly with freshly fetched
+segments. Sensitive headers stay
 within the playlist's security origin. The engine hands a URL ending in `.m3u8`, or a
 probe answered with an HLS `Content-Type`, to the HLS source. The selected variant
 produces an unsupported-media failure if it references a separate audio, video, or
@@ -397,12 +397,11 @@ Logging is `slog` JSON to a size-capped rotating file (10MB × 3) in the app dat
 directory, with a level selector in settings and a log pane in the GUI offering a
 re-scrubbing "copy for bug report" button.
 
-**Never logged:** `Authorization`, `Cookie`, `Set-Cookie`, the API token, and signed
-query parameters (`X-Amz-Signature`, `token`, `sig`). Users paste logs into public issues.
+**Never logged:** `Authorization`, `Cookie`, `Set-Cookie`, the API token, source URLs,
+and arbitrary origin response bodies. Users paste logs into public issues.
 
-**Logged:** download identity, resolved host, negotiated protocol, size, validator,
-segment timings, retry reasons, status codes, throughput, checkpoint duration,
-verification result.
+Download logs use the task identity, status, byte counts, and failure category.
+Task diagnostics may include standard HTTP statuses and recovery instructions.
 
 ---
 

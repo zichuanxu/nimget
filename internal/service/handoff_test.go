@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/zichuanxu/nimget/internal/download"
+	"github.com/zichuanxu/nimget/internal/engine"
 	"github.com/zichuanxu/nimget/internal/service"
 	"github.com/zichuanxu/nimget/internal/settings"
 )
@@ -26,6 +27,62 @@ const (
 	handoffPath = "/v1/extension/handoffs"
 	handoffBody = `{"handoffId":"97eba4cf-7936-4d48-96fd-8e1110a9e2d8","url":"https://example.com/public.zip"}`
 )
+
+func TestAutomaticHandoffRequiresMatchingReplayBeforeReceipt(t *testing.T) {
+	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/private.zip" {
+			http.Error(w, "NimGet lacks the browser's authentication", http.StatusForbidden)
+			return
+		}
+		if r.URL.Path == "/login.zip" {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte("<p>Sign in</p>"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Length", "4")
+		w.Header().Set("Content-Disposition", "attachment; filename=public.zip")
+		switch r.URL.Path {
+		case "/no-validator.zip":
+		case "/hidden-auth.zip":
+			// Anonymous replay offers a same-sized, different attachment.
+			w.Header().Set("ETag", `"public-fallback"`)
+			_, _ = w.Write([]byte("fake"))
+			return
+		default:
+			w.Header().Set("ETag", `"expected"`)
+		}
+		_, _ = w.Write([]byte("data"))
+	}))
+	defer fixture.Close()
+	cfg := handoffServiceConfig(t)
+	runner, err := engine.NewRunner(engine.Config{MaxAttempts: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Runner = runner
+	svc := startHandoffService(t, cfg)
+	token := approveHandoffPairing(t, svc, 'a')
+	body := func(name, etag string) string {
+		proof := sha256.Sum256([]byte("attachment; filename=public.zip\napplication/zip\n4\n" + etag))
+		return fmt.Sprintf(`{"handoffId":"97eba4cf-7936-4d48-96fd-8e1110a9e2d8","url":"%s/%s.zip","captureProof":"%x"}`, fixture.URL, name, proof)
+	}
+	for _, name := range []string{"private", "login", "hidden-auth", "no-validator"} {
+		rejected := extensionPost(t, svc.Address(), handoffPath, pairingOrigin, token, body(name, `"expected"`), http.StatusBadRequest)
+		if rejected.Error.Code != "CAPTURE_NOT_REPLAYABLE" {
+			t.Fatalf("%s capture = %+v", name, rejected)
+		}
+	}
+	rejected := extensionPost(t, svc.Address(), handoffPath, pairingOrigin, token, body("no-validator", ""), http.StatusBadRequest)
+	if rejected.Error.Code != "CAPTURE_NOT_REPLAYABLE" {
+		t.Fatalf("proof without a validator was accepted: %+v", rejected)
+	}
+	accepted := extensionPost(t, svc.Address(), handoffPath, pairingOrigin, token, body("public", `"expected"`), http.StatusCreated)
+	repeat := extensionPost(t, svc.Address(), handoffPath, pairingOrigin, token, body("public", `"expected"`), http.StatusOK)
+	if accepted.TaskID == "" || repeat.TaskID != accepted.TaskID {
+		t.Fatal("automatic capture did not persist one idempotent receipt")
+	}
+}
 
 func TestManualHandoffRetainsItsTaskAfterRestart(t *testing.T) {
 	cfg := handoffServiceConfig(t)

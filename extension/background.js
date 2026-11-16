@@ -1,6 +1,6 @@
 import "./capture.js";
 import { readCredential } from "./pairing.js";
-import { lookupHandoffReceipt, manualHandoffPrefix, manualHandoffResult, submitHandoffWithReceipt, supportsHandoff } from "./handoff.js";
+import { deliverHandoffReceipt, manualHandoffPrefix, manualHandoffResult, sha256Hex, supportsHandoff, updateHandoffBadge } from "./handoff.js";
 import {
   createWebsiteSessionDraft, readWebsiteSession, readWebsiteSessionDraft, readWebsiteSessionSnapshot,
   removeWebsiteSessionDraft, removeWebsiteSessionSnapshot, saveWebsiteSessionSnapshot, websiteSessionPrompt,
@@ -58,17 +58,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-async function credentialDigest(credential) {
-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(credential));
-  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 async function openWebsiteSessionPrompt(info, tab) {
   if (!supportsHandoff(info.linkUrl)) return showResult("handoffUnsupported");
   const credential = await readCredential();
   if (!credential) return showResult("handoffPairingRequired");
   const handoffId = crypto.randomUUID();
-  await createWebsiteSessionDraft(handoffId, info, tab?.id, await credentialDigest(credential));
+  await createWebsiteSessionDraft(handoffId, info, tab?.id, await sha256Hex(credential));
   await chrome.tabs.create({ url: chrome.runtime.getURL(websiteSessionPrompt) + "#" + handoffId, windowId: tab?.windowId });
 }
 
@@ -79,7 +74,7 @@ async function submitWebsiteSessionHandoff(handoffId, useWebsiteSession) {
     const draft = await readWebsiteSessionDraft(handoffId);
     if (!draft) return "websiteSessionDraftExpired";
     const credential = await readCredential();
-    if (!credential || await credentialDigest(credential) !== draft.scope) return "handoffPairingChanged";
+    if (!credential || await sha256Hex(credential) !== draft.scope) return "handoffPairingChanged";
     let session;
     if (useWebsiteSession) {
       try {
@@ -122,7 +117,7 @@ async function startHandoff(link) {
 async function persistHandoff(handoffId, link, credential, session, withoutWebsiteSession = false) {
   const record = {
     request: { handoffId, url: link },
-    scope: await credentialDigest(credential),
+    scope: await sha256Hex(credential),
     createdAt: Date.now(),
     requiresWebsiteSession: Boolean(session),
     withoutWebsiteSession,
@@ -146,7 +141,7 @@ async function retryHandoff(handoffId) {
     const { [key]: record } = await chrome.storage.local.get(key);
     if (!record) return;
     const credential = await readCredential();
-    if (!credential || await credentialDigest(credential) !== record.scope) {
+    if (!credential || await sha256Hex(credential) !== record.scope) {
       await removeWebsiteSessionSnapshot(handoffId);
       await chrome.storage.local.set({ [key]: { ...record, feedback: "handoffPairingChanged" } });
       await showResult("handoffPairingChanged");
@@ -169,12 +164,7 @@ async function forgetHandoff(handoffId) {
 async function deliver(key, record, credential, session, retry = false) {
   let receipt;
   try {
-    if (record.requiresWebsiteSession && !session) {
-      receipt = await lookupHandoffReceipt(record.request.handoffId, credential);
-    } else {
-      const request = session ? { ...record.request, websiteSession: session } : record.request;
-      receipt = await submitHandoffWithReceipt(request, credential);
-    }
+    receipt = await deliverHandoffReceipt(record.request, credential, record.requiresWebsiteSession, session);
   } catch (error) {
     const rejected = {
       EXTENSION_CREDENTIAL_REQUIRED: "handoffPairingRequired",
@@ -217,16 +207,10 @@ async function deliver(key, record, credential, session, retry = false) {
 
 async function showResult(result, badge = "!") {
   await chrome.storage.local.set({ [manualHandoffResult]: result });
-  await updateBadge(result, badge);
-}
-
-async function updateBadge(result, badge) {
-  await chrome.action.setBadgeBackgroundColor({ color: badge === "✓" ? "#25723B" : "#A54025" });
-  await chrome.action.setBadgeText({ text: badge });
-  await chrome.action.setTitle({ title: chrome.i18n.getMessage(result) });
+  await updateHandoffBadge(result, badge);
 }
 
 function showLocalFailure() {
   // Storage itself can be unavailable. The toolbar still shows the result.
-  return showResult("handoffLocalFailure").catch(() => updateBadge("handoffLocalFailure", "!").catch(() => {}));
+  return showResult("handoffLocalFailure").catch(() => updateHandoffBadge("handoffLocalFailure", "!").catch(() => {}));
 }

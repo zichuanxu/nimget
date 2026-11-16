@@ -31,8 +31,9 @@ func (s *WebsiteSession) Apply(headers http.Header) {
 }
 
 var (
-	ErrHandoffConflict = errors.New("handoff ID was already used for a different request")
-	ErrHandoffPairing  = errors.New("an approved extension pairing is required")
+	ErrCaptureNotReplayable = errors.New("the browser download could not be verified in NimGet")
+	ErrHandoffConflict      = errors.New("handoff ID was already used for a different request")
+	ErrHandoffPairing       = errors.New("an approved extension pairing is required")
 )
 
 // Handoff identifies one browser intent within its approved pairing. Digest

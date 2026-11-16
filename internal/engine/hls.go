@@ -39,7 +39,7 @@ func (e *Engine) downloadHLS(ctx context.Context, rawURL, dest string, onProgres
 		Client: e.cfg.ProbeClient, Headers: headers, UserAgent: e.cfg.UserAgent,
 		Concurrency: min(e.cfg.Connections, 8), MaxAttempts: e.cfg.MaxAttempts,
 		BaseBackoff: e.cfg.BaseBackoff, MaxBackoff: e.cfg.MaxBackoff, StallTimeout: e.cfg.StallTimeout,
-		Limiters: limiters, RequireFresh: e.cfg.ValidateSource,
+		Limiters: limiters, RequireFresh: e.cfg.ValidateSource, ResumeKey: e.cfg.ResumeKey,
 	}
 	var progress func(hls.Progress)
 	if onProgress != nil {
@@ -48,9 +48,9 @@ func (e *Engine) downloadHLS(ctx context.Context, rawURL, dest string, onProgres
 	err := hls.Download(ctx, rawURL, dest, opts, progress)
 	switch {
 	case errors.Is(err, hls.ErrLocked):
-		return fmt.Errorf("%w: %s", ErrLocked, dest)
+		return ErrLocked
 	case errors.Is(err, hls.ErrDestinationExists):
-		return fmt.Errorf("%w: %s", ErrDestinationExists, dest)
+		return ErrDestinationExists
 	case errors.Is(err, hls.ErrLive), errors.Is(err, hls.ErrUnsupported):
 		return fmt.Errorf("%w. %s", err, supportedMediaSource)
 	}

@@ -186,6 +186,9 @@ func (m *Manager) UpdateSettings(ctx context.Context, s settings.Settings) error
 	if err != nil {
 		return fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
 	}
+	if err := s.ValidateHeaderEdits(current); err != nil {
+		return fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
+	}
 	kept := []string{}
 	for _, dir := range s.ExtraRoots {
 		if slices.Contains(current.ExtraRoots, dir) {
@@ -225,12 +228,12 @@ func (m *Manager) saveSettings(ctx context.Context, s settings.Settings) error {
 }
 
 func (m *Manager) Add(ctx context.Context, req download.Request) (download.Item, error) {
-	return m.add(ctx, req, m.opts.InspectTimeout, func(ctx context.Context, item download.Item) (bool, error) {
+	return m.add(ctx, req, m.opts.InspectTimeout, "", func(ctx context.Context, item download.Item) (bool, error) {
 		return true, m.repo.Create(ctx, item)
 	})
 }
 
-func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout time.Duration, persist func(context.Context, download.Item) (bool, error)) (download.Item, error) {
+func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout time.Duration, captureProof string, persist func(context.Context, download.Item) (bool, error)) (download.Item, error) {
 	invalid := func(err error) (download.Item, error) {
 		return download.Item{}, fmt.Errorf("%w: %w", download.ErrInvalidDownload, err)
 	}
@@ -260,7 +263,15 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 			if req.WebsiteSession != nil {
 				req.WebsiteSession.Apply(headers)
 			}
-			name = m.resolveName(ctx, rawURL, headers, inspectTimeout)
+			remote, err := m.inspect(ctx, rawURL, headers, inspectTimeout)
+			if captureProof != "" && (err != nil || remote.AttachmentProof != captureProof) {
+				return download.Item{}, download.ErrCaptureNotReplayable
+			}
+			if err == nil {
+				name = remoteName(rawURL, remote)
+			}
+		} else if captureProof != "" {
+			return download.Item{}, download.ErrCaptureNotReplayable
 		}
 		if dir == "" {
 			dir = filepath.Join(m.roots[0], category(name))
@@ -313,7 +324,7 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 	if err != nil || !created {
 		return download.Item{}, err
 	}
-	m.log.Info("download added", "id", id, "host", hostOf(rawURL))
+	m.log.Info("download added", "id", id)
 	m.publish(download.EventUpdated, item)
 	m.signal()
 	return item, nil
@@ -481,7 +492,7 @@ func (m *Manager) Restart(ctx context.Context, id string) error {
 		if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
 			return err
 		}
-		if err := m.runner.Discard(item.Destination); err != nil {
+		if err := m.discardPartial(*item); err != nil {
 			return err
 		}
 		item.Completed, item.Total = 0, 0
@@ -494,6 +505,10 @@ func (m *Manager) Restart(ctx context.Context, id string) error {
 		m.signal()
 	}
 	return err
+}
+
+func (m *Manager) discardPartial(item download.Item) error {
+	return m.runner.Discard(download.Spec{URL: item.URL, Destination: item.Destination, ResumeKey: item.ID})
 }
 
 // transition applies change to the stored item under the manager lock, then
@@ -558,7 +573,7 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 	if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
 		return fmt.Errorf("download deleted, but its files were kept: %w", err)
 	}
-	errs := []error{m.runner.Discard(item.Destination)}
+	errs := []error{m.discardPartial(item)}
 	if item.Status == download.StatusCompleted {
 		if err := os.Remove(item.Destination); err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, err)
@@ -749,7 +764,7 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	m.active[id] = j
 	m.hostConns[host] += conns
 	m.wg.Add(1)
-	m.log.Info("download started", "id", id, "host", host, "connections", conns)
+	m.log.Info("download started", "id", id, "connections", conns)
 	m.publish(download.EventUpdated, item)
 	go m.run(workCtx, j, spec)
 	return nil
@@ -811,7 +826,7 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 		item.Status = download.StatusQueued
 	default:
 		item.Status = download.StatusFailed
-		item.Error = runErr.Error()
+		item.Error = taskDiagnostic(runErr)
 		item.Failure = classifyFailure(runErr)
 		if j.item.WebsiteSession != nil && item.Failure == download.FailureAuthorization {
 			item.Error += ". The website session may have expired. " + websiteSessionRecovery
@@ -825,7 +840,7 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 		m.log.Error("record finished download", "id", id, "status", item.Status, "err", err)
 		return
 	}
-	m.log.Info("download stopped", "id", id, "status", item.Status, "completed", item.Completed, "total", item.Total, "error", item.Error)
+	m.log.Info("download stopped", "id", id, "status", item.Status, "completed", item.Completed, "total", item.Total, "failure", item.Failure)
 	m.publish(download.EventUpdated, item)
 }
 
@@ -914,16 +929,13 @@ func validateOptions(priority, conns *int, speedLimit *int64) error {
 	return nil
 }
 
-// resolveName probes the URL for a server-supplied name, falling back to the
-// URL when the probe fails; the download itself reports real errors later.
-func (m *Manager) resolveName(ctx context.Context, rawURL string, headers http.Header, timeout time.Duration) string {
+func (m *Manager) inspect(ctx context.Context, rawURL string, headers http.Header, timeout time.Duration) (download.Remote, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	remote, err := m.runner.Inspect(ctx, rawURL, headers)
-	if err != nil {
-		m.log.Warn("inspect download for its name", "host", hostOf(rawURL), "err", err)
-		remote = download.Remote{}
-	}
+	return m.runner.Inspect(ctx, rawURL, headers)
+}
+
+func remoteName(rawURL string, remote download.Remote) string {
 	if remote.URL == "" {
 		remote.URL = rawURL
 	}

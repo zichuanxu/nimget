@@ -67,8 +67,9 @@ type Desktop struct {
 	// newer is the newest release, when it is newer than this build.
 	newer atomic.Pointer[update.Release]
 	// locale is the frontend's language (a string); tray is relabelled with it.
-	locale atomic.Value
-	tray   []trayItem
+	locale            atomic.Value
+	legacyQueueImport atomic.Pointer[pendingQueueImport]
+	tray              []trayItem
 }
 
 // State describes the backend to the frontend.
@@ -291,7 +292,7 @@ func (d *Desktop) SetAutostart(enabled bool) error {
 func (d *Desktop) ParseCurl(command string) (download.Request, error) {
 	r, err := curlimport.Parse(command)
 	if err != nil {
-		return download.Request{}, err
+		return download.Request{}, errors.New("paste a valid Copy as cURL command for an HTTP or HTTPS download")
 	}
 	return download.Request{URL: r.URL, Headers: r.Headers}, nil
 }

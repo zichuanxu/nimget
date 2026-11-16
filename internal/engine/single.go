@@ -10,19 +10,25 @@ import (
 	"path/filepath"
 
 	"github.com/zichuanxu/nimget/internal/logging"
-	"github.com/zichuanxu/nimget/internal/partialfile"
 )
 
 // single downloads over one plain GET for servers without ranges or a known
 // size. Each attempt restarts from zero; there is nothing to checkpoint.
 func (j *job) single(ctx context.Context, info probeInfo) error {
 	e := j.engine
-	_ = os.Remove(j.meta)
+	if err := j.discard(); err != nil {
+		return err
+	}
 	if info.size > 0 {
 		if free, err := freeSpace(filepath.Dir(j.part)); err == nil && free < info.size+freeSpaceMargin {
 			return fmt.Errorf("%w: need %d bytes plus margin, %d available", ErrInsufficientSpace, info.size, free)
 		}
 	}
+	f, _, err := j.createPartial(checkpoint{Version: checkpointVersion, Identity: j.identity})
+	if err != nil {
+		return fmt.Errorf("create partial file: %w", err)
+	}
+	defer f.Close()
 	var last *attemptError
 	for attempt := 0; attempt < e.cfg.MaxAttempts; attempt++ {
 		if last != nil {
@@ -30,7 +36,7 @@ func (j *job) single(ctx context.Context, info probeInfo) error {
 				return err
 			}
 		}
-		last = j.singleOnce(ctx, info)
+		last = j.singleOnce(ctx, info, f)
 		if last == nil {
 			return nil
 		}
@@ -44,13 +50,11 @@ func (j *job) single(ctx context.Context, info probeInfo) error {
 	return last
 }
 
-func (j *job) singleOnce(ctx context.Context, info probeInfo) *attemptError {
+func (j *job) singleOnce(ctx context.Context, info probeInfo, f *os.File) *attemptError {
 	e := j.engine
-	f, err := partialfile.Open(j.part, os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fatal(fmt.Errorf("open partial file: %w", err))
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return fatal(fmt.Errorf("seek partial file: %w", err))
 	}
-	defer f.Close()
 	if err := f.Truncate(0); err != nil {
 		return fatal(fmt.Errorf("truncate partial file: %w", err))
 	}
@@ -92,7 +96,7 @@ func (j *job) singleOnce(ctx context.Context, info probeInfo) *attemptError {
 	case http.StatusPreconditionFailed:
 		return fatal(ErrSourceChanged)
 	default:
-		return statusError("download", req, resp)
+		return statusError("download", resp)
 	}
 	if info.etag != "" && strongETag(resp.Header.Get("ETag")) != info.etag {
 		return fatal(ErrSourceChanged)

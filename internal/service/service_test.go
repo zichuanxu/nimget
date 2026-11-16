@@ -12,6 +12,8 @@ import (
 	"github.com/zichuanxu/nimget/internal/download"
 	"github.com/zichuanxu/nimget/internal/secrets"
 	"github.com/zichuanxu/nimget/internal/service"
+	"github.com/zichuanxu/nimget/internal/settings"
+	"github.com/zichuanxu/nimget/internal/store"
 )
 
 type idleRunner struct{}
@@ -24,7 +26,7 @@ func (idleRunner) Download(context.Context, download.Spec, func(download.Progres
 	return nil
 }
 
-func (idleRunner) Discard(string) error { return nil }
+func (idleRunner) Discard(download.Spec) error { return nil }
 
 func startService(t *testing.T) (*service.Service, string, context.CancelFunc) {
 	t.Helper()
@@ -185,4 +187,48 @@ func testSealer(t *testing.T) *secrets.Sealer {
 		t.Fatal(err)
 	}
 	return s
+}
+
+func TestSiteHeaderEditsRejectNewCaseCollisionsAndPreserveLegacyRules(t *testing.T) {
+	ctx := context.Background()
+	cfg := handoffServiceConfig(t)
+	legacy := settings.Default()
+	legacy.Sites = []settings.Site{
+		{Host: "example.test", Headers: map[string]string{"X-Example": "old", "x-example": "old lowercase"}},
+	}
+	db, err := store.Open(cfg.DatabasePath, cfg.Sealer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SaveSettings(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	svc := startHandoffService(t, cfg)
+	token, err := service.ReadToken(cfg.TokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := client.New("http://"+svc.Address(), token, nil)
+
+	current, err := c.Settings(ctx)
+	if err != nil || len(current.Sites) != 1 {
+		t.Fatalf("load legacy settings: %v", err)
+	}
+	current.MaxConcurrent++
+	if _, err := c.PutSettings(ctx, current); err != nil {
+		t.Fatalf("editing unrelated settings: %v", err)
+	}
+
+	current.Sites[0].Headers["X-EXAMPLE"] = "duplicate"
+	if _, err := c.PutSettings(ctx, current); err == nil {
+		t.Fatal("accepted a new case-insensitive duplicate")
+	}
+	delete(current.Sites[0].Headers, "X-EXAMPLE")
+	delete(current.Sites[0].Headers, "x-example")
+	if _, err := c.PutSettings(ctx, current); err != nil {
+		t.Fatalf("repairing a legacy rule: %v", err)
+	}
 }

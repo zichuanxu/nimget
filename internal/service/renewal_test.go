@@ -309,3 +309,59 @@ func waitRenewalTask(t *testing.T, ctx context.Context, api *client.Client, stat
 		}
 	}
 }
+
+func TestDeleteKeepsRetainedPartFromEarlierTaskAtSameDestination(t *testing.T) {
+	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") != "bytes=0-0" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("ETag", `"fixture"`)
+		w.Header().Set("Content-Range", "bytes 0-0/8")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("a"))
+	}))
+	defer fixture.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	dir := t.TempDir()
+	cfg := service.Config{
+		Address: "127.0.0.1:0", TokenPath: filepath.Join(dir, "token"),
+		DatabasePath: filepath.Join(dir, "nimget.db"), DownloadRoots: []string{dir},
+		Sealer: testSealer(t),
+	}
+	_, api := startRenewalService(t, ctx, cfg)
+	req := download.Request{URL: fixture.URL, Destination: filepath.Join(dir, "retained.bin")}
+	first, err := api.Add(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRenewalTask(t, ctx, api, download.StatusFailed)
+	if err := api.Delete(ctx, first.ID, false); err != nil {
+		t.Fatalf("delete original record only: %v", err)
+	}
+	checkpoint, err := os.ReadFile(req.Destination + ".part.meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	part, err := os.ReadFile(req.Destination + ".part")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := api.Add(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRenewalTask(t, ctx, api, download.StatusFailed)
+	if err := api.Delete(ctx, second.ID, true); err == nil {
+		t.Fatal("new task's deletion unexpectedly removed the earlier task's partial")
+	}
+	for name, want := range map[string][]byte{".part": part, ".part.meta": checkpoint} {
+		got, err := os.ReadFile(req.Destination + name)
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("retained %s changed: %v", name, err)
+		}
+	}
+}

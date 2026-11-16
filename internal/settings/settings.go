@@ -5,6 +5,7 @@ package settings
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -109,22 +110,11 @@ func (s Settings) Masked() Settings {
 }
 
 // Unmask restores the passwords that a client sent back as Masked from
-// stored, matching sites by host.
+// stored, matching sites by host and preserving unchanged duplicate rules in order.
 func (s Settings) Unmask(stored Settings) (Settings, error) {
 	s.Sites = append([]Site(nil), s.Sites...)
-	for i := range s.Sites {
-		if s.Sites[i].Password != Masked {
-			continue
-		}
-		s.Sites[i].Password = ""
-		for _, old := range stored.Sites {
-			if strings.EqualFold(old.Host, s.Sites[i].Host) {
-				s.Sites[i].Password = old.Password
-			}
-		}
-		if s.Sites[i].Password == "" {
-			return s, fmt.Errorf("site %s: its password was renamed or removed; enter it again", s.Sites[i].Host)
-		}
+	if err := restoreSitePasswords(s.Sites, stored.Sites); err != nil {
+		return s, err
 	}
 	if u, err := url.Parse(s.Proxy.URL); err == nil && u.User != nil {
 		if pass, _ := u.User.Password(); pass == Masked {
@@ -141,6 +131,49 @@ func (s Settings) Unmask(stored Settings) (Settings, error) {
 		}
 	}
 	return s, nil
+}
+
+func restoreSitePasswords(sites, stored []Site) error {
+	storedByHost := make(map[string][]Site)
+	for _, site := range stored {
+		host := siteHost(site.Host)
+		storedByHost[host] = append(storedByHost[host], site)
+	}
+	submittedByHost := make(map[string][]int)
+	for i, site := range sites {
+		host := siteHost(site.Host)
+		submittedByHost[host] = append(submittedByHost[host], i)
+	}
+	for host, indices := range submittedByHost {
+		previous := storedByHost[host]
+		// The legacy mask has no rule ID. Duplicate host rules can be
+		// associated by order when their other fields are unchanged.
+		ordered := slices.EqualFunc(indices, previous, func(i int, old Site) bool {
+			site := sites[i]
+			return site.Host == old.Host && site.Username == old.Username &&
+				site.Connections == old.Connections && site.HostConnections == old.HostConnections &&
+				maps.Equal(site.Headers, old.Headers)
+		})
+		for i, index := range indices {
+			site := &sites[index]
+			if site.Password != Masked {
+				continue
+			}
+			site.Password = ""
+			switch {
+			case len(previous) == 1:
+				site.Password = previous[0].Password
+			case ordered:
+				site.Password = previous[i].Password
+			case len(previous) > 1:
+				return fmt.Errorf("site %q has multiple saved rules; enter or clear the masked passwords before saving changes to these rules", site.Host)
+			}
+			if site.Password == "" {
+				return fmt.Errorf("site %s: its password was renamed or removed; enter it again", site.Host)
+			}
+		}
+	}
+	return nil
 }
 
 func Default() Settings {
@@ -192,7 +225,7 @@ func (s Settings) Validate() error {
 }
 
 func (s Site) validate() error {
-	host := strings.ToLower(strings.TrimSpace(s.Host))
+	host := siteHost(s.Host)
 	if host == "" || strings.ContainsAny(host, "/:@ ") {
 		return fmt.Errorf("site host %q must be a bare host name", s.Host)
 	}
@@ -225,12 +258,16 @@ func ValidateHeader(name, value string) error {
 	return nil
 }
 
+func siteHost(host string) string {
+	return strings.ToLower(strings.TrimSpace(host))
+}
+
 // Site returns the most specific site entry matching host.
 func (s Settings) Site(host string) Site {
 	host = strings.ToLower(host)
 	var best Site
 	for _, site := range s.Sites {
-		h := strings.ToLower(strings.TrimSpace(site.Host))
+		h := siteHost(site.Host)
 		if (host == h || strings.HasSuffix(host, "."+h)) && len(h) > len(best.Host) {
 			best = site
 			best.Host = h

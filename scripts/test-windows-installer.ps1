@@ -16,6 +16,7 @@ $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $service = 'http://127.0.0.1:51000/v1'
 $work = Join-Path ([IO.Path]::GetTempPath()) ('nimget-installer-' + [Guid]::NewGuid())
 $installDir = Join-Path $work 'Program Files\NimGet'
+$alternateInstallDir = Join-Path $work 'Alternate Install\NimGet'
 $binary = Join-Path $installDir 'nimget.exe'
 $uninstaller = Join-Path $installDir 'uninstall.exe'
 $dataDir = Join-Path $work 'AppData\nimget'
@@ -145,7 +146,8 @@ try {
     Assert-Condition ((Run-Setup $currentPath '/S') -eq 2) 'Upgrade did not refuse to replace a running app'
     Assert-Version $binary $PreviousVersion
     Stop-TestApp $app
-    Assert-Condition ((Run-Setup $currentPath '/S') -eq 0) 'In-place upgrade failed'
+    Assert-Condition ((Run-Setup $currentPath "/S /D=$alternateInstallDir") -eq 0) 'In-place upgrade failed'
+    Assert-Condition (!(Test-Path -LiteralPath $alternateInstallDir)) 'Upgrade wrote to an alternate directory'
     Assert-Version $binary $Version
     Assert-Condition ((Get-ItemProperty -Path $uninstallKey).DisplayVersion -eq $Version) 'Upgrade did not update the Installed Apps version'
 
@@ -164,6 +166,11 @@ try {
 
     Assert-Condition ((Run-Setup $uninstaller "/S _?=$installDir") -eq 2) 'Uninstall did not refuse to remove a running app'
     Stop-TestApp $app
+    $staleDir = New-Item -ItemType Directory -Path $alternateInstallDir
+    $staleUninstaller = Join-Path $staleDir.FullName 'uninstall.exe'
+    Copy-Item -LiteralPath $uninstaller -Destination $staleUninstaller
+    Assert-Condition ((Run-Setup $staleUninstaller "/S _?=$($staleDir.FullName)") -eq 6) 'Uninstall accepted a directory outside the registered installation'
+    Assert-Condition ((Get-ItemProperty -Path $uninstallKey).InstallLocation -eq $installDir) 'Uninstall changed the registered installation from another directory'
     # Simulate the desktop's opt-in launch-at-login entry for this binary.
     if (!(Test-Path $runKey)) { New-Item -Path $runKey | Out-Null }
     Set-ItemProperty -Path $runKey -Name nimget -Value ('"' + $binary + '"')

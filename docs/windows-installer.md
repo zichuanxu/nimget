@@ -16,7 +16,7 @@ The installer and app are unsigned. Windows may show a Microsoft Defender SmartS
 
 ## Upgrade
 
-Choose **Quit NimGet** from the tray menu, then run the newer installer under the same Windows account. Keep the existing install location offered by Setup. Launch NimGet to reopen the saved queue and continue eligible tasks. Paused tasks and schedule restrictions still apply. Settings and the queue database live in %APPDATA%\nimget. The packaged app's WebView2 profile lives in %APPDATA%\nimget.exe and holds local interface preferences.
+Choose **Quit NimGet** from the tray menu, then run the newer installer under the same Windows account. Setup upgrades the registered install location. Launch NimGet to reopen the saved queue and continue eligible tasks. Paused tasks and schedule restrictions still apply. Settings and the queue database live in %APPDATA%\nimget. The packaged app's WebView2 profile lives in %APPDATA%\nimget.exe and holds local interface preferences.
 
 ## Uninstall and retained data
 
@@ -36,7 +36,7 @@ From the repository root:
 
 The script builds the frontend with npm ci, generates Windows resources with the Wails version pinned by the desktop Go module and builds the production desktop executable with CGO disabled. It writes dist/windows/NimGet-v1.2.3-windows-x64-setup.exe. Use a vMAJOR.MINOR.PATCH tag, optionally with a prerelease suffix. -OutputDirectory selects a different output path.
 
-For unattended installation, run Setup with /S. Exit code 2 means NimGet must be closed, 3 means the Windows version or CPU is unsupported, 4 means WebView2 is missing and 5 means another installer or uninstaller is running.
+For unattended installation, run Setup with /S. Exit code 2 means NimGet must be closed, 3 means the Windows version or CPU is unsupported, 4 means WebView2 is missing and 5 means another installer or uninstaller is running. An uninstaller run outside the registered install directory exits with code 6.
 
 ## Verify an installer
 

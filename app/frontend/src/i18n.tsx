@@ -48,6 +48,8 @@ const en = {
   "row.convert": "Convert to MP4",
   "row.converting": "Converting…",
   "row.copyLink": "Copy link",
+  "row.actionFor": "{action} for {name}",
+  "row.actionsFor": "More actions for {name}",
 
   "details.title": "Download details",
   "details.for": "Details for {name}",
@@ -304,6 +306,8 @@ const zh: Record<Key, string> = {
   "row.convert": "转换为 MP4",
   "row.converting": "正在转换…",
   "row.copyLink": "复制链接",
+  "row.actionFor": "{action}：{name}",
+  "row.actionsFor": "{name} 的更多操作",
 
   "details.title": "下载详情",
   "details.for": "{name} 的详情",

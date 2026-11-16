@@ -39,8 +39,8 @@ export function DeleteDialog({ item, onClose, onError }: { item: Item; onClose: 
       onClose={onClose}
       footer={
         <>
-          <button onClick={onClose}>{t("common.cancel")}</button>
-          <button className="danger" disabled={busy} onClick={confirm} autoFocus>
+          <button onClick={onClose} data-initial-focus>{t("common.cancel")}</button>
+          <button className="danger" disabled={busy} onClick={confirm}>
             <Trash2 size={14} />
             {t("delete.confirm")}
           </button>
@@ -118,7 +118,7 @@ export function ReauthDialog({ item, onClose }: { item: Item; onClose: () => voi
               setError("");
             }}
             aria-describedby={id + "-help"}
-            autoFocus
+            data-initial-focus
             required
             spellCheck={false}
             autoCorrect="off"
@@ -142,7 +142,7 @@ export function CountdownDialog({ action, left, onCancel }: { action: string; le
       title={t("countdown.title")}
       onClose={onCancel}
       footer={
-        <button className="primary" onClick={onCancel} autoFocus>
+        <button className="primary" onClick={onCancel} data-initial-focus>
           {t("common.cancel")}
         </button>
       }

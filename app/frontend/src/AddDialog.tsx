@@ -258,7 +258,7 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
                 }
               }}
               placeholder="https://example.com/file.zip"
-              autoFocus
+              data-initial-focus
               spellCheck={false}
             />
           </div>

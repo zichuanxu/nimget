@@ -29,6 +29,7 @@ test("inspects a running download, validates edits, and saves task settings", as
   await details.focus();
   await details.press("Enter");
   const dialog = page.getByRole("dialog", { name: "Download details" });
+  await expect(dialog.getByRole("combobox", { name: "Priority" })).toBeFocused();
   await expect(dialog.getByText(task.destination, { exact: true })).toBeVisible();
   await expect(dialog.getByText("Downloading", { exact: true })).toBeVisible();
   await expect(dialog.getByText("512 B of 1.00 KiB")).toBeVisible();
@@ -57,6 +58,7 @@ test("inspects a running download, validates edits, and saves task settings", as
   await speedLimit.fill("500K");
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(dialog).toHaveCount(0);
+  await expect(details).toBeFocused();
   expect(updates).toEqual([[task.id, { priority: 1, connections: 0, speedLimit: 512000 }]]);
 });
 
@@ -94,7 +96,12 @@ test("opens explicit link recovery when the existing bytes need a restart decisi
   await expect(details.getByText(/fresh link could not be matched/)).toBeVisible();
   await expect(details.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
   await details.getByRole("button", { name: "Recover download" }).click();
-  await expect(page.getByRole("dialog", { name: "Recover download" }).getByText(/discards the partial download/)).toBeVisible();
+  const recovery = page.getByRole("dialog", { name: "Recover download" });
+  await expect(recovery.getByText(/discards the partial download/)).toBeVisible();
+  await expect(recovery.getByRole("textbox", { name: "Fresh URL or cURL command" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(recovery).toHaveCount(0);
+  await expect(page.getByRole("listitem")).toBeFocused();
 });
 
 test("offers a fresh link after the website rejects authorization", async ({ page }) => {

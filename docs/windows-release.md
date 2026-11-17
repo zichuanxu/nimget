@@ -1,6 +1,6 @@
 # Windows release assets
 
-For releases with a Windows bundle, download all four assets from the same version on the [NimGet Releases page](https://github.com/zichuanxu/nimget/releases). The examples use `v1.2.3`.
+For releases with a Windows bundle, download all four assets from the same version on the [NimGet Releases page](https://github.com/amemiya02/nimget/releases). The examples use `v1.2.3`.
 
 | Asset | Purpose |
 | --- | --- |

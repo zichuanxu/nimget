@@ -6,8 +6,8 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/pairing"
+	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/pairing"
 )
 
 const findHandoff = `SELECT p.status, h.request_digest, COALESCE(h.task_id, ''), COALESCE(h.website_session_persistence, '')

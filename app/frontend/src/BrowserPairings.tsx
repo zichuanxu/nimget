@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Desktop, message } from "./api";
-import { type Record as Pairing, State } from "../bindings/github.com/zichuanxu/nimget/internal/pairing";
+import { type Record as Pairing, State } from "../bindings/github.com/amemiya02/nimget/internal/pairing";
 import { useI18n } from "./i18n";
 
 const states = {

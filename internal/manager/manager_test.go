@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/manager"
-	"github.com/zichuanxu/nimget/internal/settings"
+	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/manager"
+	"github.com/amemiya02/nimget/internal/settings"
 )
 
 var errNotFound = download.ErrNotFound

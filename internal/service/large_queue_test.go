@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/client"
-	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/service"
-	"github.com/zichuanxu/nimget/internal/settings"
-	"github.com/zichuanxu/nimget/internal/store"
+	"github.com/amemiya02/nimget/internal/client"
+	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/service"
+	"github.com/amemiya02/nimget/internal/settings"
+	"github.com/amemiya02/nimget/internal/store"
 )
 
 const (

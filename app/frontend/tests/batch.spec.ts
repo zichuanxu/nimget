@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { Request } from "../bindings/github.com/zichuanxu/nimget/internal/download";
+import type { Request } from "../bindings/github.com/amemiya02/nimget/internal/download";
 import { mockDesktop } from "./desktop";
 
 const firstURL = "https://example.test/first.zip";

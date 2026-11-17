@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/pairing"
+	"github.com/amemiya02/nimget/internal/pairing"
 )
 
 const (

@@ -22,13 +22,13 @@ AllowSkipFiles off
 SetDateSave off
 SetCompressor /SOLID lzma
 VIProductVersion "${NUMVERSION}.0"
-VIAddVersionKey "CompanyName" "zichuanxu"
+VIAddVersionKey "CompanyName" "amemiya02"
 VIAddVersionKey "ProductName" "${PRODUCT}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "FileVersion" "${NUMVERSION}"
 VIAddVersionKey "Comments" "Source commit: ${SOURCECOMMIT}"
 VIAddVersionKey "FileDescription" "NimGet installer"
-VIAddVersionKey "LegalCopyright" "Copyright 2026 zichuanxu. Apache-2.0."
+VIAddVersionKey "LegalCopyright" "Copyright 2026 amemiya02. Apache-2.0."
 
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
@@ -120,10 +120,10 @@ Section "NimGet"
   WriteRegStr HKCU "${INSTALL_KEY}" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "zichuanxu"
+  WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "amemiya02"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\nimget.exe"
   WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKCU "${UNINST_KEY}" "URLInfoAbout" "https://github.com/zichuanxu/nimget"
+  WriteRegStr HKCU "${UNINST_KEY}" "URLInfoAbout" "https://github.com/amemiya02/nimget"
   WriteRegStr HKCU "${UNINST_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr HKCU "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1

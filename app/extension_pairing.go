@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/zichuanxu/nimget/internal/pairing"
+	"github.com/amemiya02/nimget/internal/pairing"
 )
 
 func (d *Desktop) ExtensionPairings() ([]pairing.Record, error) {

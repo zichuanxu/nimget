@@ -15,8 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/settings"
+	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/settings"
 )
 
 type Downloads interface {

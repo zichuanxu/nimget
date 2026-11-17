@@ -1,4 +1,4 @@
-module github.com/zichuanxu/nimget
+module github.com/amemiya02/nimget
 
 go 1.25.0
 

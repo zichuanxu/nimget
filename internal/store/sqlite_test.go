@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/secrets"
-	"github.com/zichuanxu/nimget/internal/settings"
-	"github.com/zichuanxu/nimget/internal/store"
+	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/secrets"
+	"github.com/amemiya02/nimget/internal/settings"
+	"github.com/amemiya02/nimget/internal/store"
 )
 
 func TestSQLiteStorePersistsDownloadLifecycle(t *testing.T) {

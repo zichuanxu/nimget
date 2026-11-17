@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zichuanxu/nimget/internal/service"
+	"github.com/amemiya02/nimget/internal/service"
 )
 
 const (

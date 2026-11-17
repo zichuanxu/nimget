@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/zichuanxu/nimget/internal/client"
-	"github.com/zichuanxu/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/client"
+	"github.com/amemiya02/nimget/internal/download"
 )
 
 func TestClientListsAddsAndPausesDownloads(t *testing.T) {

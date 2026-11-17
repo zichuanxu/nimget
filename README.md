@@ -19,7 +19,7 @@ The [Windows release guide](docs/windows-release.md) covers the x64 installer, m
 Building from source requires Git and Go 1.25+. The desktop app also needs Node.js 22.12+ and, on macOS, the Xcode command line tools. On Windows it needs the WebView2 Runtime.
 
 ```bash
-git clone https://github.com/zichuanxu/nimget.git
+git clone https://github.com/amemiya02/nimget.git
 cd nimget
 ```
 

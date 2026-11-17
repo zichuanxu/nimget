@@ -146,4 +146,4 @@ Distribute Windows installers and extension artifacts through GitHub Releases wi
 - The earlier source-only and browser-deferred policies are superseded for this planned milestone. Update conflicting project documentation with implementation so that shipped capabilities and limitations remain accurate.
 - Initial code review identified credential-origin and partial-file safety risks, incomplete signed-URL renewal, batch retry duplication, and desktop usability gaps. Those findings still require regression reproduction and fixes; this spec is not a claim that vulnerabilities have been exploited.
 - The earlier discovery run passed engine and HLS tests on the current Windows workspace. It did not complete full-suite, browser, installer, or cross-platform desktop acceptance. No implementation fixes are included in this specification task.
-- Issue tracker: GitHub Issues for zichuanxu/nimget. Triage label: `ready-for-agent`.
+- Issue tracker: GitHub Issues for amemiya02/nimget. Triage label: `ready-for-agent`.

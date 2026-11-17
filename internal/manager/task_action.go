@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/zichuanxu/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/download"
 )
 
 // ApplyTaskAction applies an action once per distinct ID, in input order.

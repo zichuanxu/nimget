@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"sort"
 
-	"github.com/zichuanxu/nimget/internal/partialfile"
+	"github.com/amemiya02/nimget/internal/partialfile"
 )
 
 const checkpointVersion = 2

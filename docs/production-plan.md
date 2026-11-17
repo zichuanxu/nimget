@@ -1,6 +1,6 @@
 # Production readiness plan
 
-The product scope and test boundaries appear in the [production specification](production-spec.md) and [GitHub issue #1](https://github.com/zichuanxu/nimget/issues/1). This plan records the implemented scope and the remaining acceptance work. See the [Windows release guide](windows-release.md) for the implemented packaging and validation commands.
+The product scope and test boundaries appear in the [production specification](production-spec.md) and [GitHub issue #1](https://github.com/amemiya02/nimget/issues/1). This plan records the implemented scope and the remaining acceptance work. See the [Windows release guide](windows-release.md) for the implemented packaging and validation commands.
 
 ## Confirmed scope (2026-11-16)
 

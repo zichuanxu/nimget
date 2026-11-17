@@ -12,7 +12,7 @@ The desktop app runs on macOS and Windows. The CLI and headless service also run
 ## Get the source
 
 ```bash
-git clone https://github.com/zichuanxu/nimget.git
+git clone https://github.com/amemiya02/nimget.git
 cd nimget
 ```
 

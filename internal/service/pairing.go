@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/zichuanxu/nimget/internal/pairing"
+	"github.com/amemiya02/nimget/internal/pairing"
 )
 
 // Pairing administration is available to the in-process desktop, outside HTTP.

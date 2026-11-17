@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/zichuanxu/nimget/internal/pairing"
+	"github.com/amemiya02/nimget/internal/pairing"
 )
 
 // The public manifest key gives the unpacked Chrome and Edge builds one ID.

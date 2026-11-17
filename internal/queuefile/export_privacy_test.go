@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/queuefile"
+	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/queuefile"
 )
 
 func TestOrdinaryExportNeverSerializesSourceOrDerivedToken(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/download"
 )
 
 const websiteSessionRecovery = "Sign in to the site again and use Refresh download link in NimGet, or send the link with the browser's website session."

@@ -15,8 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/logging"
-	"github.com/zichuanxu/nimget/internal/partialfile"
+	"github.com/amemiya02/nimget/internal/logging"
+	"github.com/amemiya02/nimget/internal/partialfile"
 )
 
 var (

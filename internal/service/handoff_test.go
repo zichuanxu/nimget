@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/engine"
-	"github.com/zichuanxu/nimget/internal/service"
-	"github.com/zichuanxu/nimget/internal/settings"
+	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/engine"
+	"github.com/amemiya02/nimget/internal/service"
+	"github.com/amemiya02/nimget/internal/settings"
 )
 
 const (

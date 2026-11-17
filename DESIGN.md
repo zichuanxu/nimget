@@ -1,6 +1,6 @@
 # nimget — Design Contract
 
-**`github.com/zichuanxu/nimget`** · Apache-2.0 · Go 1.25 · open source, free
+**`github.com/amemiya02/nimget`** · Apache-2.0 · Go 1.25 · open source, free
 
 A cross-platform download manager with a desktop GUI and CLI. A paired Chrome or Edge
 extension can send downloads to the desktop app.
@@ -521,8 +521,8 @@ global hotkey, download-all-links, code signing, Linux GUI.
    extension is picked up. The Chrome Web Store fee conflicts with the zero-spend rule;
    decide then.
 
-Closed by revision 2: repository ownership (moved from `amemiya02` to `zichuanxu`;
-module path `github.com/zichuanxu/nimget`), notarization and signing certificates (not pursued), minimal
+Closed by revision 2: repository ownership (moved from `amemiya02` to `zichuanxu`, and back to `amemiya02` on 2026-11-17;
+module path `github.com/amemiya02/nimget`), notarization and signing certificates (not pursued), minimal
 ffmpeg build script (ffmpeg is not bundled), and "v1 spans all four feature bundles".
 
 ---

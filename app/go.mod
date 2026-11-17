@@ -1,10 +1,10 @@
-module github.com/zichuanxu/nimget/app
+module github.com/amemiya02/nimget/app
 
 go 1.25.0
 
 require (
 	github.com/wailsapp/wails/v3 v3.0.0-beta.26
-	github.com/zichuanxu/nimget v0.0.0
+	github.com/amemiya02/nimget v0.0.0
 )
 
 require (
@@ -30,4 +30,4 @@ require (
 	modernc.org/sqlite v1.56.0 // indirect
 )
 
-replace github.com/zichuanxu/nimget => ../
+replace github.com/amemiya02/nimget => ../

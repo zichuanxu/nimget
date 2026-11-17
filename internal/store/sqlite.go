@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/secrets"
-	"github.com/zichuanxu/nimget/internal/settings"
+	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/secrets"
+	"github.com/amemiya02/nimget/internal/settings"
 	_ "modernc.org/sqlite"
 )
 

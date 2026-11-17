@@ -25,9 +25,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/filelock"
-	"github.com/zichuanxu/nimget/internal/httporigin"
-	"github.com/zichuanxu/nimget/internal/partialfile"
+	"github.com/amemiya02/nimget/internal/filelock"
+	"github.com/amemiya02/nimget/internal/httporigin"
+	"github.com/amemiya02/nimget/internal/partialfile"
 )
 
 var (

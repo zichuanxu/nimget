@@ -21,13 +21,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/download"
-	"github.com/zichuanxu/nimget/internal/filelock"
-	"github.com/zichuanxu/nimget/internal/hls"
-	"github.com/zichuanxu/nimget/internal/httporigin"
-	"github.com/zichuanxu/nimget/internal/logging"
-	"github.com/zichuanxu/nimget/internal/partialfile"
-	"github.com/zichuanxu/nimget/internal/quarantine"
+	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/filelock"
+	"github.com/amemiya02/nimget/internal/hls"
+	"github.com/amemiya02/nimget/internal/httporigin"
+	"github.com/amemiya02/nimget/internal/logging"
+	"github.com/amemiya02/nimget/internal/partialfile"
+	"github.com/amemiya02/nimget/internal/quarantine"
 	"golang.org/x/time/rate"
 )
 

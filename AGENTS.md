@@ -1,7 +1,7 @@
 ## Agent skills
 
 ### Issue tracker
-Use GitHub Issues for zichuanxu/nimget. Read docs/agents/issue-tracker.md before tracker operations.
+Use GitHub Issues for amemiya02/nimget. Read docs/agents/issue-tracker.md before tracker operations.
 
 ### Triage labels
 Use the five canonical triage labels. Read docs/agents/triage-labels.md before triaging.

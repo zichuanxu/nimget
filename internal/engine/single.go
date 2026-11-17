@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/zichuanxu/nimget/internal/logging"
+	"github.com/amemiya02/nimget/internal/logging"
 )
 
 // single downloads over one plain GET for servers without ranges or a known

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/zichuanxu/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/download"
 )
 
 func TestSingleDownloadRejectsLinkedPartial(t *testing.T) {

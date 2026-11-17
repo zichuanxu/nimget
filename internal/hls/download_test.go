@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zichuanxu/nimget/internal/filelock"
+	"github.com/amemiya02/nimget/internal/filelock"
 )
 
 // server serves static files, counting requests per path. A hook may take

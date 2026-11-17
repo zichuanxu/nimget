@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/zichuanxu/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/download"
 )
 
 func (s *SQLite) encodeWebsiteSession(session *download.WebsiteSession) (string, error) {

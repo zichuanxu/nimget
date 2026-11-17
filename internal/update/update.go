@@ -16,7 +16,7 @@ import (
 )
 
 // LatestURL is the GitHub API endpoint for the newest non-prerelease.
-const LatestURL = "https://api.github.com/repos/zichuanxu/nimget/releases/latest"
+const LatestURL = "https://api.github.com/repos/amemiya02/nimget/releases/latest"
 
 // Interval is how often the desktop app checks.
 const Interval = 7 * 24 * time.Hour
@@ -54,8 +54,8 @@ func Latest(ctx context.Context, client *http.Client, url string) (Release, erro
 		return Release{}, fmt.Errorf("release check: unexpected tag %q", body.TagName)
 	}
 	// Only link to the project's own release pages.
-	if !strings.HasPrefix(body.HTMLURL, "https://github.com/zichuanxu/nimget/") {
-		body.HTMLURL = "https://github.com/zichuanxu/nimget/releases"
+	if !strings.HasPrefix(body.HTMLURL, "https://github.com/amemiya02/nimget/") {
+		body.HTMLURL = "https://github.com/amemiya02/nimget/releases"
 	}
 	return Release{Version: body.TagName, URL: body.HTMLURL}, nil
 }

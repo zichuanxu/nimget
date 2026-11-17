@@ -1,0 +1,113 @@
+name: Prepare macOS release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, for example v1.2.3 or v1.2.3-rc.1'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      NIMGET_RELEASE_VERSION: ${{ inputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: '12.0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check release version
+        run: |
+          set -euo pipefail
+          if [[ ! "$NIMGET_RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "Version must look like v1.2.3 or v1.2.3-rc.1" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "$NIMGET_RELEASE_VERSION" ]]; then
+            echo "The requested version must match the selected tag." >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.4'
+          cache-dependency-path: |
+            go.sum
+            app/go.sum
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '26.13.1'
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Test the core
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Build the frontend
+        working-directory: app/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build a universal app bundle
+        working-directory: app
+        run: |
+          set -euo pipefail
+          numeric="${NIMGET_RELEASE_VERSION#v}"
+          numeric="${numeric%%-*}"
+          go vet -tags production ./...
+          mkdir -p build/bin
+          for arch in arm64 amd64; do
+            CGO_ENABLED=1 GOARCH="$arch" go build -tags production -trimpath \
+              -ldflags "-s -w -X main.version=$NIMGET_RELEASE_VERSION" -o "build/bin/nimget-$arch" .
+          done
+          lipo -create -output build/bin/nimget build/bin/nimget-arm64 build/bin/nimget-amd64
+          lipo -verify_arch build/bin/nimget arm64 x86_64
+
+          bundle="build/bin/NimGet.app"
+          mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
+          cp build/bin/nimget "$bundle/Contents/MacOS/nimget"
+          cp build/darwin/icons.icns "$bundle/Contents/Resources/icons.icns"
+          cp build/darwin/Info.plist "$bundle/Contents/Info.plist"
+          plutil -replace CFBundleVersion -string "$numeric" "$bundle/Contents/Info.plist"
+          plutil -replace CFBundleShortVersionString -string "$numeric" "$bundle/Contents/Info.plist"
+          plutil -lint "$bundle/Contents/Info.plist"
+
+          # No paid Developer ID: sign ad hoc so Apple silicon runs the binary.
+          codesign --force --deep --sign - --timestamp=none "$bundle"
+          codesign --verify --deep --strict --verbose=2 "$bundle"
+
+      - name: Package the disk image
+        run: |
+          set -euo pipefail
+          out="dist/release/$NIMGET_RELEASE_VERSION"
+          stage="$RUNNER_TEMP/dmg"
+          mkdir -p "$out" "$stage"
+          cp -R app/build/bin/NimGet.app "$stage/"
+          ln -s /Applications "$stage/Applications"
+          dmg="NimGet-$NIMGET_RELEASE_VERSION-macos-universal.dmg"
+          hdiutil create -volname "NimGet $NIMGET_RELEASE_VERSION" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$out/$dmg"
+          hdiutil verify "$out/$dmg"
+          (cd "$out" && shasum -a 256 "$dmg" > SHA256SUMS-macos.txt && cat SHA256SUMS-macos.txt)
+
+      - name: Upload the release assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: NimGet-${{ env.NIMGET_RELEASE_VERSION }}-macos-assets
+          path: dist/release/${{ env.NIMGET_RELEASE_VERSION }}/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

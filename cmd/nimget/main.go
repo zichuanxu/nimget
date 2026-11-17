@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/amemiya02/nimget/internal/batch"
 	"github.com/amemiya02/nimget/internal/client"
 	"github.com/amemiya02/nimget/internal/download"
@@ -28,6 +27,7 @@ import (
 	"github.com/amemiya02/nimget/internal/queuefile"
 	"github.com/amemiya02/nimget/internal/service"
 	"github.com/amemiya02/nimget/internal/settings"
+	"github.com/spf13/cobra"
 	"golang.org/x/time/rate"
 )
 

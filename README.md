@@ -14,6 +14,12 @@ NimGet is a lightweight, open-source download manager built in Go for macOS and 
 
 The [Windows release guide](docs/windows-release.md) covers the x64 installer, matching Chrome and Edge extension archive, and SHA-256 checksums. See the [Windows installation guide](docs/windows-installer.md) for WebView2, upgrades, and uninstall. Follow the [extension pairing guide](docs/browser-pairing.md) for browser setup.
 
+## Install on macOS
+
+Releases from v1.1.0 include `NimGet-<version>-macos-universal.dmg` for Apple silicon and Intel Macs running macOS 12 or later. Check its hash against `SHA256SUMS-macos.txt` on the release page (`shasum -a 256 NimGet-*.dmg`), open the disk image, and drag NimGet to Applications.
+
+The app is signed ad hoc, not with a paid Developer ID, so macOS blocks the first launch. Open System Settings > Privacy & Security and choose **Open Anyway** for NimGet, or run `xattr -dr com.apple.quarantine /Applications/NimGet.app` once. The browser extension is the same unpacked Chrome and Edge extension as on Windows; download `NimGet-<version>-chromium-extension.zip` from the same release and follow the [extension pairing guide](docs/browser-pairing.md).
+
 ## Run from source
 
 Building from source requires Git and Go 1.25+. The desktop app also needs Node.js 22.12+ and, on macOS, the Xcode command line tools. On Windows it needs the WebView2 Runtime.

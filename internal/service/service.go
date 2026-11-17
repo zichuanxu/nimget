@@ -134,7 +134,7 @@ func New(cfg Config) (*Service, error) {
 	return &Service{
 		cfg: cfg, log: cfg.Logger, store: db, manager: mgr,
 		server: &http.Server{
-			Handler:           api.NewHandler(mgr, broker, api.Config{Token: token, Logger: cfg.Logger, ExtensionPairings: db, ExtensionHandoffs: mgr}),
+			Handler:           api.NewHandler(mgr, broker, api.Config{Token: token, Logger: cfg.Logger, ExtensionPairings: extensionPairings{SQLite: db, settings: mgr.Settings}, ExtensionHandoffs: mgr}),
 			ReadHeaderTimeout: 10 * time.Second,
 		},
 		closed: make(chan struct{}),

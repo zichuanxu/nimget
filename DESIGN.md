@@ -365,13 +365,13 @@ send a CORS-simple `text/plain` POST or use DNS rebinding. Therefore, on every r
 
 ### 5.2 Extension pairing
 
-Each browser profile uses its own randomly generated bearer credential. Desktop approval requires the code shown in the browser. The desktop can list, deny, and revoke pairing requests. See the [pairing contract and credential lifecycle](docs/browser-pairing.md#loopback-api).
+Each browser profile uses its own randomly generated bearer credential. Automatic connection, on by default, approves requests from the NimGet extension origin without a code. With it off, desktop approval requires the code shown in the browser. The desktop can list, deny, revoke, and delete pairings; a revoked or denied credential is never approved again. See the [pairing contract and credential lifecycle](docs/browser-pairing.md#loopback-api).
 
 ---
 
 ## 6. Browser extension
 
-Load the unpacked extension in Chrome or Edge and request desktop approval using the [pairing instructions](docs/browser-pairing.md). The popup reports pairing status. A context-menu command hands off a link, with optional per-download access to its website session. Automatic capture is on by default. It sends each browser download to NimGet with the website's cookies, honors site and file-type exclusions, starts NimGet through its `nimget://` link when needed, and cancels the browser download only after receiving a durable task receipt. The [browser handoff guide](docs/browser-handoff.md) describes permissions, data retention, and fallback behavior.
+Load the unpacked extension in Chrome or Edge. It connects to NimGet by itself, as the [pairing instructions](docs/browser-pairing.md) describe. The popup reports pairing status. A context-menu command hands off a link, with optional per-download access to its website session. Automatic capture is on by default. It sends each browser download to NimGet with the website's cookies, honors site and file-type exclusions, starts NimGet through its `nimget://` link when needed, and cancels the browser download only after receiving a durable task receipt. The [browser handoff guide](docs/browser-handoff.md) describes permissions, data retention, and fallback behavior.
 
 Authenticated downloads can be added by:
 

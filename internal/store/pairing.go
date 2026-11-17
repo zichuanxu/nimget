@@ -131,6 +131,31 @@ WHERE id = ? AND status IN (?, ?)`, pairing.Revoked, id, pairing.Connected, pair
 	return pairingChanged(result, err, pairing.ErrTransition)
 }
 
+// DeleteExtensionPairing forgets a denied or revoked pairing and its handoff
+// receipts. Its credential can no longer authenticate, so no retry needs them.
+func (s *SQLite) DeleteExtensionPairing(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var status pairing.State
+	err = tx.QueryRowContext(ctx, `SELECT status FROM extension_pairings WHERE id = ?`, id).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && status != pairing.Denied && status != pairing.Revoked) {
+		return pairing.ErrTransition
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM extension_handoffs WHERE pairing_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM extension_pairings WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func pairingChanged(result sql.Result, err, invalid error) error {
 	if err != nil {
 		return err

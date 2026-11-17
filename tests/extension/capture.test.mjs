@@ -152,11 +152,61 @@ test("a rejected handoff leaves the download with the browser", async (t) => {
   assert.deepEqual(events, ["suggest"]);
 });
 
-test("an unpaired browser keeps its downloads", async (t) => {
-  const { transport, download, storage } = await startCapture(t);
+// Routes extension API calls by path; each route returns [status, body].
+function desktop(routes) {
+  const calls = [];
+  const fetch = async (endpoint) => {
+    const path = new URL(endpoint).pathname.replace("/v1/extension/", "");
+    calls.push(path);
+    const [status, body] = routes[path](calls.filter((call) => call === path).length);
+    return Response.json(body, { status });
+  };
+  return { calls, fetch };
+}
+
+test("an unpaired browser pairs on its first download and hands it off", async (t) => {
+  const api = desktop({
+    pairing: () => [200, { id: "P1", status: "connected" }],
+    handoffs: () => [201, { taskId: "saved" }],
+  });
+  const { download, storage, events } = await startCapture(t, { fetch: api.fetch });
+  delete storage.pairingCredential;
+  assert.equal((await download()).result, "captureAccepted");
+  assert.deepEqual(api.calls, ["pairing", "handoffs"]);
+  assert.match(storage.pairingCredential, /^[0-9a-f]{64}$/);
+  assert.deepEqual(events, ["cancel", "erase", "suggest"]);
+});
+
+test("a browser NimGet has not approved keeps its downloads", async (t) => {
+  const api = desktop({ pairing: () => [200, { id: "P1", status: "awaiting-approval", code: "ABCD1234" }] });
+  const { download, storage, events } = await startCapture(t, { fetch: api.fetch });
   delete storage.pairingCredential;
   assert.equal((await download()).result, "capturePairingRequired");
-  assert.equal(transport.mock.callCount(), 0);
+  assert.deepEqual(api.calls, ["pairing"]);
+  assert.deepEqual(events, ["suggest"]);
+});
+
+test("a revoked browser stays revoked and keeps its downloads", async (t) => {
+  const api = desktop({
+    handoffs: () => [403, { error: { code: "PAIRING_REQUIRED" } }],
+    "pairing/status": () => [200, { id: "P1", status: "revoked" }],
+  });
+  const { download, storage } = await startCapture(t, { fetch: api.fetch });
+  assert.equal((await download()).result, "capturePairingRequired");
+  assert.deepEqual(api.calls, ["handoffs", "pairing/status"]);
+  assert.equal(storage.pairingCredential, "fixture-token");
+});
+
+test("a browser whose pairing was deleted pairs again and hands off", async (t) => {
+  const api = desktop({
+    handoffs: (n) => n === 1 ? [403, { error: { code: "PAIRING_REQUIRED" } }] : [201, { taskId: "saved" }],
+    "pairing/status": () => [200, { status: "disconnected" }],
+    pairing: () => [200, { id: "P2", status: "connected" }],
+  });
+  const { download, storage } = await startCapture(t, { fetch: api.fetch });
+  assert.equal((await download()).result, "captureAccepted");
+  assert.deepEqual(api.calls, ["handoffs", "pairing/status", "pairing", "handoffs"]);
+  assert.notEqual(storage.pairingCredential, "fixture-token");
 });
 
 const skipped = [

@@ -75,6 +75,34 @@ export class Desktop {
 }
 
 /**
+ * Extensions controls the browser extension's access to the local service.
+ */
+export class Extensions {
+    /**
+     * AutoConnect approves pairing requests from the NimGet extension without
+     * an approval code.
+     */
+    "autoConnect": boolean;
+
+    /** Creates a new Extensions instance. */
+    constructor($$source: Partial<Extensions> = {}) {
+        if (!("autoConnect" in $$source)) {
+            this["autoConnect"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Extensions instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Extensions {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Extensions($$parsedSource as Partial<Extensions>);
+    }
+}
+
+/**
  * Schedule runs the queue only between Start and Stop ("HH:MM" local time,
  * wrapping past midnight) and applies time-of-day speed limits. Empty Start and
  * Stop run the queue all day.
@@ -133,6 +161,7 @@ export class Settings {
      */
     "extraRoots": string[];
     "desktop": Desktop;
+    "extensions": Extensions;
 
     /** Creates a new Settings instance. */
     constructor($$source: Partial<Settings> = {}) {
@@ -163,6 +192,9 @@ export class Settings {
         if (!("desktop" in $$source)) {
             this["desktop"] = (new Desktop());
         }
+        if (!("extensions" in $$source)) {
+            this["extensions"] = (new Extensions());
+        }
 
         Object.assign(this, $$source);
     }
@@ -176,6 +208,7 @@ export class Settings {
         const $$createField6_0 = $$createType5;
         const $$createField7_0 = $$createType6;
         const $$createField8_0 = $$createType7;
+        const $$createField9_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("schedule" in $$parsedSource) {
             $$parsedSource["schedule"] = $$createField4_0($$parsedSource["schedule"]);
@@ -191,6 +224,9 @@ export class Settings {
         }
         if ("desktop" in $$parsedSource) {
             $$parsedSource["desktop"] = $$createField8_0($$parsedSource["desktop"]);
+        }
+        if ("extensions" in $$parsedSource) {
+            $$parsedSource["extensions"] = $$createField9_0($$parsedSource["extensions"]);
         }
         return new Settings($$parsedSource as Partial<Settings>);
     }
@@ -220,7 +256,7 @@ export class Site {
      * Creates a new Site instance from a string or object.
      */
     static createFrom($$source: any = {}): Site {
-        const $$createField3_0 = $$createType8;
+        const $$createField3_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("headers" in $$parsedSource) {
             $$parsedSource["headers"] = $$createField3_0($$parsedSource["headers"]);
@@ -270,4 +306,5 @@ const $$createType4 = Site.createFrom;
 const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = $Create.Array($Create.Any);
 const $$createType7 = Desktop.createFrom;
-const $$createType8 = $Create.Map($Create.Any, $Create.Any);
+const $$createType8 = Extensions.createFrom;
+const $$createType9 = $Create.Map($Create.Any, $Create.Any);

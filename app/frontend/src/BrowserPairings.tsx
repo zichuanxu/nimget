@@ -99,6 +99,11 @@ function PairingRow({ record, onChanged }: { record: Pairing; onChanged: () => v
             {t("pairing.revoke")}
           </button>
         )}
+        {(record.status === State.Revoked || record.status === State.Denied) && (
+          <button type="button" disabled={busy} onClick={() => apply(() => Desktop.DeleteExtensionPairing(record.id))}>
+            {t("pairing.delete")}
+          </button>
+        )}
       </div>
       {record.status === State.AwaitingApproval && (
         <form className="pairing-form" onSubmit={(event) => {

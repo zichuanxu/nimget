@@ -67,6 +67,10 @@ export function Delete(id: string, removeFiles: boolean): $CancellablePromise<vo
     return $Call.ByID(1920553007, id, removeFiles);
 }
 
+export function DeleteExtensionPairing(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2750321996, id);
+}
+
 export function DenyExtensionPairing(id: string): $CancellablePromise<void> {
     return $Call.ByID(966454529, id);
 }

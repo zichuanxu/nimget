@@ -3,10 +3,24 @@
 1. Download and verify the [Windows installer and Chromium extension archive](windows-release.md) from the same release. Extract the ZIP to a directory you can keep for later updates. For a source build, use the `extension` directory in the checkout.
 2. Start the NimGet desktop app. If the CLI service is running, stop it first so the desktop can open the loopback connection.
 3. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge. Turn on **Developer mode**, select **Load unpacked**, and choose the extracted directory containing `manifest.json`.
-4. Open **NimGet** from the browser's Extensions menu. Select **Request pairing** and keep the request ID and approval code available.
-5. In NimGet, open **Settings → Browser extensions**. Find the matching request ID, enter the code, and select **Approve**. The extension displays **Connected**. Select **Deny** to decline an unfamiliar request.
+4. The extension connects to NimGet by itself when it is installed, when the browser starts, when you open its popup, and on the first download it takes over. Open **NimGet** from the browser's Extensions menu to check that it shows **Connected**.
 
-Repeat the steps for each browser profile you want to connect. Existing connections appear in the same desktop panel. Select **Revoke access** to end a connection. To reconnect after denial or revocation, request a new pairing from the extension.
+Repeat the steps for each browser profile you want to connect. Each connection appears in NimGet under **Settings → Browser extensions**.
+
+### Automatic connection
+
+**Connect the NimGet extension automatically** in **Settings → Browser extensions** is on by default. NimGet then approves pairing requests from the NimGet extension without an approval code. The loopback API accepts these requests only from the NimGet extension ID, so web pages and other extensions can't pair. The approval code doesn't protect against programs running on your computer, because they can already use NimGet's administrator token.
+
+Turn the setting off and save to approve each browser yourself:
+
+1. Open **NimGet** from the browser's Extensions menu. Select **Request pairing** and keep the request ID and approval code available.
+2. In NimGet, open **Settings → Browser extensions**. Find the matching request ID, enter the code, and select **Approve**. The extension displays **Connected**. Select **Deny** to decline an unfamiliar request.
+
+A request that is still waiting is approved the next time the extension asks after you turn the setting back on.
+
+### Revoke and delete connections
+
+Select **Revoke access** to end a connection. A revoked or denied browser stays disconnected, even with automatic connection on, until you select **Request pairing** in its extension. Select **Delete** on a revoked or denied record to remove it from the list. NimGet also forgets that pairing's handoff receipts. If the extension is still installed, it then reconnects as a new browser.
 
 The browser shows **Disconnected** before pairing or while it cannot reach NimGet, **Awaiting approval** during a pending request, **Connected** after approval, and **Pairing denied** or **Access revoked** after the corresponding desktop action. A **Connected** desktop record means the profile remains authorized. The extension verifies desktop reachability when its popup is open. Closing the desktop window to the tray keeps the service running. Quitting the desktop stops it. Pairing does not require an account.
 
@@ -18,7 +32,7 @@ The extension asks for access to downloads, cookies, and all HTTP and HTTPS site
 2. Quit each browser using the extension directory. Extract the new archive to a temporary directory and replace the contents of the existing NimGet extension directory with the new files.
 3. Reopen the browser and select **Reload** on the NimGet extension card. Repeat in each browser profile using the directory. Open the NimGet popup and verify that it shows **Connected**.
 
-Updating the files in place keeps the installed extension and its local browser storage. If you remove the extension or clear its storage, revoke the old pairing in the desktop app and follow the pairing steps again.
+Updating the files in place keeps the installed extension and its local browser storage. If you remove the extension or clear its storage, revoke and delete the old pairing in the desktop app. The reinstalled extension connects again by itself.
 
 ## Loopback API
 
@@ -26,7 +40,7 @@ Both requests use `POST`, `Content-Type: application/json` and `Authorization: B
 
 | Path | JSON body | Behavior |
 | --- | --- | --- |
-| `/v1/extension/pairing` | `{"browser":"chrome"}` or `{"browser":"edge"}` | Creates a pending request or returns the existing record for that credential |
+| `/v1/extension/pairing` | `{"browser":"chrome"}` or `{"browser":"edge"}` | Creates a pending request or returns the existing record for that credential. With automatic connection on, a pending request is approved and the response reports `connected` without a code |
 | `/v1/extension/pairing/status` | `{}` | Reports the current status for that credential without changing it |
 
 An HTTP 200 response contains `status` (`disconnected`, `awaiting-approval`, `connected`, `denied`, or `revoked`), `id` when a record exists, and its eight-character `code` while awaiting approval. The popup and desktop show the last six characters of the record ID so the user can match a request. A pending request expires after ten minutes. At most 16 requests may await approval at a time. An invalid credential returns 401, an untrusted origin or host returns 403, and a full pending list returns 429.

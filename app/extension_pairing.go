@@ -33,3 +33,10 @@ func (d *Desktop) RevokeExtensionPairing(id string) error {
 	}
 	return d.svc.RevokeExtensionPairing(context.Background(), id)
 }
+
+func (d *Desktop) DeleteExtensionPairing(id string) error {
+	if _, err := d.manager(); err != nil {
+		return err
+	}
+	return d.svc.DeleteExtensionPairing(context.Background(), id)
+}

@@ -260,7 +260,19 @@ export default function SettingsDialog({ state, onClose, onSaved }: Props) {
             </>
           )}
 
-          {tab === "browser" && <BrowserPairings />}
+          {tab === "browser" && (
+            <>
+              <div className="set-group">
+                <Switch
+                  checked={s.extensions.autoConnect}
+                  onChange={(v) => set({ extensions: { ...s.extensions, autoConnect: v } })}
+                  label={t("settings.extensionAutoConnect")}
+                  hint={t("settings.extensionAutoConnectHint")}
+                />
+              </div>
+              <BrowserPairings />
+            </>
+          )}
 
           {tab === "advanced" && (
             <>

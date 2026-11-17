@@ -1,6 +1,6 @@
 import { captureHandoffPrefix, captureResultKey, readCaptureSettings } from "./capture-settings.js";
 import { lookupHandoffReceipt, submitHandoffWithReceipt, supportsHandoff, updateHandoffBadge } from "./handoff.js";
-import { ExtensionRequestError, readCredential } from "./pairing.js";
+import { ExtensionRequestError, ensurePaired, pairedCredential, readCredential } from "./pairing.js";
 import { readWebsiteSession } from "./website-session.js";
 import { wakeDesktop } from "./wake.js";
 
@@ -84,7 +84,7 @@ function downloadNamed(item, suggest) {
 async function considerDownload(item, release) {
   const settings = await readCaptureSettings();
   if (!settings.enabled || !eligible(item) || excluded(item, settings)) return release();
-  const credential = await readCredential();
+  const credential = await readCredential() ?? await pairForCapture();
   if (!credential) {
     release();
     return showResult("capturePairingRequired");
@@ -100,6 +100,11 @@ async function considerDownload(item, release) {
   const body = websiteSession ? { ...request, websiteSession } : request;
   let receipt = await handOff(body, credential);
   if (receipt === "captureDesktopUnavailable" && await wakeDesktop()) receipt = await handOff(body, credential);
+  if (receipt === "capturePairingRequired") {
+    // The pairing may have been deleted in NimGet; a revoked one stays revoked.
+    const paired = await pairedCredential();
+    if (paired) receipt = await handOff(body, paired);
+  }
   if (typeof receipt === "string") {
     // Give the download back first; the notice can follow.
     release();
@@ -116,6 +121,16 @@ async function considerDownload(item, release) {
   release();
   const memoryOnly = receipt.websiteSessionPersistence === "memory-only";
   await showResult(memoryOnly ? "captureAcceptedMemoryOnly" : "captureAccepted", "✓");
+}
+
+// The first captured download pairs the extension, starting NimGet if needed.
+async function pairForCapture() {
+  try {
+    if ((await ensurePaired()).status === "connected") return readCredential();
+  } catch (error) {
+    if (error.code === "DESKTOP_UNREACHABLE" && await wakeDesktop()) return pairedCredential();
+  }
+  return null;
 }
 
 // Returns the receipt, or the notice that explains why the browser keeps

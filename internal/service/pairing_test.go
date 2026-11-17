@@ -62,8 +62,20 @@ func extensionPost(t *testing.T, addr, path, origin, token, body string, wantSta
 	return got
 }
 
+// requireApproval turns off automatic connection so requests wait for the
+// desktop approval code.
+func requireApproval(t *testing.T, svc *service.Service) {
+	t.Helper()
+	prefs := svc.Manager().Settings()
+	prefs.Extensions.AutoConnect = false
+	if err := svc.Manager().UpdateSettings(context.Background(), prefs); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExtensionRequestsAwaitDesktopApproval(t *testing.T) {
 	svc, _, _ := startService(t)
+	requireApproval(t, svc)
 	token := strings.Repeat("a", 64)
 	addr := svc.Address()
 
@@ -110,6 +122,7 @@ func TestExtensionApprovalAndRevocationSurviveServiceRestart(t *testing.T) {
 	}
 
 	svc := start()
+	requireApproval(t, svc)
 	token := strings.Repeat("b", 64)
 	pending := extensionPost(t, svc.Address(), pairingRequest, pairingOrigin, token, `{"browser":"edge"}`, http.StatusOK)
 	closeService(svc)
@@ -164,6 +177,7 @@ func TestExtensionApprovalAndRevocationSurviveServiceRestart(t *testing.T) {
 
 func TestDesktopDenialCannotBeRetriedWithTheSameCredential(t *testing.T) {
 	svc, _, _ := startService(t)
+	requireApproval(t, svc)
 	ctx := context.Background()
 	token := strings.Repeat("c", 64)
 	addr := svc.Address()
@@ -220,5 +234,89 @@ func TestExtensionPreflightRequiresApprovedOriginAndLoopbackHost(t *testing.T) {
 				t.Fatalf("preflight allowed origin = %q, want %q", got, wantOrigin)
 			}
 		})
+	}
+}
+
+func TestExtensionConnectsAutomaticallyUntilRevoked(t *testing.T) {
+	svc, _, _ := startService(t)
+	ctx := context.Background()
+	addr := svc.Address()
+	token := strings.Repeat("e", 64)
+
+	got := extensionPost(t, addr, pairingRequest, pairingOrigin, token, `{"browser":"chrome"}`, http.StatusOK)
+	if got.Status != "connected" || got.ID == "" || got.Code != "" {
+		t.Fatalf("automatic request = %+v, want connected without a code", got)
+	}
+	if status := extensionPost(t, addr, pairingStatus, pairingOrigin, token, "{}", http.StatusOK); status != got {
+		t.Fatalf("status = %+v, want %+v", status, got)
+	}
+	// Other origins still cannot pair.
+	extensionPost(t, addr, pairingRequest, "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", strings.Repeat("f", 64), `{"browser":"chrome"}`, http.StatusForbidden)
+
+	if err := svc.RevokeExtensionPairing(ctx, got.ID); err != nil {
+		t.Fatal(err)
+	}
+	again := extensionPost(t, addr, pairingRequest, pairingOrigin, token, `{"browser":"chrome"}`, http.StatusOK)
+	if again.Status != "revoked" || again.ID != got.ID {
+		t.Fatalf("revoked credential reconnected: %+v", again)
+	}
+
+	// A request made while approval was required is approved once the
+	// extension asks again after automatic connection is turned on.
+	requireApproval(t, svc)
+	waiting := strings.Repeat("9", 64)
+	pending := extensionPost(t, addr, pairingRequest, pairingOrigin, waiting, `{"browser":"chrome"}`, http.StatusOK)
+	if pending.Status != "awaiting-approval" {
+		t.Fatalf("request with approval required = %+v", pending)
+	}
+	prefs := svc.Manager().Settings()
+	prefs.Extensions.AutoConnect = true
+	if err := svc.Manager().UpdateSettings(ctx, prefs); err != nil {
+		t.Fatal(err)
+	}
+	approved := extensionPost(t, addr, pairingRequest, pairingOrigin, waiting, `{"browser":"chrome"}`, http.StatusOK)
+	if approved.Status != "connected" || approved.ID != pending.ID {
+		t.Fatalf("pending request after enabling automatic connection = %+v", approved)
+	}
+}
+
+func TestDeleteExtensionPairingForgetsOnlyEndedPairings(t *testing.T) {
+	svc, _, _ := startService(t)
+	ctx := context.Background()
+	addr := svc.Address()
+	token := approveHandoffPairing(t, svc, '7')
+	connected := extensionPost(t, addr, pairingStatus, pairingOrigin, token, "{}", http.StatusOK)
+	body := `{"handoffId":"97eba4cf-7936-4d48-96fd-8e1110a9e2d8","url":"https://example.com/file.bin"}`
+	extensionPost(t, addr, handoffPath, pairingOrigin, token, body, http.StatusCreated)
+
+	if err := svc.DeleteExtensionPairing(ctx, connected.ID); err == nil {
+		t.Fatal("a connected pairing was deleted")
+	}
+	if err := svc.RevokeExtensionPairing(ctx, connected.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteExtensionPairing(ctx, connected.ID); err != nil {
+		t.Fatal(err)
+	}
+	if records, err := svc.ListExtensionPairings(ctx); err != nil || len(records) != 0 {
+		t.Fatalf("records after delete = %+v (%v)", records, err)
+	}
+	if got := extensionPost(t, addr, pairingStatus, pairingOrigin, token, "{}", http.StatusOK); got.Status != "disconnected" {
+		t.Fatalf("deleted credential status = %q", got.Status)
+	}
+	if err := svc.DeleteExtensionPairing(ctx, connected.ID); err == nil {
+		t.Fatal("deleting a missing pairing succeeded")
+	}
+
+	requireApproval(t, svc)
+	pending := extensionPost(t, addr, pairingRequest, pairingOrigin, strings.Repeat("8", 64), `{"browser":"edge"}`, http.StatusOK)
+	if err := svc.DeleteExtensionPairing(ctx, pending.ID); err == nil {
+		t.Fatal("a pending request was deleted")
+	}
+	if err := svc.DenyExtensionPairing(ctx, pending.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteExtensionPairing(ctx, pending.ID); err != nil {
+		t.Fatal(err)
 	}
 }

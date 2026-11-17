@@ -35,8 +35,16 @@ type Settings struct {
 	Sites      []Site          `json:"sites"`
 	// ExtraRoots are directories picked in the GUI; downloads may be written
 	// under them as well as under the service's download roots.
-	ExtraRoots []string `json:"extraRoots"`
-	Desktop    Desktop  `json:"desktop"`
+	ExtraRoots []string   `json:"extraRoots"`
+	Desktop    Desktop    `json:"desktop"`
+	Extensions Extensions `json:"extensions"`
+}
+
+// Extensions controls the browser extension's access to the local service.
+type Extensions struct {
+	// AutoConnect approves pairing requests from the NimGet extension without
+	// an approval code.
+	AutoConnect bool `json:"autoConnect"`
 }
 
 // Desktop holds preferences only the desktop app reads.
@@ -180,7 +188,8 @@ func Default() Settings {
 	return Settings{
 		MaxConcurrent: 3, Connections: 8, HostConnections: 16,
 		Proxy:   netproxy.Config{Mode: netproxy.ModeSystem},
-		Desktop: Desktop{ClipboardMonitor: true, Notifications: true, CheckUpdates: true},
+		Desktop:    Desktop{ClipboardMonitor: true, Notifications: true, CheckUpdates: true},
+		Extensions: Extensions{AutoConnect: true},
 	}
 }
 

@@ -1,5 +1,5 @@
 import "./capture.js";
-import { readCredential } from "./pairing.js";
+import { ensurePaired, pairedCredential, readCredential } from "./pairing.js";
 import { deliverHandoffReceipt, manualHandoffPrefix, manualHandoffResult, sha256Hex, supportsHandoff, updateHandoffBadge } from "./handoff.js";
 import {
   createWebsiteSessionDraft, readWebsiteSession, readWebsiteSessionDraft, readWebsiteSessionSnapshot,
@@ -10,7 +10,12 @@ const menuId = "nimget-send-link";
 const websiteSessionMenuId = "nimget-send-with-website-session";
 const inFlight = new Set();
 
+// Connect as soon as possible; NimGet may not be running yet.
+const connect = () => { void ensurePaired().catch(() => {}); };
+chrome.runtime.onStartup.addListener(connect);
+
 chrome.runtime.onInstalled.addListener(() => {
+  connect();
   for (const [id, label] of [[menuId, "sendLink"], [websiteSessionMenuId, "sendWithWebsiteSession"]]) {
     chrome.contextMenus.remove(id, () => {
       void chrome.runtime.lastError; // No previous menu on fresh installation.
@@ -60,7 +65,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function openWebsiteSessionPrompt(info, tab) {
   if (!supportsHandoff(info.linkUrl)) return showResult("handoffUnsupported");
-  const credential = await readCredential();
+  const credential = await readCredential() ?? await pairedCredential();
   if (!credential) return showResult("handoffPairingRequired");
   const handoffId = crypto.randomUUID();
   await createWebsiteSessionDraft(handoffId, info, tab?.id, await sha256Hex(credential));
@@ -99,7 +104,7 @@ async function startHandoff(link) {
     await showResult("handoffUnsupported");
     return;
   }
-  const credential = await readCredential();
+  const credential = await readCredential() ?? await pairedCredential();
   if (!credential) {
     await showResult("handoffPairingRequired");
     return;

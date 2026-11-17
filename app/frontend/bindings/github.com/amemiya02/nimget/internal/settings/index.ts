@@ -3,6 +3,7 @@
 
 export {
     Desktop,
+    Extensions,
     Schedule,
     Settings,
     Site,

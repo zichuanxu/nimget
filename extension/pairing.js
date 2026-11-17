@@ -66,6 +66,32 @@ export async function requestPairing() {
   // Keep the credential through popup closure or a lost HTTP response. Status
   // can recover the same request without a second approval.
   await chrome.storage.local.set({ [storageKey]: token });
+  return sendPairingRequest(token);
+}
+
+function sendPairingRequest(token) {
   const browser = /\bEdg\//.test(navigator.userAgent) ? "edge" : "chrome";
   return requestExtension("pairing", { browser }, token);
+}
+
+// NimGet approves the request without a code unless the user turned
+// automatic connection off. A denied or revoked pairing stays as it is until
+// the user asks again from the popup.
+export async function ensurePaired() {
+  const token = await readCredential();
+  const current = token ? await requestExtension("pairing/status", {}, token) : { status: "disconnected" };
+  if (current.status === "disconnected") return requestPairing();
+  // Asking again with the same credential returns the same request, which
+  // NimGet approves if automatic connection was turned on since.
+  if (current.status === "awaiting-approval") return sendPairingRequest(token);
+  return current;
+}
+
+// Returns the credential once this extension is connected, or null.
+export async function pairedCredential() {
+  try {
+    return (await ensurePaired()).status === "connected" ? await readCredential() : null;
+  } catch {
+    return null;
+  }
 }

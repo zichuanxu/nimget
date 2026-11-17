@@ -425,6 +425,9 @@ func approveHandoffPairing(t *testing.T, svc *service.Service, tokenByte rune) s
 	t.Helper()
 	token := strings.Repeat(string(tokenByte), 64)
 	pending := extensionPost(t, svc.Address(), pairingRequest, pairingOrigin, token, `{"browser":"chrome"}`, http.StatusOK)
+	if pending.Status == "connected" {
+		return token // Automatic connection is on.
+	}
 	if err := svc.ApproveExtensionPairing(context.Background(), pending.ID, pending.Code); err != nil {
 		t.Fatal(err)
 	}

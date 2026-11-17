@@ -1,5 +1,5 @@
 import { renderRetryList } from "./retry-list.js";
-import { pairingStatus, requestPairing } from "./pairing.js";
+import { ensurePaired, pairingStatus, requestPairing } from "./pairing.js";
 import { manualHandoffPrefix, manualHandoffResult } from "./handoff.js";
 import { launchDesktop } from "./wake.js";
 
@@ -133,5 +133,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 updateHandoffs();
 
-await update(pairingStatus);
+// Opening the popup connects an unpaired extension.
+await update(ensurePaired, true);
 window.setInterval(() => { void update(pairingStatus); }, 2000);

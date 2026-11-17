@@ -10,7 +10,7 @@
         <key>CFBundleExecutable</key>
             <string>nimget</string>
         <key>CFBundleIdentifier</key>
-            <string>io.github.zichuanxu.nimget</string>
+            <string>io.github.amemiya02.nimget</string>
         <key>CFBundleVersion</key>
             <string>0.0.0</string>
         <key>CFBundleShortVersionString</key>

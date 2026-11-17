@@ -36,7 +36,7 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: false, // keep downloading from the tray
 		},
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID:               "io.github.zichuanxu.nimget",
+			UniqueID:               "io.github.amemiya02.nimget",
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) { desk.show() },
 		},
 	})

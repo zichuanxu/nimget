@@ -118,7 +118,7 @@ $app = $null
 try {
     Wait-Condition { Test-Path -LiteralPath $portFile } 'Local download fixture failed to start'
     $port = Get-Content -LiteralPath $portFile
-    $setupMutex = [Threading.Mutex]::new($false, 'io.github.zichuanxu.nimget.setup')
+    $setupMutex = [Threading.Mutex]::new($false, 'io.github.amemiya02.nimget.setup')
     try {
         Assert-Condition ((Run-Setup $currentPath "/S /D=$installDir") -eq 5) 'Setup did not refuse a simultaneous install or uninstall'
         Assert-Condition (!(Test-Path $uninstallKey)) 'Setup modified the installation while another operation was in progress'

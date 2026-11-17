@@ -46,7 +46,15 @@ VIAddVersionKey "LegalCopyright" "Copyright 2026 amemiya02. Apache-2.0."
 
 ; Keep Setup and the uninstaller from writing the same install concurrently.
 !macro LockLifecycle
-  System::Call 'kernel32::CreateMutexW(p 0, i 0, w "io.github.zichuanxu.nimget.setup") p .r0 ?e'
+  ; Setups released before the move to amemiya02 hold the legacy name.
+  System::Call 'kernel32::OpenMutexW(i 0x00100000, i 0, w "io.github.zichuanxu.nimget.setup") p .r0'
+  ${If} $0 != 0
+    System::Call 'kernel32::CloseHandle(p r0)'
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Another NimGet Setup or uninstall is in progress." /SD IDOK
+    SetErrorLevel 5
+    Quit
+  ${EndIf}
+  System::Call 'kernel32::CreateMutexW(p 0, i 0, w "io.github.amemiya02.nimget.setup") p .r0 ?e'
   Pop $1
   ${If} $0 == 0
   ${OrIf} $1 == 183
@@ -58,9 +66,15 @@ VIAddVersionKey "LegalCopyright" "Copyright 2026 amemiya02. Apache-2.0."
 !macroend
 
 ; Wails v3 names the existing single-instance mutex from the ID in app/main.go.
+; Releases before the move to amemiya02 used the legacy ID, so check both.
 ; Ask users to quit from the tray so the desktop can checkpoint its queue.
 !macro CheckNimGetIsClosed
-  System::Call 'kernel32::OpenMutexW(i 0x00100000, i 0, w "wails-app-io.github.zichuanxu.nimget-sim") p .r0'
+  !insertmacro CheckNimGetMutex "wails-app-io.github.amemiya02.nimget-sim"
+  !insertmacro CheckNimGetMutex "wails-app-io.github.zichuanxu.nimget-sim"
+!macroend
+
+!macro CheckNimGetMutex NAME
+  System::Call 'kernel32::OpenMutexW(i 0x00100000, i 0, w "${NAME}") p .r0'
   ${If} $0 != 0
     System::Call 'kernel32::CloseHandle(p r0)'
     MessageBox MB_OK|MB_ICONEXCLAMATION "Quit NimGet from its tray menu and run this again." /SD IDOK

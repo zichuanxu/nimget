@@ -542,6 +542,15 @@ function Shell() {
           {rows.length === 0 ? (
             <Empty all={all.length} query={query} onAdd={() => setAdding({})} />
           ) : (
+            <>
+            <div className="task-columns" aria-hidden="true">
+              <span className="col-status">{t("col.status")}</span>
+              <span className="col-file">{t("col.file")}</span>
+              <span className="col-progress">{t("col.progress")}</span>
+              <span className="col-speed">{t("col.speed")}</span>
+              <span className="col-arrival">{t("col.arrival")}</span>
+              <span className="col-size" />
+            </div>
             <ul className="task-rows" role="list" aria-label={title}>
               {pageRows.map((item) => (
                 <Row
@@ -562,6 +571,7 @@ function Shell() {
                 />
               ))}
             </ul>
+            </>
           )}
         </div>
       </section>
@@ -760,13 +770,16 @@ const Row = memo(function Row({
   onContext: (id: string, x: number, y: number, trigger: HTMLElement) => void;
   onRemovedFocus: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { ref } = useFocusFallbackOnRemove<HTMLLIElement>(onRemovedFocus);
   const name = baseName(item.destination);
   const kind = fileKind(name);
   const Icon = kindIcon[kind];
   const known = item.total > 0;
   const pct = known ? Math.min(100, (item.completed / item.total) * 100) : item.status === Status.StatusCompleted ? 100 : 0;
+  const running = item.status === Status.StatusRunning;
+  const showBar = running || item.status === Status.StatusPaused || (item.status !== Status.StatusCompleted && item.completed > 0);
+  const nameId = taskRowId(item.id) + "-name";
   // Two quick actions on the row; the rest are in the menu.
   const quick = actions(item).filter((a) => !a.danger).slice(0, 2);
   return (
@@ -793,27 +806,31 @@ const Row = memo(function Row({
       <label className="task-checkbox" onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
         <input type="checkbox" checked={checked} aria-label={t("bulk.selectTask", { name })} onChange={(e) => onCheck(item.id, e.target.checked)} />
       </label>
-      <div className={`kind ${kind}`}>
-        <Icon size={18} strokeWidth={1.8} />
-      </div>
-      <div className="row-main">
-        <div className="row-title">
-          <span className="name">{name}</span>
-          {item.priority === 1 && <span className="badge high">{t("priority.high")}</span>}
-          {item.priority === -1 && <span className="badge low">{t("priority.low")}</span>}
-        </div>
-        {(item.status === Status.StatusRunning || item.status === Status.StatusPaused || (item.status !== Status.StatusCompleted && item.completed > 0)) && (
-          <div className={`bar ${item.status} ${!known && item.status === Status.StatusRunning ? "indeterminate" : ""}`}>
-            <i style={{ width: `${pct}%` }} />
+      <div className="row-file">
+        <span className={`kind ${kind}`} aria-hidden="true">
+          <Icon size={16} strokeWidth={1.8} />
+        </span>
+        <div className="row-main">
+          <div className="row-title">
+            <span className="name" id={nameId}>{name}</span>
+            {item.priority === 1 && <span className="badge high">{t("priority.high")}</span>}
+            {item.priority === -1 && <span className="badge low">{t("priority.low")}</span>}
           </div>
-        )}
-        <div className="row-meta">
-          <span className={`status ${item.status}`}>
-            <span className="dot" />
-            {converting ? t("row.converting") : t(`status.${item.status}` as "status.queued")}
-          </span>
-          <Meta item={item} bps={bps} t={t} />
+          <Note item={item} t={t} />
         </div>
+      </div>
+      <div className="row-progress">
+        {showBar && (
+          <progress className={`bar ${item.status}`} aria-labelledby={nameId} max={100} value={known || !running ? pct : undefined} />
+        )}
+      </div>
+      <div className="row-facts">
+        <span className={`status ${item.status}`}>
+          <span className="dot" />
+          {converting ? t("row.converting") : t(`status.${item.status}` as "status.queued")}
+        </span>
+        <span className="speed">{running && bps > 0 ? speed(bps) : ""}</span>
+        <span className="arrival">{arrival(item, bps, t, lang)}</span>
       </div>
       <div className="row-side">
         <span className="pct">{item.status === Status.StatusCompleted ? (known ? bytes(item.total) : "") : known ? `${Math.floor(pct)}%` : ""}</span>
@@ -893,28 +910,27 @@ function SpeedCard({ running, queued, rate, bps, history }: { running: Item[]; q
   );
 }
 
-function Meta({ item, bps, t }: { item: Item; bps: number; t: T }) {
-  if (item.recovery === Recovery.RecoveryRestartRequired) return <span className="meta error-text">{t("reauth.restartRequired")}</span>;
-  if (item.status === Status.StatusFailed) return <span className="meta error-text">{t(`failure.title.${taskFailure(item) || "unknown"}`)}</span>;
+/** Note is the line under a file name: what went wrong, or how much has arrived. */
+function Note({ item, t }: { item: Item; t: T }) {
+  if (item.recovery === Recovery.RecoveryRestartRequired) return <span className="row-note error-text">{t("reauth.restartRequired")}</span>;
+  if (item.status === Status.StatusFailed) return <span className="row-note error-text">{t(`failure.title.${taskFailure(item) || "unknown"}`)}</span>;
   if (item.status === Status.StatusCompleted) return null;
-  const parts: string[] = [];
-  const known = item.total > 0;
-  if (known) parts.push(t("row.of", { done: bytes(item.completed), total: bytes(item.total) }));
-  else if (item.completed > 0) parts.push(bytes(item.completed));
+  if (item.total > 0) return <span className="row-note">{t("row.of", { done: bytes(item.completed), total: bytes(item.total) })}</span>;
+  if (item.completed > 0) return <span className="row-note">{bytes(item.completed)}</span>;
+  return null;
+}
+
+/** arrival is the board's "arrives" column: time left while running, or when a download finished. */
+function arrival(item: Item, bps: number, t: T, lang: string): string {
   if (item.status === Status.StatusRunning) {
-    if (bps > 0) parts.push(speed(bps));
-    const left = known ? eta(item.total - item.completed, bps, t) : "";
-    if (left) parts.push(t("row.left", { t: left }));
+    const left = item.total > 0 ? eta(item.total - item.completed, bps, t) : "";
+    return left ? t("row.left", { t: left }) : "";
   }
-  return (
-    <>
-      {parts.map((p, i) => (
-        <span key={i} className="meta">
-          {p}
-        </span>
-      ))}
-    </>
-  );
+  if (item.status !== Status.StatusCompleted) return "";
+  const at = new Date(item.updatedAt);
+  if (Number.isNaN(at.getTime())) return "";
+  const sameDay = at.toDateString() === new Date().toDateString();
+  return new Intl.DateTimeFormat(lang, sameDay ? { hour: "2-digit", minute: "2-digit" } : { month: "short", day: "numeric" }).format(at);
 }
 
 function Empty({ all, query, onAdd }: { all: number; query: string; onAdd: () => void }) {

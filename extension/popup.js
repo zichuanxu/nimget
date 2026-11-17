@@ -1,6 +1,7 @@
 import { renderRetryList } from "./retry-list.js";
 import { pairingStatus, requestPairing } from "./pairing.js";
 import { manualHandoffPrefix, manualHandoffResult } from "./handoff.js";
+import { launchDesktop } from "./wake.js";
 
 const get = (id) => document.getElementById(id);
 const t = (key, substitutions) => chrome.i18n.getMessage(key, substitutions);
@@ -10,10 +11,12 @@ const confirmation = get("confirmation");
 const requestId = get("request-id");
 const code = get("code");
 const button = get("pair");
+const openDesktop = get("open-desktop");
 
 document.documentElement.lang = t("@@ui_locale").replaceAll("_", "-");
 get("code-label").textContent = t("approvalCode");
 button.textContent = t("pair");
+openDesktop.textContent = t("openDesktop");
 status.textContent = t("checking");
 
 const labels = {
@@ -36,7 +39,9 @@ function render(result, failure) {
   confirmation.hidden = !pending;
   setText(requestId, pending ? t("requestId", result.id.slice(-6)) : "");
   setText(code, pending ? result.code : "");
-  button.hidden = pending || state === "connected";
+  const unreachable = failure === "unreachable";
+  openDesktop.hidden = !unreachable;
+  button.hidden = unreachable || pending || state === "connected";
 }
 
 let busy = false;
@@ -65,6 +70,9 @@ button.addEventListener("click", async () => {
   await update(requestPairing, true);
   button.disabled = false;
 });
+
+// The browser asks before opening NimGet. Status polling shows the result.
+openDesktop.addEventListener("click", () => { void launchDesktop(); });
 
 const handoffResult = get("handoff-result");
 const retries = get("handoff-retries");

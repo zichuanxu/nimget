@@ -85,6 +85,7 @@ button:hover:not(:disabled) { background: var(--hover); }
 button:disabled { opacity: 0.45; cursor: default; }
 
 #pair,
+#open-desktop,
 #capture-save,
 #capture-session-save,
 #use-website-session {
@@ -95,6 +96,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 
 #pair:hover:not(:disabled),
+#open-desktop:hover:not(:disabled),
 #capture-save:hover:not(:disabled),
 #capture-session-save:hover:not(:disabled),
 #use-website-session:hover:not(:disabled) {

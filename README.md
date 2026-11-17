@@ -8,7 +8,7 @@ NimGet is a lightweight, open-source download manager built in Go for macOS and 
 - Queue with priorities, per-host connection caps, speed limits, and a schedule.
 - HLS (`.m3u8`, AES-128) to one `.ts` file, optional MP4 conversion with ffmpeg.
 - Desktop app: tray icon, notifications, drag and drop, cURL import, clipboard monitor, batch URLs, sleep or shut down when done; English and Simplified Chinese, light and dark themes.
-- Chrome and Edge extension with [manual handoff, website sessions, and opt-in automatic capture](docs/browser-handoff.md).
+- Chrome and Edge extension with [automatic download capture, manual handoff, and website sessions](docs/browser-handoff.md).
 
 ## Install on Windows
 

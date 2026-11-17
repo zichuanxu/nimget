@@ -135,10 +135,10 @@
     "message": "Automatic capture"
   },
   "captureEnabled": {
-    "message": "Send eligible downloads to NimGet"
+    "message": "Send browser downloads to NimGet"
   },
   "captureHelp": {
-    "message": "Turning this on lets NimGet observe navigation and manage downloads so it can verify and hand off direct downloads."
+    "message": "NimGet takes over each download with the website’s cookies. If NimGet isn’t running, the browser downloads the file as usual."
   },
   "captureSites": {
     "message": "Excluded websites"
@@ -167,32 +167,14 @@
   "captureSettingsFailed": {
     "message": "The browser couldn’t save the capture settings."
   },
-  "capturePermissionDenied": {
-    "message": "Automatic capture is off. Allow the browser permissions to turn it on."
-  },
-  "capturePermissionNeeded": {
-    "message": "Automatic capture is paused. Save and allow browser access to resume it."
-  },
-  "captureUnverifiedAttachment": {
-    "message": "The browser kept this download because NimGet couldn’t verify the file. You can still send its link from the browser menu."
-  },
   "captureUnsupported": {
-    "message": "The browser kept this download because NimGet couldn’t verify a direct HTTP or HTTPS GET."
+    "message": "NimGet can’t download this link, so the browser kept it."
   },
   "capturePairingRequired": {
     "message": "The browser kept this download. Pair it with NimGet to use automatic capture."
   },
   "captureRejected": {
-    "message": "NimGet declined the handoff. The browser kept the download."
-  },
-  "captureStoreFailure": {
-    "message": "NimGet couldn’t confirm it saved the download. The browser kept it."
-  },
-  "captureUnconfirmed": {
-    "message": "NimGet hasn’t confirmed the handoff. The browser kept the download. Check NimGet’s queue before retrying."
-  },
-  "captureReconciled": {
-    "message": "NimGet accepted the handoff. The browser may also have downloaded the file."
+    "message": "NimGet declined the download, so the browser kept it."
   },
   "captureCancelFailed": {
     "message": "NimGet accepted the task, but the browser download could not be canceled. Both may download the file."
@@ -203,46 +185,13 @@
   "captureLocalFailure": {
     "message": "The browser couldn’t update the handoff. Check the browser downloads list and NimGet’s queue."
   },
-  "capturePairingChanged": {
-    "message": "This capture belongs to an earlier pairing. Check NimGet’s queue before retrying."
-  },
-  "captureDismissed": {
-    "message": "Capture notice dismissed."
-  },
-  "captureRetry": {
-    "message": "Retry in NimGet"
-  },
-  "capturePendingLimit": {
-    "message": "The browser kept this download. Resolve or dismiss earlier capture notices to capture more."
-  },
-  "captureSessionOrigins": {
-    "message": "Websites allowed to share sessions"
-  },
-  "captureSessionOriginsHelp": {
-    "message": "For automatic capture, enter exact origins such as https://example.com or https://example.com:8443. NimGet can use cookies for same-origin downloads from these sites."
-  },
-  "captureSessionSave": {
-    "message": "Save website-session access"
-  },
-  "captureSessionInvalidOrigins": {
-    "message": "Enter complete HTTP or HTTPS origins without a path, query, or fragment."
-  },
-  "captureSessionPermissionDenied": {
-    "message": "The browser declined website-session access. Your saved list is unchanged."
-  },
-  "captureSessionUnavailable": {
-    "message": "The browser kept this download because its website session couldn’t be used. To try in NimGet, send the link with its website session from the browser menu."
-  },
-  "captureSessionExpired": {
-    "message": "The saved website session has expired, and NimGet has no receipt for this handoff. The browser kept the download."
-  },
   "captureAcceptedMemoryOnly": {
     "message": "NimGet accepted the task and the browser download was canceled. NimGet may need renewed website access after it restarts."
   },
-  "captureReconciledMemoryOnly": {
-    "message": "NimGet accepted the task. The browser may also have downloaded it, and NimGet may need renewed website access after it restarts."
+  "captureDesktopUnavailable": {
+    "message": "NimGet isn’t running, so the browser kept this download. Open NimGet to take over downloads."
   },
-  "captureCancelFailedMemoryOnly": {
-    "message": "NimGet accepted the task, but both apps may download the file. NimGet may need renewed website access after it restarts."
+  "openDesktop": {
+    "message": "Open NimGet"
   }
 }

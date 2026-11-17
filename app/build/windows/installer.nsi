@@ -9,6 +9,7 @@ Unicode true
 !define INSTALL_KEY "Software\nimget"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\nimget"
 !define RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
+!define PROTOCOL_KEY "Software\Classes\nimget"
 !define WEBVIEW2_KEY "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 !define WEBVIEW2_URL "https://developer.microsoft.com/microsoft-edge/webview2/#download"
 
@@ -142,6 +143,12 @@ Section "NimGet"
   WriteRegStr HKCU "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
+  ; nimget:// lets the browser extension start NimGet. The app is single
+  ; instance, so a second launch only shows the running window.
+  WriteRegStr HKCU "${PROTOCOL_KEY}" "" "URL:NimGet"
+  WriteRegStr HKCU "${PROTOCOL_KEY}" "URL Protocol" ""
+  WriteRegStr HKCU "${PROTOCOL_KEY}\DefaultIcon" "" "$INSTDIR\nimget.exe,0"
+  WriteRegStr HKCU "${PROTOCOL_KEY}\shell\open\command" "" '"$INSTDIR\nimget.exe" "%1"'
 SectionEnd
 
 Function un.onInit
@@ -173,6 +180,10 @@ Section "Uninstall"
   DeleteRegKey HKCU "${UNINST_KEY}"
   DeleteRegValue HKCU "${INSTALL_KEY}" "InstallDir"
   DeleteRegKey /ifempty HKCU "${INSTALL_KEY}"
+  ReadRegStr $0 HKCU "${PROTOCOL_KEY}\shell\open\command" ""
+  ${If} $0 == '"$INSTDIR\nimget.exe" "%1"'
+    DeleteRegKey HKCU "${PROTOCOL_KEY}"
+  ${EndIf}
   ReadRegStr $0 HKCU "${RUN_KEY}" "nimget"
   ${If} $0 == '"$INSTDIR\nimget.exe"'
   ${OrIf} $0 == "$INSTDIR\nimget.exe"

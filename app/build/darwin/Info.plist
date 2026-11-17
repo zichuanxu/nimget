@@ -23,6 +23,17 @@
             <string>true</string>
         <key>NSAppleEventsUsageDescription</key>
             <string>NimGet asks System Events to shut down the computer when you choose "When done: Shut down".</string>
+        <key>CFBundleURLTypes</key>
+            <array>
+                <dict>
+                    <key>CFBundleURLName</key>
+                    <string>io.github.amemiya02.nimget</string>
+                    <key>CFBundleURLSchemes</key>
+                    <array>
+                        <string>nimget</string>
+                    </array>
+                </dict>
+            </array>
         <key>NSHumanReadableCopyright</key>
             <string>Copyright 2026 amemiya02. Apache-2.0.</string>
     </dict>

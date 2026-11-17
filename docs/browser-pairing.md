@@ -10,13 +10,13 @@ Repeat the steps for each browser profile you want to connect. Existing connecti
 
 The browser shows **Disconnected** before pairing or while it cannot reach NimGet, **Awaiting approval** during a pending request, **Connected** after approval, and **Pairing denied** or **Access revoked** after the corresponding desktop action. A **Connected** desktop record means the profile remains authorized. The extension verifies desktop reachability when its popup is open. Closing the desktop window to the tray keeps the service running. Quitting the desktop stops it. Pairing does not require an account.
 
-The browser permission to contact `http://127.0.0.1:51000/*` lets the extension reach the local service. Pairing uses extension storage for its credential. Manual handoff works with this local connection. Chrome or Edge asks for additional permissions when you enable automatic capture or grant access to a website session. See [browser handoff](browser-handoff.md) for both options.
+The extension asks for access to downloads, cookies, and all HTTP and HTTPS sites when you install it. It uses them to take over browser downloads with their website session and to reach the local service at `http://127.0.0.1:51000`. Pairing uses extension storage for its credential. See [browser handoff](browser-handoff.md) for both options.
 
 ## Update the extension
 
 1. Download and verify the archive for the same version as the upgraded desktop app.
 2. Quit each browser using the extension directory. Extract the new archive to a temporary directory and replace the contents of the existing NimGet extension directory with the new files.
-3. Reopen the browser and select **Reload** on the NimGet extension card. Repeat in each browser profile using the directory. Open the NimGet popup and verify that it shows **Connected**. Review automatic capture permissions if the popup reports that capture is paused.
+3. Reopen the browser and select **Reload** on the NimGet extension card. Repeat in each browser profile using the directory. Open the NimGet popup and verify that it shows **Connected**.
 
 Updating the files in place keeps the installed extension and its local browser storage. If you remove the extension or clear its storage, revoke the old pairing in the desktop app and follow the pairing steps again.
 

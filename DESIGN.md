@@ -371,7 +371,7 @@ Each browser profile uses its own randomly generated bearer credential. Desktop 
 
 ## 6. Browser extension
 
-Load the unpacked extension in Chrome or Edge and request desktop approval using the [pairing instructions](docs/browser-pairing.md). The popup reports pairing status. A context-menu command hands off a link, with optional per-download access to its website session. Automatic capture is off by default. When enabled, it honors site and file-type exclusions and cancels an eligible browser download only after receiving a durable task receipt. The [browser handoff guide](docs/browser-handoff.md) describes permissions, data retention, and fallback behavior.
+Load the unpacked extension in Chrome or Edge and request desktop approval using the [pairing instructions](docs/browser-pairing.md). The popup reports pairing status. A context-menu command hands off a link, with optional per-download access to its website session. Automatic capture is on by default. It sends each browser download to NimGet with the website's cookies, honors site and file-type exclusions, starts NimGet through its `nimget://` link when needed, and cancels the browser download only after receiving a durable task receipt. The [browser handoff guide](docs/browser-handoff.md) describes permissions, data retention, and fallback behavior.
 
 Authenticated downloads can be added by:
 

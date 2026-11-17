@@ -53,10 +53,15 @@ export function removeWebsiteSessionDraft(handoffId) {
 
 export async function readWebsiteSession({ url, referer, tabId }) {
   if (!await hasWebsiteSessionPermission(url)) return null;
-  const stores = await chrome.cookies.getAllCookieStores();
-  const store = stores.find(({ tabIds }) => tabIds.includes(tabId));
-  if (!store) return null;
-  const candidates = await chrome.cookies.getAll({ url, storeId: store.id });
+  // A browser download has no tab. Without one, read the regular profile's
+  // store; automatic capture never takes incognito downloads.
+  let storeId;
+  if (tabId !== undefined) {
+    const stores = await chrome.cookies.getAllCookieStores();
+    storeId = stores.find(({ tabIds }) => tabIds.includes(tabId))?.id;
+    if (!storeId) return null;
+  }
+  const candidates = await chrome.cookies.getAll(storeId ? { url, storeId } : { url });
   const now = Math.floor(Date.now() / 1000);
   const secure = new URL(url).protocol === "https:";
   const cookies = [];

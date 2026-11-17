@@ -21,6 +21,7 @@
       <output id="code" aria-labelledby="code-label"></output>
     </div>
     <button type="button" id="pair" hidden></button>
+    <button type="button" id="open-desktop" hidden></button>
     <p id="handoff-result" class="handoff-result" role="status"></p>
     <ul id="handoff-retries" hidden></ul>
     <details id="capture-settings-panel">
@@ -40,16 +41,8 @@
         <button id="capture-save" type="submit" disabled></button>
         <p id="capture-settings-result" class="handoff-result" role="status"></p>
       </form>
-      <form id="capture-session-settings" aria-labelledby="capture-session-origins-label">
-        <label id="capture-session-origins-label" for="capture-session-origins"></label>
-        <p id="capture-session-origins-help" class="capture-help"></p>
-        <textarea id="capture-session-origins" name="origins" rows="2" maxlength="2048" spellcheck="false" autocapitalize="none" aria-describedby="capture-session-origins-help"></textarea>
-        <button id="capture-session-save" type="submit" disabled></button>
-        <p id="capture-session-result" class="handoff-result" role="status"></p>
-      </form>
     </details>
     <p id="capture-result" class="handoff-result" role="status"></p>
-    <ul id="capture-handoffs" hidden></ul>
   </main>
 </body>
 </html>

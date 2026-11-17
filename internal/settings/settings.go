@@ -187,7 +187,7 @@ func restoreSitePasswords(sites, stored []Site) error {
 func Default() Settings {
 	return Settings{
 		MaxConcurrent: 3, Connections: 8, HostConnections: 16,
-		Proxy:   netproxy.Config{Mode: netproxy.ModeSystem},
+		Proxy:      netproxy.Config{Mode: netproxy.ModeSystem},
 		Desktop:    Desktop{ClipboardMonitor: true, Notifications: true, CheckUpdates: true},
 		Extensions: Extensions{AutoConnect: true},
 	}

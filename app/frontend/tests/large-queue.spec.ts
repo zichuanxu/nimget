@@ -136,7 +136,7 @@ test("preserves keyboard focus when a dark Chinese queue loses its last page", a
   });
   await page.goto("/");
   const pages = page.getByRole("navigation", { name: "下载列表分页" });
-  await expect(pages).toHaveCSS("color", "rgb(163, 163, 179)");
+  await expect(pages).toHaveCSS("color", "rgb(169, 172, 178)");
   const next = pages.getByRole("button", { name: "下一页" });
   await next.press("Enter");
   await expect(pages).toContainText("第 51–51 项，共 51 项");

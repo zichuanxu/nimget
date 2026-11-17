@@ -1,92 +1,174 @@
+/* NimGet extension: the desktop app's Daylight palette in the popup and the
+   website-session page. Native controls only, themed through tokens. */
 :root {
   color-scheme: light dark;
-  font: 14px/1.45 system-ui, sans-serif;
-  color: CanvasText;
-  background: Canvas;
+  --bg: light-dark(#fcfcfb, #161719);
+  --surface: light-dark(#ffffff, #1c1d20);
+  --text: light-dark(#17181a, #ecedee);
+  --text-2: light-dark(#53565c, #a9acb2);
+  --border: light-dark(#e5e5e2, #2a2c30);
+  --border-strong: light-dark(#d3d3cf, #3a3c41);
+  --hover: light-dark(rgb(23 24 26 / 0.045), rgb(255 255 255 / 0.05));
+  --accent: light-dark(#0f7b6c, #4cbfaa);
+  --accent-hover: light-dark(#0c6a5d, #67cdbb);
+  --accent-text: light-dark(#0b6a5d, #6fd3c1);
+  --accent-soft: light-dark(#e2f1ed, rgb(76 191 170 / 0.14));
+  --accent-ring: light-dark(rgb(15 123 108 / 0.32), rgb(76 191 170 / 0.4));
+  --on-accent: light-dark(#ffffff, #052520);
+  font: 13.5px/1.45 "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  accent-color: var(--accent);
 }
 
 body {
-  inline-size: 280px;
+  inline-size: 300px;
   margin: 0;
+  -webkit-font-smoothing: antialiased;
 }
 
+::selection { background: var(--accent-ring); }
+
 main {
-  padding: 18px;
+  padding: 16px;
 }
 
 h1 {
-  margin: 0 0 12px;
-  font-size: 1.3rem;
+  margin: 0 0 14px;
+  font-size: 15.5px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 
 #status {
   margin: 0;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 #details,
 #request-id,
 #code-label {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
+  color: var(--text-2);
 }
 
 #confirmation {
   margin-block-start: 14px;
-  padding: 8px 12px 12px;
-  border: 1px solid color-mix(in srgb, CanvasText 28%, Canvas);
-  border-radius: 6px;
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
 }
 
 #code {
   display: block;
   margin-block-start: 4px;
-  font: 650 1.4rem ui-monospace, monospace;
+  color: var(--accent-text);
+  font: 650 1.5rem/1.2 ui-monospace, "Cascadia Mono", Menlo, monospace;
   letter-spacing: 0.14em;
 }
 
 button {
   margin-block-start: 14px;
-  padding: 7px 12px;
+  min-block-size: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
 }
 
-button:focus-visible {
-  outline: 2px solid Highlight;
+button:hover:not(:disabled) { background: var(--hover); }
+button:disabled { opacity: 0.45; cursor: default; }
+
+#pair,
+#capture-save,
+#capture-session-save,
+#use-website-session {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+#pair:hover:not(:disabled),
+#capture-save:hover:not(:disabled),
+#capture-session-save:hover:not(:disabled),
+#use-website-session:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+button:focus-visible,
+summary:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.handoff-result {
+  margin: 10px 0 0;
+  color: var(--text-2);
 }
 
 .handoff-result:empty {
   margin: 0;
 }
 
-#handoff-retries {
-  padding-inline-start: 20px;
+#handoff-retries,
+#capture-handoffs {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-#handoff-retries li + li {
-  margin-block-start: 10px;
+#handoff-retries li,
+#capture-handoffs li {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
 }
 
-#handoff-retries button {
-  margin-block-start: 4px;
+#handoff-retries li + li,
+#capture-handoffs li + li {
+  margin-block-start: 8px;
+}
+
+#handoff-retries button,
+#capture-handoffs button {
+  margin-block-start: 6px;
   margin-inline-end: 6px;
+  min-block-size: 28px;
+  font-size: 12.5px;
+}
+
+#capture-handoffs p {
+  margin: 3px 0;
 }
 
 #capture-settings-panel {
-  border-block-start: 1px solid color-mix(in srgb, CanvasText 28%, Canvas);
+  border-block-start: 1px solid var(--border);
   margin-block-start: 16px;
   padding-block-start: 12px;
 }
 
 #capture-settings-title {
-  font-size: 1rem;
-  font-weight: 650;
+  font-weight: 600;
   cursor: pointer;
 }
 
 #capture-settings-panel form {
   margin-block-start: 12px;
+}
+
+#capture-settings-panel form + form {
+  margin-block-start: 16px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--border);
 }
 
 #capture-settings-panel label {
@@ -96,16 +178,20 @@ button:focus-visible {
 .capture-check {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
 }
 
 .capture-check input {
+  inline-size: 16px;
+  block-size: 16px;
   margin: 0;
 }
 
 .capture-help {
-  margin: 3px 0 6px;
+  margin: 2px 0 6px;
+  color: var(--text-2);
+  font-size: 12.5px;
 }
 
 #capture-help {
@@ -117,30 +203,24 @@ button:focus-visible {
   display: block;
   inline-size: 100%;
   margin-block-end: 10px;
-  padding: 5px 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  caret-color: var(--accent);
   resize: vertical;
-  font: inherit;
+  font: 12.5px/1.5 ui-monospace, "Cascadia Mono", Menlo, monospace;
+}
+
+#capture-settings-panel textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 #capture-settings-panel button {
   margin-block-start: 0;
-}
-
-#capture-handoffs {
-  padding-inline-start: 20px;
-}
-
-#capture-handoffs li + li {
-  margin-block-start: 10px;
-}
-
-#capture-handoffs p {
-  margin: 3px 0;
-}
-
-#capture-handoffs button {
-  margin-block-start: 4px;
-  margin-inline-end: 6px;
 }
 
 .website-session-page {

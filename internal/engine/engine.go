@@ -404,6 +404,7 @@ type probeInfo struct {
 	etag         string // strong ETag only
 	lastModified string
 	sourceScope  string
+	sourcePath   string
 	// For Inspect.
 	disposition, contentType, finalURL string
 }
@@ -465,6 +466,7 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 		etag: strongETag(resp.Header.Get("ETag")), lastModified: resp.Header.Get("Last-Modified"),
 		disposition: resp.Header.Get("Content-Disposition"), contentType: resp.Header.Get("Content-Type"),
 		finalURL: resp.Request.URL.String(), sourceScope: sourceScope(resp.Request.URL),
+		sourcePath: sourcePath(resp.Request.URL),
 	}
 	switch resp.StatusCode {
 	case http.StatusPartialContent:
@@ -497,6 +499,12 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 func sourceScope(u *url.URL) string {
 	sum := sha256.Sum256([]byte(httporigin.Key(u) + u.RequestURI()))
 	return hex.EncodeToString(sum[:])
+}
+
+// sourcePath is the final resource without its query. Signed download URLs
+// keep the path and change the query each time they are issued.
+func sourcePath(u *url.URL) string {
+	return httporigin.Key(u) + u.EscapedPath()
 }
 
 // newRequest builds a GET carrying the caller's headers, minus the ones the

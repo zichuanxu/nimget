@@ -497,7 +497,12 @@ func (r *rangedRun) validate(req *http.Request, resp *http.Response, start, end 
 // changed reports a response whose validators differ from the probe's.
 func (r *rangedRun) changed(resp *http.Response) bool {
 	if r.info.sourceScope != sourceScope(resp.Request.URL) {
-		return true
+		// Some hosts sign a new redirect URL for every request; GitHub does
+		// so for release assets requested with cookies. A strong ETag on the
+		// same path still identifies the same file.
+		if r.info.etag == "" || r.info.sourcePath != sourcePath(resp.Request.URL) {
+			return true
+		}
 	}
 	if r.info.etag != "" {
 		return strongETag(resp.Header.Get("ETag")) != r.info.etag

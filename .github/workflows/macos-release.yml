@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 30
     env:
       NIMGET_RELEASE_VERSION: ${{ inputs.version }}
-      MACOSX_DEPLOYMENT_TARGET: '12.0'
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
     defaults:
       run:
         shell: bash
@@ -75,7 +75,7 @@ jobs:
               -ldflags "-s -w -X main.version=$NIMGET_RELEASE_VERSION" -o "build/bin/nimget-$arch" .
           done
           lipo -create -output build/bin/nimget build/bin/nimget-arm64 build/bin/nimget-amd64
-          lipo -verify_arch build/bin/nimget arm64 x86_64
+          lipo build/bin/nimget -verify_arch arm64 x86_64
 
           bundle="build/bin/NimGet.app"
           mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
@@ -84,6 +84,8 @@ jobs:
           cp build/darwin/Info.plist "$bundle/Contents/Info.plist"
           plutil -replace CFBundleVersion -string "$numeric" "$bundle/Contents/Info.plist"
           plutil -replace CFBundleShortVersionString -string "$numeric" "$bundle/Contents/Info.plist"
+          # The Go 1.27 runtime targets macOS 13.
+          plutil -replace LSMinimumSystemVersion -string 13.0 "$bundle/Contents/Info.plist"
           plutil -lint "$bundle/Contents/Info.plist"
 
           # No paid Developer ID: sign ad hoc so Apple silicon runs the binary.

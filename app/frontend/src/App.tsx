@@ -22,6 +22,7 @@ import {
   Info,
   KeyRound,
   Layers,
+  ListChecks,
   Package,
   Pause,
   Play,
@@ -37,7 +38,8 @@ import {
 } from "lucide-react";
 import { Desktop, Item, Recovery, State, Status, message } from "./api";
 import AddDialog, { type AddPrefill } from "./AddDialog";
-import BulkTaskActions from "./BulkTaskActions";
+import BulkTaskActions, { type BulkActionReport } from "./BulkTaskActions";
+import BulkRemovalResult from "./BulkRemovalResult";
 import SettingsDialog from "./SettingsDialog";
 import TaskDetailsDialog from "./TaskDetailsDialog";
 import { CountdownDialog, DeleteDialog, ReauthDialog } from "./dialogs";
@@ -115,6 +117,8 @@ function Shell() {
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedTaskIDs, setSelectedTaskIDs] = useState<Set<string>>(() => new Set());
   const [bulkConfirming, setBulkConfirming] = useState<Item[] | null>(null);
+  const [removalReport, setRemovalReport] = useState<BulkActionReport | null>(null);
+  const [removalDetailsOpen, setRemovalDetailsOpen] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
@@ -145,6 +149,7 @@ function Shell() {
   const listElement = useRef<HTMLDivElement>(null);
   const rowToFocus = useRef<string | null>(null);
   const newDownload = useRef<HTMLButtonElement>(null);
+  const moreMenu = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const focusSearch = useCallback(() => search.current?.focus({ preventScroll: true }), []);
   const { ref: pageControls } = useFocusFallbackOnRemove<HTMLElement>(focusSearch);
@@ -283,7 +288,7 @@ function Shell() {
     if (file) return t(file.folderMissing ? "row.folderMissing" : "row.fileMissing");
   }, [missingFile, t]);
   const contextItem = context ? pageRows.find((item) => item.id === context.id) : undefined;
-  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming || backupOpen || legacyImportID);
+  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming || removalDetailsOpen || backupOpen || legacyImportID);
   useEffect(() => {
     if (context && !contextItem) setContext(null);
   }, [context, contextItem]);
@@ -486,7 +491,7 @@ function Shell() {
             </button>
             <Menu
               trigger={(open) => (
-                <button className={`icon ${open ? "pressed" : ""}`} title={t("header.more")} aria-label={t("header.more")}>
+                <button ref={moreMenu} className={`icon ${open ? "pressed" : ""}`} title={t("header.more")} aria-label={t("header.more")}>
                   <Ellipsis size={16} />
                 </button>
               )}
@@ -494,6 +499,14 @@ function Shell() {
                 { icon: FolderInput, label: t("header.import"), onSelect: importQueue },
                 { icon: FolderOutput, label: t("header.export"), onSelect: () => void exportQueue(Desktop.ExportQueue) },
                 { icon: KeyRound, label: t("header.backup"), onSelect: () => setBackupOpen(true) },
+                ...(removalReport ? [{
+                  icon: ListChecks,
+                  label: t("bulk.latestRemoval"),
+                  onSelect: () => {
+                    moreMenu.current?.focus();
+                    setRemovalDetailsOpen(true);
+                  },
+                }] : []),
               ]}
             />
           </div>
@@ -539,6 +552,7 @@ function Shell() {
           onSelectAll={(checked) => setSelectedTaskIDs(checked ? new Set(rows.map((item) => item.id)) : new Set())}
           confirming={bulkConfirming}
           onConfirm={setBulkConfirming}
+          onRemovalResult={setRemovalReport}
           refresh={reload}
         />
 
@@ -643,6 +657,14 @@ function Shell() {
             <span className="grow toast-text">{toast.text}</span>
           </div>
         )}
+        <BulkRemovalResult
+          report={removalReport}
+          detailsOpen={removalDetailsOpen}
+          modalOpen={modalOpen}
+          onOpenDetails={() => setRemovalDetailsOpen(true)}
+          onCloseDetails={() => setRemovalDetailsOpen(false)}
+          focusFallback={focusSearch}
+        />
       </div>
 
       {countdown && (

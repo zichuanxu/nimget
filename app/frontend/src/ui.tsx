@@ -7,6 +7,7 @@ export function Modal({
   icon: Icon,
   tone = "accent",
   title,
+  description,
   size = "",
   onClose,
   focusFallback,
@@ -14,8 +15,9 @@ export function Modal({
   footer,
 }: {
   icon?: LucideIcon;
-  tone?: "accent" | "danger" | "warn";
+  tone?: "accent" | "danger" | "warn" | "success";
   title: ReactNode;
+  description?: string;
   size?: "" | "small" | "wide";
   onClose: () => void;
   focusFallback?: () => void;
@@ -46,6 +48,7 @@ export function Modal({
       ref={ref}
       className={`modal ${size}`}
       aria-labelledby={titleId}
+      aria-describedby={description ? `${titleId}-description` : undefined}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -65,7 +68,12 @@ export function Modal({
             <Icon size={18} strokeWidth={2} />
           </span>
         )}
-        <h2 id={titleId}>{title}</h2>
+        {description ? (
+          <div className="modal-title">
+            <h2 id={titleId}>{title}</h2>
+            <p id={`${titleId}-description`}>{description}</p>
+          </div>
+        ) : <h2 id={titleId}>{title}</h2>}
         <button type="button" className="icon ghost" onClick={onClose} aria-label={t("common.close")} title={t("common.close")}>
           <X size={16} />
         </button>

@@ -36,7 +36,10 @@ type Outcome = {
   label: string;
   status: "succeeded" | "failed" | "skipped" | "unknown";
   error?: string;
+  fileCleanupError?: string;
 };
+
+export type BulkActionReport = { action: TaskAction; outcomes: Outcome[]; error?: string };
 
 export default function BulkTaskActions({
   visibleCount,
@@ -45,6 +48,7 @@ export default function BulkTaskActions({
   disabled,
   onSelectAll,
   onConfirm,
+  onRemovalResult,
   confirming,
   refresh,
 }: {
@@ -54,6 +58,7 @@ export default function BulkTaskActions({
   disabled: boolean;
   onSelectAll: (checked: boolean) => void;
   onConfirm: (items: Item[] | null) => void;
+  onRemovalResult: (report: BulkActionReport) => void;
   confirming: Item[] | null;
   refresh: () => Promise<void>;
 }) {
@@ -61,7 +66,7 @@ export default function BulkTaskActions({
   const heading = useId();
   const selectAll = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [report, setReport] = useState<{ action: TaskAction; outcomes: Outcome[]; error?: string } | null>(null);
+  const [report, setReport] = useState<BulkActionReport | null>(null);
   const picked = selected.length;
   const allPicked = picked > 0 && picked === visibleCount;
 
@@ -104,13 +109,16 @@ export default function BulkTaskActions({
         if (result) {
           outcome.status = result.error ? "failed" : "succeeded";
           outcome.error = result.error;
+          outcome.fileCleanupError = result.fileCleanupError;
         }
       }
     } catch (err) {
       error = message(err);
     } finally {
       await refresh();
-      setReport({ action, outcomes, error });
+      const result = { action, outcomes, error };
+      if (action === TaskActionRemoveRecords || action === TaskActionRemoveFiles) onRemovalResult(result);
+      else setReport(result);
       setBusy(false);
     }
   };
@@ -122,11 +130,7 @@ export default function BulkTaskActions({
     },
     { succeeded: 0, failed: 0, skipped: 0, unknown: 0 },
   );
-  const actionLabel = report && (
-    report.action === TaskActionRemoveRecords ? "bulk.records" :
-    report.action === TaskActionRemoveFiles ? "bulk.files" :
-    actions.find((action) => action.action === report.action)?.label
-  );
+  const actionLabel = report && actions.find((action) => action.action === report.action)?.label;
   const removable = confirming ? new Set(selected.filter((item) => eligible(item, TaskActionRemoveRecords)).map((item) => item.id)) : null;
   const confirmedIDs = confirming?.filter((item) => eligible(item, TaskActionRemoveRecords) && removable?.has(item.id)).map((item) => item.id) ?? [];
 

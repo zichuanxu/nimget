@@ -94,6 +94,7 @@ test("scopes selection to the current filters and drops rows that leave the view
 });
 
 test("requires an explicit record-only or file deletion choice and refreshes partially deleted tasks", async ({ page }) => {
+  await page.clock.install();
   const items = [
     task("record", "completed"),
     task("removed", "completed"),
@@ -107,7 +108,11 @@ test("requires an explicit record-only or file deletion choice and refreshes par
       actions.push([action, ids]);
       return (ids as string[]).map((id) => {
         items.splice(items.findIndex((item) => item.id === id), 1);
-        return id === "locked" ? { id, error: "Download removed, but file could not be deleted" } : { id };
+        return id === "locked" ? {
+          id,
+          error: "Download deleted, but removing its files failed: File is in use",
+          fileCleanupError: "File is in use",
+        } : { id };
       });
     },
   });
@@ -123,15 +128,32 @@ test("requires an explicit record-only or file deletion choice and refreshes par
   await page.getByRole("button", { name: "Remove (1 of 1)" }).click();
   await dialog.getByRole("button", { name: "Remove records only" }).click();
   await expect(page.getByRole("checkbox", { name: "Select record.zip" })).toHaveCount(0);
+  const notice = page.getByRole("region", { name: "Bulk deletion result" });
+  await expect(notice).toContainText("Local files were kept");
   expect(actions).toEqual([["remove-records", ["record"]]]);
 
   await page.getByRole("checkbox", { name: "Select all visible tasks" }).check();
   await page.getByRole("button", { name: "Remove (2 of 3)" }).click();
   await expect(dialog).toContainText("2 of 3 selected tasks");
   await dialog.getByRole("button", { name: "Remove records and delete files" }).click();
-  const outcomes = page.getByRole("region", { name: "Bulk action results" });
-  await expect(outcomes).toContainText("1 succeeded, 1 failed, 1 skipped");
-  await expect(outcomes.getByRole("listitem").filter({ hasText: "locked.zip" })).toContainText("file could not be deleted");
+  await expect(notice).toContainText("1 succeeded · 1 failed · 1 skipped");
+  await expect(notice).not.toContainText("locked.zip");
+  await page.clock.fastForward(10_000);
+  const detailsButton = notice.getByRole("button", { name: "Details" });
+  await detailsButton.click();
+  const outcomes = page.getByRole("dialog", { name: "Bulk deletion results" });
+  const locked = outcomes.getByRole("listitem").filter({ hasText: "locked.zip" });
+  await expect(locked).toContainText("File cleanup failed");
+  await expect(locked).toContainText("Download record removed. File is in use");
+  await expect(outcomes.getByRole("listitem").filter({ hasText: "busy.zip" })).toContainText("Skipped");
+  await expect(outcomes.getByText("removed.zip", { exact: true })).toBeHidden();
+  await outcomes.getByText("Show 1 successful item").click();
+  await expect(outcomes.getByText("removed.zip", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(detailsButton).toBeFocused();
+  await notice.getByRole("button", { name: "Dismiss bulk action results" }).press("Enter");
+  await expect(notice).toBeHidden();
+  await expect(page.getByRole("textbox")).toBeFocused();
   await expect(page.getByRole("checkbox", { name: "Select locked.zip" })).toHaveCount(0);
   await expect(page.getByRole("checkbox", { name: "Select busy.zip" })).toBeChecked();
   expect(actions).toHaveLength(2);
@@ -170,6 +192,61 @@ test("keeps removal scoped to tasks still visible and eligible after confirmatio
 
   await expect(dialog).toContainText("1 of 3 selected tasks");
   await dialog.getByRole("button", { name: "Remove records and delete files" }).click();
-  await expect(page.getByRole("region", { name: "Bulk action results" })).toContainText("1 succeeded, 0 failed, 2 skipped");
+  await expect(page.getByRole("region", { name: "Bulk deletion result" })).toContainText("1 succeeded · 2 skipped");
   expect(actions).toEqual([["remove-files", [waiting.id]]]);
+});
+
+test("shows successful deletion as a timed notification with details still available from the menu", async ({ page }) => {
+  await page.clock.install();
+  let items = [task("finished", "completed")];
+  await mockDesktop(page, {
+    List: () => items,
+    ApplyTaskAction: () => {
+      items = [];
+      return [{ id: "finished" }];
+    },
+  });
+  await page.goto("/");
+  await page.getByRole("checkbox", { name: "Select all visible tasks" }).check();
+  await page.getByRole("button", { name: "Remove (1 of 1)" }).click();
+  await page.getByRole("button", { name: "Remove records and delete files" }).click();
+
+  const notice = page.getByRole("region", { name: "Bulk deletion result" });
+  await expect(notice).toContainText("Removed 1 download record");
+  await expect(notice).toContainText("File cleanup complete");
+  await expect(notice).not.toContainText("finished.zip");
+  await notice.hover();
+  await page.clock.fastForward(10_000);
+  await expect(notice).toBeVisible();
+  await notice.getByRole("button", { name: "Details" }).focus();
+  await page.mouse.move(0, 0);
+  await page.clock.fastForward(10_000);
+  await expect(notice).toBeVisible();
+  await page.getByRole("textbox").focus();
+  await page.clock.fastForward(8_001);
+  await expect(notice).toBeHidden();
+
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Latest deletion result" }).click();
+  await expect(page.getByRole("dialog", { name: "Bulk deletion results" })).toContainText("finished.zip");
+});
+
+test("keeps unconfirmed deletion outcomes available after a request error", async ({ page }) => {
+  await page.clock.install();
+  await mockDesktop(page, {
+    List: () => [task("finished", "completed")],
+    ApplyTaskAction: () => { throw new Error("Response unavailable"); },
+  });
+  await page.goto("/");
+  await page.getByRole("checkbox", { name: "Select all visible tasks" }).check();
+  await page.getByRole("button", { name: "Remove (1 of 1)" }).click();
+  await page.getByRole("button", { name: "Remove records and delete files" }).click();
+
+  const notice = page.getByRole("region", { name: "Bulk deletion result" });
+  await expect(notice).toContainText("1 unconfirmed");
+  await page.clock.fastForward(10_000);
+  await notice.getByRole("button", { name: "Details" }).click();
+  const outcomes = page.getByRole("dialog", { name: "Bulk deletion results" });
+  await expect(outcomes).toContainText("Response unavailable");
+  await expect(outcomes.getByRole("listitem").filter({ hasText: "finished.zip" })).toContainText("Unconfirmed");
 });

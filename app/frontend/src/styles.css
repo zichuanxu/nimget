@@ -500,6 +500,23 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .toast.error .card-icon { color: var(--red); background: var(--red-soft); }
 .toast.ok .card-icon { color: var(--green); background: var(--green-soft); }
 .toast-text { white-space: pre-wrap; user-select: text; max-height: 180px; overflow: auto; }
+.bulk-removal-announcement {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.bulk-removal-toast {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px;
+  width: min(362px, calc(100vw - 36px)); min-height: 66px; box-shadow: var(--shadow-md);
+}
+.bulk-removal-toast.warn { width: min(400px, calc(100vw - 36px)); }
+.bulk-removal-toast[data-obscured] { opacity: 0; }
+.bulk-removal-toast .card-icon { width: 32px; height: 32px; }
+.bulk-removal-toast.success .card-icon, .modal-icon.success { color: var(--green); background: var(--green-soft); }
+.bulk-removal-toast.warn .card-icon { color: var(--amber); background: var(--amber-soft); }
+.bulk-removal-copy { display: grid; gap: 2px; overflow-wrap: anywhere; }
+.bulk-removal-copy strong { font-weight: 650; }
+.bulk-removal-copy span { font-size: 12.5px; color: var(--text-2); }
+.bulk-removal-actions { display: flex; align-items: center; gap: 2px; }
+.bulk-removal-details { color: var(--accent-text); font-weight: 600; }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 .dropzone {
@@ -520,7 +537,7 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 .modal {
   width: 540px; max-width: calc(100% - 48px); max-height: calc(100vh - 48px); padding: 0; color: inherit;
-  flex-direction: column; overscroll-behavior: contain;
+  flex-direction: column; overscroll-behavior: contain; pointer-events: auto;
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: 14px; box-shadow: var(--shadow-lg);
   overflow: hidden;
   /* Fade in from the top layer; transform only when motion is welcome. */
@@ -537,6 +554,8 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .modal.wide { width: 780px; height: min(560px, calc(100vh - 48px)); }
 .modal-head { display: flex; align-items: center; gap: 12px; padding: 16px 14px 12px 18px; flex: none; }
 .modal-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+.modal-title { flex: 1; min-width: 0; }
+.modal-title p { color: var(--text-2); font-size: 12.5px; margin: 2px 0 0; }
 .modal-icon { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex: none; }
 .modal-icon.accent { color: var(--accent-text); background: var(--accent-soft); }
 .modal-icon.danger { color: var(--red); background: var(--red-soft); }
@@ -545,6 +564,22 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .modal-body p { margin: 0; }
 .modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); background: var(--bg); flex: none; }
 .modal.wide .modal-body { padding: 0; }
+.bulk-removal-outcomes { list-style: none; margin: 0; padding: 0; }
+.bulk-removal-outcomes li { padding: 10px 0; border-top: 1px solid var(--border); }
+.bulk-removal-outcome { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; }
+.bulk-removal-outcome strong { font-weight: 600; overflow-wrap: anywhere; user-select: text; }
+.bulk-removal-outcome span { font-size: 12.5px; color: var(--text-2); text-align: end; }
+.bulk-removal-outcome span[data-status="failed"], .bulk-removal-outcome span[data-status="unknown"] { color: var(--amber); }
+.modal-body p.bulk-removal-reason { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.bulk-removal-outcomes .bulk-removal-reason { margin-top: 3px; font-size: 12.5px; color: var(--text-2); }
+.bulk-removal-succeeded { border-top: 1px solid var(--border); }
+.bulk-removal-succeeded summary {
+  display: flex; align-items: center; gap: 6px; min-height: 36px;
+  list-style: none; border-radius: var(--r-sm); color: var(--accent-text); font-weight: 600; cursor: default;
+}
+.bulk-removal-succeeded summary::-webkit-details-marker { display: none; }
+.bulk-removal-succeeded summary:hover { text-decoration: underline; }
+.bulk-removal-succeeded[open] summary svg { transform: rotate(90deg); }
 .task-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; }
 .task-facts dt { color: var(--text-2); }
 .task-facts dd { margin: 0; overflow-wrap: anywhere; }

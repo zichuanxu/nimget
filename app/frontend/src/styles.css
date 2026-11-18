@@ -398,6 +398,7 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .name { font-weight: 550; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row.completed .name { font-weight: 500; }
 .row-note { font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-warning { color: var(--amber); }
 .error-text { color: var(--red); }
 .badge { flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: var(--r-sm); line-height: 18px; }
 .badge.high { color: var(--amber); background: var(--amber-soft); }
@@ -443,7 +444,7 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .row:hover .row-actions { background: var(--row-hover); }
 .row.selected .row-actions { background: var(--selected); }
 .row:hover .row-actions, .row.selected .row-actions, .row:focus-within .row-actions { opacity: 1; pointer-events: auto; }
-.row:hover .pct, .row.selected .pct, .row:focus-within .pct { opacity: 0; }
+.row:hover .pct, .row.selected .pct, .row:focus-within .pct { opacity: 0; pointer-events: none; }
 .row-actions button.icon { width: 28px; height: 28px; }
 .row-actions button.icon:hover:not(:disabled) { background: var(--pressed); }
 

@@ -19,6 +19,7 @@ export async function mockDesktop(page: Page, methods: Record<string, Handler> =
     Settings: () => ({ desktop: { language: "en" } }),
     SetLocale: () => null,
     CanConvert: () => false,
+    MissingDownloadFiles: () => ({}),
     List: () => [],
     ...methods,
   };

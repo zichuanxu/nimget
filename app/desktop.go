@@ -344,6 +344,9 @@ func (d *Desktop) Open(id string) error {
 	if item.Status != download.StatusCompleted {
 		return errors.New("the download has not completed")
 	}
+	if err := d.requireDownloadFile(item.Destination); err != nil {
+		return err
+	}
 	return d.app.Browser.OpenFile(item.Destination)
 }
 
@@ -354,23 +357,22 @@ func (d *Desktop) Reveal(id string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(item.Destination); err == nil {
+	if exists, _ := downloadedFileExists(item.Destination); exists {
 		return d.app.Env.OpenFileManager(item.Destination, true)
 	}
-	return d.app.Env.OpenFileManager(filepath.Dir(item.Destination), false)
+	folder := filepath.Dir(item.Destination)
+	if downloadFolderMissing(folder) {
+		return errors.New(d.tr("The download folder no longer exists."))
+	}
+	return d.app.Env.OpenFileManager(folder, false)
 }
 
 func (d *Desktop) item(id string) (download.Item, error) {
-	items, err := d.List()
+	m, err := d.manager()
 	if err != nil {
 		return download.Item{}, err
 	}
-	for _, item := range items {
-		if item.ID == id {
-			return item, nil
-		}
-	}
-	return download.Item{}, download.ErrNotFound
+	return m.Get(context.Background(), id)
 }
 
 func (d *Desktop) show() {

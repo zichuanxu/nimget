@@ -6,8 +6,9 @@ import { useI18n } from "./i18n";
 import { taskFailure } from "./taskFailure";
 import { Modal } from "./ui";
 
-export default function TaskDetailsDialog({ item, onClose, onRecover, focusFallback }: {
+export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover, focusFallback }: {
   item: Item;
+  fileNotice?: string;
   onClose: () => void;
   onRecover: () => void;
   focusFallback: () => void;
@@ -98,7 +99,7 @@ export default function TaskDetailsDialog({ item, onClose, onRecover, focusFallb
     >
       <dl className="task-facts">
         <dt>{t("details.destination")}</dt>
-        <dd>{item.destination}</dd>
+        <dd>{item.destination}{fileNotice && <div className="file-warning">{fileNotice}</div>}</dd>
         <dt>{t("details.status")}</dt>
         <dd>{t(`status.${item.status}` as "status.queued")}</dd>
         <dt>{t("details.progress")}</dt>

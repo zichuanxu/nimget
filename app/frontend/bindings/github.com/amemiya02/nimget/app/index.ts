@@ -8,6 +8,7 @@ export {
 
 export {
     ImportResult,
+    MissingDownloadFile,
     QueueSnapshot,
     State
 } from "./models.js";

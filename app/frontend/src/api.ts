@@ -1,5 +1,5 @@
 // Re-exports of the generated bindings under short names.
-export { Desktop, State } from "../bindings/github.com/amemiya02/nimget/app";
+export { Desktop, State, type MissingDownloadFile } from "../bindings/github.com/amemiya02/nimget/app";
 export { Event, EventType, Failure, Item, Patch, Recovery, Request, Status, TaskAction } from "../bindings/github.com/amemiya02/nimget/internal/download";
 export { Desktop as DesktopPrefs, Schedule, Settings, Site, SpeedRule } from "../bindings/github.com/amemiya02/nimget/internal/settings";
 export { Config as ProxyConfig, Mode as ProxyMode } from "../bindings/github.com/amemiya02/nimget/internal/netproxy";

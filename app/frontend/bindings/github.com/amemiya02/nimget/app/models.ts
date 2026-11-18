@@ -46,6 +46,31 @@ export class ImportResult {
     }
 }
 
+export class MissingDownloadFile {
+    "destination": string;
+    "folderMissing": boolean;
+
+    /** Creates a new MissingDownloadFile instance. */
+    constructor($$source: Partial<MissingDownloadFile> = {}) {
+        if (!("destination" in $$source)) {
+            this["destination"] = "";
+        }
+        if (!("folderMissing" in $$source)) {
+            this["folderMissing"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new MissingDownloadFile instance from a string or object.
+     */
+    static createFrom($$source: any = {}): MissingDownloadFile {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new MissingDownloadFile($$parsedSource as Partial<MissingDownloadFile>);
+    }
+}
+
 /**
  * QueueSnapshot pairs a desktop list with the download event sequence.
  */

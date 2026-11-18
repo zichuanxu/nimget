@@ -124,6 +124,15 @@ export function List(): $CancellablePromise<download$0.Item[]> {
 }
 
 /**
+ * MissingDownloadFiles checks the recorded destinations of completed tasks.
+ */
+export function MissingDownloadFiles(ids: string[]): $CancellablePromise<{ [_ in string]?: $models.MissingDownloadFile }> {
+    return $Call.ByID(4018769643, ids).then(($result: any) => {
+        return $$createType9($result);
+    });
+}
+
+/**
  * Open opens a completed download with its default application.
  */
 export function Open(id: string): $CancellablePromise<void> {
@@ -135,7 +144,7 @@ export function Open(id: string): $CancellablePromise<void> {
  */
 export function ParseCurl(command: string): $CancellablePromise<download$0.Request> {
     return $Call.ByID(3295307761, command).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType10($result);
     });
 }
 
@@ -167,7 +176,7 @@ export function PickDirectory(): $CancellablePromise<string> {
 
 export function QueueSnapshot(): $CancellablePromise<$models.QueueSnapshot> {
     return $Call.ByID(546300731).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType11($result);
     });
 }
 
@@ -215,7 +224,7 @@ export function RevokeExtensionPairing(id: string): $CancellablePromise<void> {
 
 export function SaveSettings(s: settings$0.Settings): $CancellablePromise<settings$0.Settings> {
     return $Call.ByID(884926860, s).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType12($result);
     });
 }
 
@@ -244,13 +253,13 @@ export function SetWhenDone(action: string): $CancellablePromise<void> {
 
 export function Settings(): $CancellablePromise<settings$0.Settings> {
     return $Call.ByID(3894829833).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType12($result);
     });
 }
 
 export function State(): $CancellablePromise<$models.State> {
     return $Call.ByID(3152233241).then(($result: any) => {
-        return $$createType11($result);
+        return $$createType13($result);
     });
 }
 
@@ -274,7 +283,9 @@ const $$createType4 = pairing$0.Record.createFrom;
 const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = $models.ImportResult.createFrom;
 const $$createType7 = $Create.Array($$createType0);
-const $$createType8 = download$0.Request.createFrom;
-const $$createType9 = $models.QueueSnapshot.createFrom;
-const $$createType10 = settings$0.Settings.createFrom;
-const $$createType11 = $models.State.createFrom;
+const $$createType8 = $models.MissingDownloadFile.createFrom;
+const $$createType9 = $Create.Map($Create.Any, $$createType8);
+const $$createType10 = download$0.Request.createFrom;
+const $$createType11 = $models.QueueSnapshot.createFrom;
+const $$createType12 = settings$0.Settings.createFrom;
+const $$createType13 = $models.State.createFrom;

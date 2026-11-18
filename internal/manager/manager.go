@@ -330,6 +330,17 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 	return item, nil
 }
 
+// Get returns a stored item with live progress applied.
+func (m *Manager) Get(ctx context.Context, id string) (download.Item, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	item, err := m.repo.Get(ctx, id)
+	if job := m.active[id]; err == nil && job != nil {
+		item.Completed, item.Total = job.progress()
+	}
+	return item, err
+}
+
 // List returns stored items with live progress applied.
 func (m *Manager) List(ctx context.Context) ([]download.Item, error) {
 	m.mu.Lock()

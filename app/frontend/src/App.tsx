@@ -45,6 +45,7 @@ import Sparkline from "./Sparkline";
 import { baseName, bytes, eta, fileKind, looksLikeCurl, looksLikeURL, speed, type FileKind } from "./format";
 import { I18n, resolveLang, translator, useI18n, type T } from "./i18n";
 import { useQueue } from "./useQueue";
+import { useDownloadFiles } from "./useDownloadFiles";
 import { taskFailure } from "./taskFailure";
 import { Menu, Modal, type MenuEntry } from "./ui";
 
@@ -276,6 +277,11 @@ function Shell() {
   const current = selected && selectedTasks.length === 0 ? pageRows.find((item) => item.id === selected) : undefined;
   const totalSpeed = history[history.length - 1] ?? 0;
   const details = detailsId ? items.get(detailsId) : undefined;
+  const missingFile = useDownloadFiles(pageRows, details);
+  const fileNotice = useCallback((item: Item) => {
+    const file = missingFile(item);
+    if (file) return t(file.folderMissing ? "row.folderMissing" : "row.fileMissing");
+  }, [missingFile, t]);
   const contextItem = context ? pageRows.find((item) => item.id === context.id) : undefined;
   const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming || backupOpen || legacyImportID);
   useEffect(() => {
@@ -298,8 +304,10 @@ function Shell() {
     });
   }, []);
   const openTask = useCallback((item: Item) => {
-    run(() => (item.status === Status.StatusCompleted ? Desktop.Open(item.id) : Desktop.Reveal(item.id)))();
-  }, [run]);
+    const notice = fileNotice(item);
+    if (notice) fail(notice);
+    else run(() => (item.status === Status.StatusCompleted ? Desktop.Open(item.id) : Desktop.Reveal(item.id)))();
+  }, [fail, fileNotice, run]);
   const changePage = (index: number) => {
     if (index < 0 || index > lastPage) return;
     setPageIndex(index);
@@ -309,6 +317,7 @@ function Shell() {
 
   const actions = useCallback((item: Item): Action[] => {
     const list: Action[] = [];
+    const missing = missingFile(item);
     if (item.status === Status.StatusRunning || item.status === Status.StatusQueued) list.push({ icon: Pause, label: t("row.pause"), onSelect: run(() => Desktop.Pause(item.id)) });
     if (item.status === Status.StatusPaused) list.push({ icon: Play, label: t("row.resume"), onSelect: run(() => Desktop.Resume(item.id)) });
     if (item.status === Status.StatusFailed && item.recovery !== Recovery.RecoveryRestartRequired)
@@ -319,13 +328,15 @@ function Shell() {
         label: t(item.recovery === Recovery.RecoveryRestartRequired ? "row.recover" : "row.reauth"),
         onSelect: () => setReauth(item),
       });
-    if (item.status === Status.StatusCompleted) list.push({ icon: SquareArrowOutUpRight, label: t("row.open"), onSelect: run(() => Desktop.Open(item.id)) });
-    if (canConvert && item.status === Status.StatusCompleted && /\.ts$/i.test(item.destination) && converting !== item.id)
-      list.push({ icon: Film, label: t("row.convert"), onSelect: () => convert(item) });
-    list.push({ icon: FolderOpen, label: t("row.reveal"), onSelect: run(() => Desktop.Reveal(item.id)) });
+    if (item.status === Status.StatusCompleted && !missing) {
+      list.push({ icon: SquareArrowOutUpRight, label: t("row.open"), onSelect: run(() => Desktop.Open(item.id)) });
+      if (canConvert && /\.ts$/i.test(item.destination) && converting !== item.id)
+        list.push({ icon: Film, label: t("row.convert"), onSelect: () => convert(item) });
+    }
+    if (!missing?.folderMissing) list.push({ icon: FolderOpen, label: t("row.reveal"), onSelect: run(() => Desktop.Reveal(item.id)) });
     list.push({ icon: Trash2, label: t("row.delete"), onSelect: () => setDeleting(item), danger: true });
     return list;
-  }, [canConvert, converting, convert, run, t]);
+  }, [canConvert, converting, convert, missingFile, run, t]);
 
   // Keyboard: ⌘/Ctrl+N add, ⌘/Ctrl+, settings, ⌘/Ctrl+F search, arrows move
   // the selection, Space pauses or resumes, Enter opens, Delete removes.
@@ -556,6 +567,7 @@ function Shell() {
                 <Row
                   key={item.id}
                   item={item}
+                  fileNotice={fileNotice(item)}
                   bps={samples.current.get(item.id)?.bps ?? 0}
                   current={current?.id === item.id}
                   checked={selectedTaskIDs.has(item.id)}
@@ -715,6 +727,7 @@ function Shell() {
         <TaskDetailsDialog
           key={details.id}
           item={details}
+          fileNotice={fileNotice(details)}
           focusFallback={focusSearch}
           onClose={() => setDetailsId(null)}
           onRecover={() => {
@@ -743,6 +756,7 @@ function taskRowId(id: string) {
 
 const Row = memo(function Row({
   item,
+  fileNotice,
   bps,
   current,
   checked,
@@ -757,6 +771,7 @@ const Row = memo(function Row({
   onRemovedFocus,
 }: {
   item: Item;
+  fileNotice?: string;
   bps: number;
   current: boolean;
   checked: boolean;
@@ -816,7 +831,7 @@ const Row = memo(function Row({
             {item.priority === 1 && <span className="badge high">{t("priority.high")}</span>}
             {item.priority === -1 && <span className="badge low">{t("priority.low")}</span>}
           </div>
-          <Note item={item} t={t} />
+          {fileNotice ? <span className="row-note file-warning" title={fileNotice}>{fileNotice}</span> : <Note item={item} t={t} />}
         </div>
       </div>
       <div className="row-progress">

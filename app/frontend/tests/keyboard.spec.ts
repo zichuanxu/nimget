@@ -95,7 +95,7 @@ test("selects a task and opens its action menu and delete confirmation by keyboa
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Delete");
-  await page.keyboard.press("Control+n");
+  await page.keyboard.press("ControlOrMeta+n");
   await expect(dialog).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(dialog).toBeHidden();
@@ -155,7 +155,7 @@ test("exposes task selection and actions without intercepting keys in search", a
   await expect(row).toBeFocused();
   await expect(row).toHaveAttribute("aria-current", "true");
 
-  await page.keyboard.press("Control+f");
+  await page.keyboard.press("ControlOrMeta+f");
   const search = page.getByRole("textbox", { name: "Search downloads" });
   await expect(search).toBeFocused();
   await page.keyboard.press("Enter");

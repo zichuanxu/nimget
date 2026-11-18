@@ -44,6 +44,9 @@ func (d *Desktop) ConvertToMP4(id string) (string, error) {
 	if item.Status != download.StatusCompleted || !strings.EqualFold(filepath.Ext(item.Destination), ".ts") {
 		return "", errors.New("only completed .ts downloads can be converted")
 	}
+	if err := d.requireDownloadFile(item.Destination); err != nil {
+		return "", err
+	}
 	ffmpeg, err := remux.Find(d.mgr.Settings().Desktop.FFmpeg)
 	if err != nil {
 		return "", err

@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Browser, Events } from "@wailsio/runtime";
+import { Events } from "@wailsio/runtime";
 import {
   ArrowDownToLine,
   CircleAlert,
@@ -40,6 +40,7 @@ import { Desktop, Item, Recovery, State, Status, message } from "./api";
 import AddDialog, { type AddPrefill } from "./AddDialog";
 import BulkTaskActions, { type BulkActionReport } from "./BulkTaskActions";
 import BulkRemovalResult from "./BulkRemovalResult";
+import ReleaseActions from "./ReleaseActions";
 import SettingsDialog from "./SettingsDialog";
 import TaskDetailsDialog from "./TaskDetailsDialog";
 import { CountdownDialog, DeleteDialog, ReauthDialog } from "./dialogs";
@@ -133,6 +134,7 @@ function Shell() {
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [clip, setClip] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [queuingUpdate, setQueuingUpdate] = useState(false);
   const [canConvert, setCanConvert] = useState(false);
   const [converting, setConverting] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<{ action: string; left: number } | null>(null);
@@ -159,6 +161,17 @@ function Shell() {
   const ok = useCallback((text: string) => setToast({ kind: "ok", text }), []);
 
   const { items, samples, history, reload } = useQueue(fail);
+
+  async function downloadUpdate(version: string) {
+    setQueuingUpdate(true);
+    try {
+      await Desktop.DownloadUpdate(version);
+      ok(t("update.queued"));
+      void reload();
+    } finally {
+      setQueuingUpdate(false);
+    }
+  }
 
   useEffect(() => {
     Desktop.State().then(setState).catch(fail);
@@ -403,6 +416,10 @@ function Shell() {
 
   const closeContext = useCallback(() => setContext(null), []);
   const title = t(filters.find((f) => f.id === filter)!.label);
+  const updateRelease = state?.update;
+  const updateDismissalKey = updateRelease?.package
+    ? `${updateRelease.version}:${updateRelease.package.digest}`
+    : updateRelease?.version;
 
   return (
     <div
@@ -518,22 +535,27 @@ function Shell() {
             <span className="grow">{t("banner.serviceError", { error: state.error })}</span>
           </div>
         )}
-        {state?.update && state.update.version !== dismissed && (
+        {updateRelease && updateDismissalKey !== dismissed && (
           <div className="banner info">
-            <Sparkles size={16} />
-            <span className="grow">{t("banner.update", { version: state.update.version })}</span>
-            <button className="small" onClick={() => Browser.OpenURL(state.update!.url)}>
-              {t("banner.releaseNotes")}
-            </button>
+            <Sparkles size={16} aria-hidden="true" />
+            <div className="grow release-summary" role="status">
+              <span>{t("banner.update", { version: updateRelease.version })}</span>
+              {!updateRelease.package && <small>{t("update.noPackage")}</small>}
+            </div>
+            <ReleaseActions
+              release={updateRelease}
+              busy={queuingUpdate}
+              onDownload={() => void downloadUpdate(updateRelease.version).catch(() => fail(t("update.downloadFailed")))}
+            />
             <button
               className="icon ghost tiny"
               title={t("banner.dismiss")}
               aria-label={t("banner.dismiss")}
               onClick={() => {
-                const v = state.update!.version;
-                setDismissed(v);
+                const key = updateDismissalKey ?? updateRelease.version;
+                setDismissed(key);
                 try {
-                  localStorage.setItem("dismissedUpdate", v);
+                  localStorage.setItem("dismissedUpdate", key);
                 } catch {
                   // per-viewer convenience only
                 }
@@ -737,6 +759,8 @@ function Shell() {
       {settingsOpen && state && (
         <SettingsDialog
           state={state}
+          queuingUpdate={queuingUpdate}
+          onDownloadUpdate={downloadUpdate}
           onClose={() => setSettingsOpen(false)}
           onSaved={() => {
             Desktop.State().then(setState);

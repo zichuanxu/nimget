@@ -5,19 +5,38 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+export class Package {
+    "name": string;
+    "digest": string;
+
+    /** Creates a new Package instance. */
+    constructor($$source: Partial<Package> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("digest" in $$source)) {
+            this["digest"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Package instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Package {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Package($$parsedSource as Partial<Package>);
+    }
+}
+
 /**
  * Release is a published version.
  */
 export class Release {
-    /**
-     * "v1.2.3"
-     */
     "version": string;
-
-    /**
-     * release notes page
-     */
     "url": string;
+    "package"?: Package | null;
 
     /** Creates a new Release instance. */
     constructor($$source: Partial<Release> = {}) {
@@ -35,7 +54,15 @@ export class Release {
      * Creates a new Release instance from a string or object.
      */
     static createFrom($$source: any = {}): Release {
+        const $$createField2_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("package" in $$parsedSource) {
+            $$parsedSource["package"] = $$createField2_0($$parsedSource["package"]);
+        }
         return new Release($$parsedSource as Partial<Release>);
     }
 }
+
+// Private type creation functions
+const $$createType0 = Package.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);

@@ -20,6 +20,10 @@ Releases from v1.1.0 include `NimGet-<version>-macos-universal.dmg` for Apple si
 
 The app is signed ad hoc, not with a paid Developer ID, so macOS blocks the first launch. Open System Settings > Privacy & Security and choose **Open Anyway** for NimGet, or run `xattr -dr com.apple.quarantine /Applications/NimGet.app` once. The browser extension is the same unpacked Chrome and Edge extension as on Windows; download `NimGet-<version>-chromium-extension.zip` from the same release and follow the [extension pairing guide](docs/browser-pairing.md).
 
+## Update NimGet
+
+Published desktop builds check GitHub for stable updates daily by default. Use **Settings → General → Updates → Check now** to check at any time. **Download update** adds the compatible Windows installer or macOS disk image to the queue. NimGet checks its SHA-256 digest before marking the download complete. Quit NimGet and install the downloaded package using the steps for your platform.
+
 ## Run from source
 
 Building from source requires Git and Go 1.25+. The desktop app also needs Node.js 22.12+ and, on macOS, the Xcode command line tools. On Windows it needs the WebView2 Runtime.
@@ -79,7 +83,7 @@ internal/remux/       Optional ffmpeg remux of .ts to .mp4
 internal/batch/       Batch URL patterns
 internal/queuefile/   Queue import and export
 internal/power/       Sleep and shut down
-internal/update/      Optional GitHub Release notices for versioned desktop builds
+internal/update/      Stable release checks and update package selection
 internal/quarantine/  Marks completed files as downloaded from the internet
 internal/secrets/     AES-GCM sealing with a key in the OS keyring
 internal/curlimport/  "Copy as cURL" parser

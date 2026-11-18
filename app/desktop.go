@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -17,7 +16,6 @@ import (
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/logging"
 	"github.com/amemiya02/nimget/internal/manager"
-	"github.com/amemiya02/nimget/internal/netproxy"
 	"github.com/amemiya02/nimget/internal/service"
 	"github.com/amemiya02/nimget/internal/settings"
 	"github.com/amemiya02/nimget/internal/update"
@@ -64,8 +62,7 @@ type Desktop struct {
 	notifications chan download.Item
 	// whenDone is the pending completion action (a string).
 	whenDone atomic.Value
-	// newer is the newest release, when it is newer than this build.
-	newer atomic.Pointer[update.Release]
+	updates  *desktopUpdates
 	// locale is the frontend's language (a string); tray is relabelled with it.
 	locale            atomic.Value
 	legacyQueueImport atomic.Pointer[pendingQueueImport]
@@ -80,6 +77,7 @@ type State struct {
 	Error            string `json:"error,omitempty"`
 	DefaultDirectory string `json:"defaultDirectory"`
 	Autostart        bool   `json:"autostart"`
+	CanCheckUpdates  bool   `json:"canCheckUpdates"`
 	// Update is set when a newer release is available.
 	Update *update.Release `json:"update,omitempty"`
 }
@@ -108,7 +106,7 @@ func (d *Desktop) ServiceStartup(ctx context.Context, _ application.ServiceOptio
 	go d.forward()
 	go d.notifyLoop()
 	go d.watchClipboard(ctx)
-	go d.watchReleases(ctx)
+	d.startReleaseChecks(ctx)
 	go func() {
 		err := svc.Wait()
 		if ctx.Err() != nil {
@@ -147,8 +145,9 @@ func (d *Desktop) State() State {
 	if d.app != nil {
 		s.Autostart, _ = d.app.Autostart.IsEnabled()
 	}
-	if d.mgr != nil && d.mgr.Settings().Desktop.CheckUpdates {
-		s.Update = d.newer.Load()
+	s.CanCheckUpdates = d.updates != nil && s.Error == ""
+	if s.CanCheckUpdates && d.mgr.Settings().Desktop.CheckUpdates {
+		s.Update = d.updates.available.Load()
 	}
 	return s
 }
@@ -274,10 +273,18 @@ func (d *Desktop) SaveSettings(s settings.Settings) (settings.Settings, error) {
 	if err != nil {
 		return settings.Settings{}, err
 	}
+	wasChecking := m.Settings().Desktop.CheckUpdates
 	if err := m.UpdateSettings(context.Background(), s); err != nil {
 		return settings.Settings{}, err
 	}
-	return m.Settings().Masked(), nil
+	saved := m.Settings().Masked()
+	if d.updates != nil && !wasChecking && saved.Desktop.CheckUpdates {
+		select {
+		case d.updates.wake <- struct{}{}:
+		default:
+		}
+	}
+	return saved, nil
 }
 
 // SetAutostart registers or removes the app as a login item.
@@ -471,44 +478,6 @@ func (d *Desktop) watchClipboard(ctx context.Context) {
 		last = text // also while disabled: turning the monitor on offers nothing old
 		if d.mgr.Settings().Desktop.ClipboardMonitor && offerable(text) {
 			d.app.Event.Emit(eventClipboard, strings.TrimSpace(text))
-		}
-	}
-}
-
-// watchReleases checks for a newer version shortly after startup and then
-// every few hours; update.Check itself polls GitHub at most once a week.
-func (d *Desktop) watchReleases(ctx context.Context) {
-	dir, err := service.DataDir()
-	if err != nil {
-		return
-	}
-	// The check goes through the proxy configured in nimget, like downloads.
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = netproxy.Func(func() netproxy.Config { return d.mgr.Settings().Proxy })
-	checker := &update.Checker{
-		Client: &http.Client{Transport: transport, Timeout: 20 * time.Second},
-		URL:    update.LatestURL, Path: update.StatePath(dir),
-	}
-	timer := time.NewTimer(30 * time.Second)
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-		timer.Reset(6 * time.Hour)
-		if !d.mgr.Settings().Desktop.CheckUpdates {
-			continue
-		}
-		rel, ok, err := checker.Check(ctx, version, time.Now())
-		if err != nil {
-			d.log.Warn("update check", "err", err)
-			continue
-		}
-		if ok {
-			d.newer.Store(&rel)
-			d.app.Event.Emit(eventUpdate, rel)
 		}
 	}
 }

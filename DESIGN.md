@@ -479,10 +479,13 @@ The [source setup guide](docs/source.md) covers the desktop app on macOS and Win
 and the CLI and service on macOS, Windows, and Linux. CI tests the source across
 platforms and builds the CLI and desktop app.
 
-**Updates.** Install the new Windows release to upgrade the desktop app, then reload
-the matching extension in place. Source users can fast-forward their checkout and
-rebuild. Versioned desktop builds can show a dismissible GitHub release-notes banner
-when the user enables the update check.
+**Updates.** Versioned desktop builds check for stable GitHub releases at startup
+when a check is due, then once a day while running. The automatic check can be
+turned off. Settings can check immediately. The update action queues the newest
+compatible Windows x64 installer or macOS universal disk image and verifies the
+digest from GitHub before completion. Users install the downloaded package and
+reload the matching extension in place. Source users can fast-forward their
+checkout and rebuild.
 
 `nimget version` prints the version, commit, and build date injected at link time.
 

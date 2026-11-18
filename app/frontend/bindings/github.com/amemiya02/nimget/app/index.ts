@@ -10,5 +10,6 @@ export {
     ImportResult,
     MissingDownloadFile,
     QueueSnapshot,
-    State
+    State,
+    UpdateCheck
 } from "./models.js";

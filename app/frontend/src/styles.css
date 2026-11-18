@@ -308,8 +308,12 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .banner svg { flex: none; }
 .banner.danger { background: var(--red-soft); color: var(--red); }
 .banner.danger span { color: var(--text); }
-.banner.info { background: var(--accent-soft); color: var(--accent-text); }
+.banner.info { background: var(--accent-soft); color: var(--accent-text); flex-wrap: wrap; }
 .banner.info span { color: var(--text); }
+.release-summary { display: grid; min-width: min(180px, 100%); }
+.release-summary small { color: var(--text-2); }
+.release-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.settings-release { display: grid; gap: 8px; justify-items: start; }
 
 /* ---------- download board ---------- */
 

@@ -34,7 +34,7 @@ export class Desktop {
     "ffmpeg"?: string;
 
     /**
-     * CheckUpdates polls GitHub Releases once a week for a newer version.
+     * CheckUpdates polls GitHub Releases once a day for a newer version.
      */
     "checkUpdates": boolean;
 

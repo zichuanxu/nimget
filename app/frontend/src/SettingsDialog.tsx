@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { CircleAlert, Clock, Download, Globe, Link2, Monitor, Moon, Plus, Settings as SettingsIcon, SlidersHorizontal, Sun, Trash2, Wrench, type LucideIcon } from "lucide-react";
 import BrowserPairings from "./BrowserPairings";
+import ReleaseActions from "./ReleaseActions";
 import SiteSettings, { draftSite, siteSettingsErrors, siteValues, type SiteDraft } from "./SiteSettings";
 import { Desktop, ProxyMode, Settings, SpeedRule, State, message } from "./api";
 import { parseSpeed, speedText } from "./format";
@@ -8,7 +9,13 @@ import { useI18n } from "./i18n";
 import { Modal, Segmented, Switch } from "./ui";
 import { applyTheme, loadTheme, saveTheme, type Theme } from "./theme";
 
-type Props = { state: State; onClose: () => void; onSaved: () => void };
+type Props = {
+  state: State;
+  queuingUpdate: boolean;
+  onDownloadUpdate: (version: string) => Promise<void>;
+  onClose: () => void;
+  onSaved: () => void;
+};
 type Tab = "general" | "downloads" | "schedule" | "network" | "browser" | "advanced";
 
 const tabs: { id: Tab; icon: LucideIcon; label: "settings.general" | "settings.downloads" | "settings.schedule" | "settings.network" | "settings.browser" | "settings.advanced" }[] = [
@@ -33,7 +40,7 @@ function Row({ label, hint, children }: { label: ReactNode; hint?: ReactNode; ch
   );
 }
 
-export default function SettingsDialog({ state, onClose, onSaved }: Props) {
+export default function SettingsDialog({ state, queuingUpdate, onDownloadUpdate, onClose, onSaved }: Props) {
   const { t, setLang } = useI18n();
   const [tab, setTab] = useState<Tab>("general");
   const [s, setS] = useState<Settings | null>(null);
@@ -47,6 +54,32 @@ export default function SettingsDialog({ state, onClose, onSaved }: Props) {
   const [initialWhenDone, setInitialWhenDone] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [manualRelease, setManualRelease] = useState<State["update"] | null>();
+  const [updateError, setUpdateError] = useState("");
+  const release = manualRelease === undefined ? state.update : manualRelease;
+
+  async function checkForUpdate() {
+    setUpdateError("");
+    setChecking(true);
+    try {
+      setManualRelease((await Desktop.CheckForUpdate()).update ?? null);
+    } catch {
+      setUpdateError(t("update.checkFailed"));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function downloadRelease(version: string) {
+    setUpdateError("");
+    try {
+      await onDownloadUpdate(version);
+      onClose();
+    } catch {
+      setUpdateError(t("update.downloadFailed"));
+    }
+  }
 
   useEffect(() => {
     Promise.all([Desktop.Settings(), Desktop.WhenDone()])
@@ -162,6 +195,25 @@ export default function SettingsDialog({ state, onClose, onSaved }: Props) {
                 <Switch checked={s.desktop.clipboardMonitor} onChange={(v) => desk({ clipboardMonitor: v })} label={t("settings.clipboard")} />
                 <Switch checked={s.desktop.checkUpdates} onChange={(v) => desk({ checkUpdates: v })} label={t("settings.checkUpdates")} />
               </div>
+              <Row label={t("update.title")} hint={
+                <span role="status">
+                  {checking ? t("update.checking") :
+                    release ? t("banner.update", { version: release.version }) :
+                    manualRelease === null ? t("update.current") :
+                    !state.canCheckUpdates ? t("update.releaseBuilds") : ""}
+                </span>
+              }>
+                <button type="button" disabled={!state.canCheckUpdates || checking} onClick={() => void checkForUpdate()}>
+                  {t("update.checkNow")}
+                </button>
+              </Row>
+              {updateError && <p className="form-error" role="alert">{updateError}</p>}
+              {release && !checking && (
+                <div className="settings-release">
+                  {!release.package && <p className="hint">{t("update.noPackage")}</p>}
+                  <ReleaseActions release={release} busy={queuingUpdate} onDownload={() => void downloadRelease(release.version)} />
+                </div>
+              )}
             </>
           )}
 

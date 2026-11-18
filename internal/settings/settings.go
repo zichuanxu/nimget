@@ -59,7 +59,7 @@ type Desktop struct {
 	// FFmpeg is the ffmpeg executable for converting streams to MP4; empty
 	// means ffmpeg on PATH.
 	FFmpeg string `json:"ffmpeg,omitempty"`
-	// CheckUpdates polls GitHub Releases once a week for a newer version.
+	// CheckUpdates polls GitHub Releases once a day for a newer version.
 	CheckUpdates bool `json:"checkUpdates"`
 	// Language is the interface language: "en", "zh-CN", or empty for the
 	// system's.

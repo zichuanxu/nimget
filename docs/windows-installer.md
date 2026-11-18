@@ -16,7 +16,7 @@ The installer and app are unsigned. Windows may show a Microsoft Defender SmartS
 
 ## Upgrade
 
-Download and verify the newer installer from the [release page](windows-release.md). Choose **Quit NimGet** from the tray menu, then run Setup under the same Windows account. Setup upgrades the registered install location. Launch NimGet to reopen the saved queue and continue eligible tasks. Paused tasks and schedule restrictions still apply. Settings and the queue database live in %APPDATA%\nimget. The packaged app's WebView2 profile lives in %APPDATA%\nimget.exe and holds local interface preferences. If you use Chrome or Edge integration, [update the unpacked extension](browser-pairing.md#update-the-extension) from the same release.
+Use **Download update** in NimGet or download and verify the installer from the [release page](windows-release.md). Once the download is complete, choose **Quit NimGet** from the tray menu and run Setup under the same Windows account. Setup upgrades the registered install location. Launch NimGet to reopen the saved queue and continue eligible tasks. Paused tasks and schedule restrictions still apply. Settings and the queue database live in %APPDATA%\nimget. The packaged app's WebView2 profile lives in %APPDATA%\nimget.exe and holds local interface preferences. If you use Chrome or Edge integration, [update the unpacked extension](browser-pairing.md#update-the-extension) from the same release.
 
 ## Uninstall and retained data
 

@@ -1,63 +1,152 @@
-// Package update checks GitHub Releases for a newer nimget (DESIGN.md
-// section 10). It only reports; it never downloads or replaces anything.
+// Package update finds stable NimGet releases and their verified package metadata.
 package update
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/amemiya02/nimget/internal/download"
 )
 
-// LatestURL is the GitHub API endpoint for the newest non-prerelease.
-const LatestURL = "https://api.github.com/repos/amemiya02/nimget/releases/latest"
+const ReleasesURL = "https://api.github.com/repos/amemiya02/nimget/releases?per_page=20"
+const releaseBase = "https://github.com/amemiya02/nimget/releases"
 
 // Interval is how often the desktop app checks.
-const Interval = 7 * 24 * time.Hour
+const Interval = 24 * time.Hour
 
 // Release is a published version.
 type Release struct {
-	Version string `json:"version"` // "v1.2.3"
-	URL     string `json:"url"`     // release notes page
+	Version string   `json:"version"`
+	URL     string   `json:"url"`
+	Package *Package `json:"package,omitempty"`
 }
 
-// Latest asks url (normally LatestURL) for the newest release.
-func Latest(ctx context.Context, client *http.Client, url string) (Release, error) {
+type Package struct {
+	Name   string `json:"name"`
+	Digest string `json:"digest"`
+}
+
+func CurrentPlatform() string { return runtime.GOOS + "/" + runtime.GOARCH }
+
+func packageName(tag, platform string) string {
+	switch platform {
+	case "windows/amd64":
+		return "NimGet-" + tag + "-windows-x64-setup.exe"
+	case "darwin/arm64", "darwin/amd64":
+		return "NimGet-" + tag + "-macos-universal.dmg"
+	default:
+		return ""
+	}
+}
+
+// DownloadRequest derives the URL from the repository, tag and platform so
+// neither API nor cached URLs can redirect the download to a different source.
+func (r Release) DownloadRequest(platform string) (download.Request, error) {
+	name := packageName(r.Version, platform)
+	if name == "" || !stableTag(r.Version) || r.Package == nil || r.Package.Name != name || !validDigest(r.Package.Digest) {
+		return download.Request{}, errors.New("there is no verified update package for this platform")
+	}
+	return download.Request{
+		URL:      releaseBase + "/download/" + r.Version + "/" + name,
+		Checksum: strings.ToLower(r.Package.Digest),
+	}, nil
+}
+
+func validDigest(digest string) bool {
+	raw, ok := strings.CutPrefix(digest, "sha256:")
+	if !ok || len(raw) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(raw)
+	return err == nil
+}
+
+func fetchReleases(ctx context.Context, client *http.Client, url, platform string) (State, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return Release{}, err
+		return State{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "nimget-update-check")
 	resp, err := client.Do(req)
 	if err != nil {
-		return Release{}, err
+		return State{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return Release{}, fmt.Errorf("release check: HTTP %s", resp.Status)
+		return State{}, fmt.Errorf("release check: HTTP %s", resp.Status)
 	}
-	var body struct {
-		TagName string `json:"tag_name"`
-		HTMLURL string `json:"html_url"`
+	var body []struct {
+		TagName    string `json:"tag_name"`
+		Draft      bool   `json:"draft"`
+		Prerelease bool   `json:"prerelease"`
+		Assets     []struct {
+			Package
+			State string `json:"state"`
+		} `json:"assets"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 1<<20)).Decode(&body); err != nil {
-		return Release{}, fmt.Errorf("release check: %w", err)
+	if err := json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 2<<20)).Decode(&body); err != nil {
+		return State{}, fmt.Errorf("release check: %w", err)
 	}
-	if _, ok := parse(body.TagName); !ok {
-		return Release{}, fmt.Errorf("release check: unexpected tag %q", body.TagName)
+	s := State{Platform: platform}
+	for _, entry := range body {
+		if entry.Draft || entry.Prerelease || !stableTag(entry.TagName) {
+			continue
+		}
+		rel := Release{Version: entry.TagName}
+		if s.Latest.Version == "" || Newer(rel.Version, s.Latest.Version) {
+			s.Latest = rel
+		}
+		if s.Compatible.Version != "" && !Newer(rel.Version, s.Compatible.Version) {
+			continue
+		}
+		for _, asset := range entry.Assets {
+			if asset.State == "uploaded" && asset.Name == packageName(rel.Version, platform) && asset.Name != "" && validDigest(asset.Digest) {
+				rel.Package = &asset.Package
+				s.Compatible = rel
+				break
+			}
+		}
 	}
-	// Only link to the project's own release pages.
-	if !strings.HasPrefix(body.HTMLURL, "https://github.com/amemiya02/nimget/") {
-		body.HTMLURL = "https://github.com/amemiya02/nimget/releases"
+	return s, nil
+}
+
+func stableTag(tag string) bool {
+	v, ok := parse(tag)
+	return ok && tag == fmt.Sprintf("v%d.%d.%d", v.nums[0], v.nums[1], v.nums[2])
+}
+
+// Versioned reports whether this build can compare its version to a release.
+func Versioned(build string) bool {
+	_, ok := parse(build)
+	return ok
+}
+
+func (s State) selectRelease(current, platform string) (Release, bool) {
+	for _, rel := range []Release{s.Compatible, s.Latest} {
+		if !stableTag(rel.Version) || !Newer(rel.Version, current) {
+			continue
+		}
+		if _, err := rel.DownloadRequest(platform); err != nil {
+			rel.Package = nil
+			if rel.Version != s.Latest.Version {
+				continue
+			}
+		}
+		rel.URL = releaseBase + "/tag/" + rel.Version
+		return rel, true
 	}
-	return Release{Version: body.TagName, URL: body.HTMLURL}, nil
+	return Release{}, false
 }
 
 // Newer reports whether candidate is a later version than current. Builds
@@ -113,14 +202,18 @@ func parse(s string) (version, bool) {
 
 // State remembers the last check so the app polls at most once per Interval.
 type State struct {
-	CheckedAt time.Time `json:"checkedAt"`
-	Latest    Release   `json:"latest"`
+	CheckedAt  time.Time `json:"checkedAt"`
+	Platform   string    `json:"platform"`
+	Latest     Release   `json:"latest"`
+	Compatible Release   `json:"compatible"`
 }
 
 func LoadState(path string) State {
 	var s State
 	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &s)
+		if json.Unmarshal(data, &s) != nil {
+			return State{}
+		}
 	}
 	return s
 }
@@ -130,11 +223,19 @@ func SaveState(path string, s State) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".update-*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	defer os.Remove(tmp.Name())
+	_, err = tmp.Write(data)
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // Due reports whether a check is due at now.
@@ -147,33 +248,48 @@ func StatePath(dir string) string { return filepath.Join(dir, "update.json") }
 
 var errDev = errors.New("development builds do not check for updates")
 
-// Checker polls url at most once per Interval, remembering the last check in
-// the state file at Path and in memory, so an unwritable file cannot turn
-// the weekly check into a frequent one.
+// Checker remembers successful checks on disk and in memory. Callers serialize
+// automatic and manual checks on the same instance.
 type Checker struct {
-	Client *http.Client
-	URL    string
-	Path   string
-	last   State
+	Client   *http.Client
+	URL      string
+	Path     string
+	Platform string
+	last     State
 }
 
 // Check returns the newest release and whether it is newer than current.
 func (c *Checker) Check(ctx context.Context, current string, now time.Time) (Release, bool, error) {
-	if _, ok := parse(current); !ok {
+	return c.check(ctx, current, now, false)
+}
+
+// CheckNow looks for a release without waiting for the automatic interval.
+func (c *Checker) CheckNow(ctx context.Context, current string, now time.Time) (Release, bool, error) {
+	return c.check(ctx, current, now, true)
+}
+
+func (c *Checker) check(ctx context.Context, current string, now time.Time, force bool) (Release, bool, error) {
+	if !Versioned(current) {
 		return Release{}, false, errDev
+	}
+	platform := c.Platform
+	if platform == "" {
+		platform = CurrentPlatform()
 	}
 	s := LoadState(c.Path)
 	if c.last.CheckedAt.After(s.CheckedAt) {
 		s = c.last
 	}
-	if s.Due(now) {
-		latest, err := Latest(ctx, c.Client, c.URL)
+	if force || s.Platform != platform || s.Due(now) {
+		var err error
+		s, err = fetchReleases(ctx, c.Client, c.URL, platform)
 		if err != nil {
 			return Release{}, false, err
 		}
-		s = State{CheckedAt: now, Latest: latest}
+		s.CheckedAt = now
 		c.last = s
 		_ = SaveState(c.Path, s) // the in-memory copy still throttles
 	}
-	return s.Latest, Newer(s.Latest.Version, current), nil
+	rel, ok := s.selectRelease(current, platform)
+	return rel, ok, nil
 }

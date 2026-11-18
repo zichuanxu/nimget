@@ -116,6 +116,7 @@ export class State {
     "error"?: string;
     "defaultDirectory": string;
     "autostart": boolean;
+    "canCheckUpdates": boolean;
 
     /**
      * Update is set when a newer release is available.
@@ -133,6 +134,9 @@ export class State {
         if (!("autostart" in $$source)) {
             this["autostart"] = false;
         }
+        if (!("canCheckUpdates" in $$source)) {
+            this["canCheckUpdates"] = false;
+        }
 
         Object.assign(this, $$source);
     }
@@ -141,12 +145,34 @@ export class State {
      * Creates a new State instance from a string or object.
      */
     static createFrom($$source: any = {}): State {
-        const $$createField4_0 = $$createType4;
+        const $$createField5_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("update" in $$parsedSource) {
-            $$parsedSource["update"] = $$createField4_0($$parsedSource["update"]);
+            $$parsedSource["update"] = $$createField5_0($$parsedSource["update"]);
         }
         return new State($$parsedSource as Partial<State>);
+    }
+}
+
+export class UpdateCheck {
+    "update"?: update$0.Release | null;
+
+    /** Creates a new UpdateCheck instance. */
+    constructor($$source: Partial<UpdateCheck> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UpdateCheck instance from a string or object.
+     */
+    static createFrom($$source: any = {}): UpdateCheck {
+        const $$createField0_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("update" in $$parsedSource) {
+            $$parsedSource["update"] = $$createField0_0($$parsedSource["update"]);
+        }
+        return new UpdateCheck($$parsedSource as Partial<UpdateCheck>);
     }
 }
 

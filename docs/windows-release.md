@@ -18,7 +18,7 @@ Get-FileHash -Algorithm SHA256 -LiteralPath .\NimGet-v1.2.3-windows-x64-setup.ex
 
 Follow the [Windows installation guide](windows-installer.md) for WebView2, SmartScreen, upgrade, and uninstall steps. The [browser pairing guide](browser-pairing.md) covers installing and updating the unpacked extension. The [browser handoff guide](browser-handoff.md) explains manual handoff, website session permission, automatic capture, and browser fallback.
 
-The desktop can show a link to new release notes if you enable its GitHub update check. Upgrading the app and the unpacked extension requires downloading and verifying the newer files and following the two guides. From v1.1.0, releases also include a macOS disk image, prepared by the **Prepare macOS release** workflow; see the [README](../README.md#install-on-macos). Linux CLI and service builds are available [from source](source.md).
+The desktop app can check for new releases and download the compatible installer into its queue. It verifies the published SHA-256 digest before the download completes. Follow the installation and pairing guides to upgrade the desktop app and the unpacked extension. From v1.1.0, releases can also include a macOS disk image prepared by the **Prepare macOS release** workflow. See the [README](../README.md#install-on-macos) for details. Linux CLI and service builds are available [from source](source.md).
 
 ## Prepare the release bundle
 

@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/amemiya02/nimget/internal/download"
@@ -37,6 +38,10 @@ func (m *Manager) ApplyTaskAction(ctx context.Context, action download.TaskActio
 		result := download.TaskActionResult{ID: id}
 		if err := apply(ctx, id); err != nil {
 			result.Error = err.Error()
+			var cleanup *fileCleanupError
+			if errors.As(err, &cleanup) {
+				result.FileCleanupError = cleanup.cause.Error()
+			}
 		}
 		results = append(results, result)
 	}

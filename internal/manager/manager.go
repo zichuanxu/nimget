@@ -582,7 +582,7 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 	}
 	// Re-check confinement: a symlinked ancestor may have changed since Add.
 	if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
-		return fmt.Errorf("download deleted, but its files were kept: %w", err)
+		return &fileCleanupError{context: "download deleted, but its files were kept", cause: err}
 	}
 	errs := []error{m.discardPartial(item)}
 	if item.Status == download.StatusCompleted {
@@ -591,10 +591,19 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
-		return fmt.Errorf("download deleted, but removing its files failed: %w", err)
+		return &fileCleanupError{context: "download deleted, but removing its files failed", cause: err}
 	}
 	return nil
 }
+
+// fileCleanupError occurs after the download record has been removed.
+type fileCleanupError struct {
+	context string
+	cause   error
+}
+
+func (e *fileCleanupError) Error() string { return e.context + ": " + e.cause.Error() }
+func (e *fileCleanupError) Unwrap() error { return e.cause }
 
 // Run schedules downloads until ctx is canceled, then cancels every runner and
 // waits for them to record their final state before returning.

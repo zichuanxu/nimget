@@ -78,9 +78,17 @@ func TestDesktopBulkRemovalSeparatesRecordsAndFiles(t *testing.T) {
 	}
 
 	assertBulkResults(t, d, download.TaskActionRemoveRecords, []string{"record"}, []string{""})
-	assertBulkResults(t, d, download.TaskActionRemoveFiles,
-		[]string{"leftover", "remove", "foreign"},
-		[]string{"download deleted, but removing its files failed", "", ""})
+	results := assertBulkResults(t, d, download.TaskActionRemoveFiles,
+		[]string{"leftover", "remove", "foreign", "missing"},
+		[]string{"download deleted, but removing its files failed", "", "", "download not found"})
+	if results[0].FileCleanupError == "" {
+		t.Errorf("file cleanup failure missing its cause: %+v", results[0])
+	}
+	for _, result := range results[1:] {
+		if result.FileCleanupError != "" {
+			t.Errorf("unexpected file cleanup failure: %+v", result)
+		}
+	}
 	if items, err := d.List(); err != nil || len(items) != 0 {
 		t.Fatalf("List after removal = %+v, %v; want no records", items, err)
 	}
@@ -98,7 +106,7 @@ func TestDesktopBulkRemovalSeparatesRecordsAndFiles(t *testing.T) {
 	}
 }
 
-func assertBulkResults(t *testing.T, d *Desktop, action download.TaskAction, ids, wantErrors []string) {
+func assertBulkResults(t *testing.T, d *Desktop, action download.TaskAction, ids, wantErrors []string) []download.TaskActionResult {
 	t.Helper()
 	results, err := d.ApplyTaskAction(action, ids)
 	if err != nil || len(results) != len(wantErrors) {
@@ -110,6 +118,7 @@ func assertBulkResults(t *testing.T, d *Desktop, action download.TaskAction, ids
 			t.Errorf("ApplyTaskAction(%q) result %d = %+v; want ID %q and error %q", action, i, got, ids[i], want)
 		}
 	}
+	return results
 }
 
 func desktopWithBulkTasks(t *testing.T, items map[string]download.Item) (*Desktop, string) {

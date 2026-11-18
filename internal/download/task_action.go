@@ -17,4 +17,6 @@ const (
 type TaskActionResult struct {
 	ID    string `json:"id"`
 	Error string `json:"error,omitempty"`
+	// FileCleanupError is the filesystem error after successful record removal.
+	FileCleanupError string `json:"fileCleanupError,omitempty"`
 }

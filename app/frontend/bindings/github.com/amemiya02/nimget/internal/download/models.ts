@@ -251,6 +251,11 @@ export class TaskActionResult {
     "id": string;
     "error"?: string;
 
+    /**
+     * FileCleanupError is the filesystem error after successful record removal.
+     */
+    "fileCleanupError"?: string;
+
     /** Creates a new TaskActionResult instance. */
     constructor($$source: Partial<TaskActionResult> = {}) {
         if (!("id" in $$source)) {

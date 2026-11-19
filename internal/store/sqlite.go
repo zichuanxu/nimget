@@ -90,6 +90,7 @@ ALTER TABLE downloads ADD COLUMN phase TEXT NOT NULL DEFAULT '';
 ALTER TABLE downloads ADD COLUMN name TEXT NOT NULL DEFAULT '';
 ALTER TABLE downloads ADD COLUMN magnet_state TEXT NOT NULL DEFAULT '';
 ALTER TABLE downloads ADD COLUMN magnet_trackers TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE downloads ADD COLUMN magnet_metadata BLOB;`,
 }
 
 func migrate(db *sql.DB) error {
@@ -168,7 +169,7 @@ const itemColumns = `id, url, destination, status, completed, total, error, prio
 created_at, updated_at, recovery, failure, website_session, source_kind, phase, name, magnet_state, magnet_trackers`
 
 func (s *SQLite) Get(ctx context.Context, id string) (download.Item, error) {
-	const query = `SELECT ` + itemColumns + `
+	const query = `SELECT ` + itemColumns + `, magnet_metadata
 FROM downloads WHERE id = ?`
 	item, err := s.scanItem(s.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -181,7 +182,7 @@ FROM downloads WHERE id = ?`
 }
 
 func (s *SQLite) List(ctx context.Context) ([]download.Item, error) {
-	const query = `SELECT ` + itemColumns + `
+	const query = `SELECT ` + itemColumns + `, NULL
 FROM downloads ORDER BY created_at, id`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
@@ -210,7 +211,7 @@ func (s *SQLite) Update(ctx context.Context, item download.Item) error {
 		empty := ""
 		websiteSession = &empty
 	}
-	return s.update(ctx, item, nil, websiteSession)
+	return s.update(ctx, s.db, item, nil, websiteSession, nil)
 }
 
 func (s *SQLite) UpdateWithHeaders(ctx context.Context, item download.Item) error {
@@ -220,10 +221,10 @@ func (s *SQLite) UpdateWithHeaders(ctx context.Context, item download.Item) erro
 	}
 	// Replacing user-supplied request context clears the previous browser session.
 	empty := ""
-	return s.update(ctx, item, &headers, &empty)
+	return s.update(ctx, s.db, item, &headers, &empty, nil)
 }
 
-func (s *SQLite) update(ctx context.Context, item download.Item, headers, websiteSession *string) error {
+func (s *SQLite) update(ctx context.Context, db executor, item download.Item, headers, websiteSession *string, metadata []byte) error {
 	magnetState, err := encodeMagnetState(item.Magnet)
 	if err != nil {
 		return err
@@ -231,11 +232,11 @@ func (s *SQLite) update(ctx context.Context, item download.Item, headers, websit
 	const query = `UPDATE downloads SET url = ?, destination = ?, status = ?, completed = ?, total = ?, error = ?,
 priority = ?, connections = ?, speed_limit = ?, checksum = ?, updated_at = ?, recovery = ?, failure = ?,
 headers = COALESCE(?, headers), website_session = COALESCE(?, website_session),
-source_kind = ?, phase = ?, name = ?, magnet_state = ? WHERE id = ?`
-	result, err := s.db.ExecContext(ctx, query, item.URL, item.Destination, item.Status, item.Completed,
+source_kind = ?, phase = ?, name = ?, magnet_state = ?, magnet_metadata = COALESCE(?, magnet_metadata) WHERE id = ?`
+	result, err := db.ExecContext(ctx, query, item.URL, item.Destination, item.Status, item.Completed,
 		item.Total, item.Error, item.Priority, item.Connections, item.SpeedLimit, item.Checksum,
 		item.UpdatedAt.Format(time.RFC3339Nano), item.Recovery, item.Failure, headers, websiteSession,
-		item.SourceKind, item.Phase, item.Name, magnetState, item.ID)
+		item.SourceKind, item.Phase, item.Name, magnetState, metadata, item.ID)
 	if err != nil {
 		return fmt.Errorf("update download %s: %w", item.ID, err)
 	}
@@ -283,10 +284,11 @@ type scanner interface {
 func (s *SQLite) scanItem(row scanner) (download.Item, error) {
 	var item download.Item
 	var headers, createdAt, updatedAt, websiteSession, magnetState, trackers string
+	var metadata []byte
 	if err := row.Scan(&item.ID, &item.URL, &item.Destination, &item.Status, &item.Completed,
 		&item.Total, &item.Error, &item.Priority, &item.Connections, &item.SpeedLimit, &item.Checksum, &headers,
 		&createdAt, &updatedAt, &item.Recovery, &item.Failure, &websiteSession,
-		&item.SourceKind, &item.Phase, &item.Name, &magnetState, &trackers); err != nil {
+		&item.SourceKind, &item.Phase, &item.Name, &magnetState, &trackers, &metadata); err != nil {
 		return download.Item{}, err
 	}
 	var err error
@@ -295,6 +297,7 @@ func (s *SQLite) scanItem(row scanner) (download.Item, error) {
 	}
 	if item.Magnet != nil {
 		item.Directory = item.Magnet.Directory
+		item.Magnet.Metadata = metadata
 	}
 	if item.Headers, err = s.decodeHeaders(headers); err != nil {
 		return download.Item{}, err

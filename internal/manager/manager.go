@@ -850,10 +850,6 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	item.Completed, item.Total = j.progress()
 	item.UpdatedAt = m.opts.Now().UTC()
 	item.Phase = ""
-	if item.SourceKind == download.SourceMagnet && runErr != nil {
-		// This attempt no longer owns a staging file.
-		item.Completed = 0
-	}
 	switch {
 	case runErr == nil:
 		// Checked first: a Pause that raced the final rename must not hide a

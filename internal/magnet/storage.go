@@ -2,7 +2,6 @@ package magnet
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"io"
 	"os"
@@ -15,21 +14,30 @@ import (
 // The verified single-file manifest always maps to this one task-owned file.
 // Metadata never supplies a storage path.
 type fileStorage struct {
-	name       string
+	recheck    bool
 	file       *os.File
 	writeError chan error
 	mu         sync.Mutex
 	completed  []bool
 }
 
-func newStagedFile(root *os.Root) (*fileStorage, error) {
-	name := ".nimget-magnet-" + rand.Text() + ".part"
-	file, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	return &fileStorage{name: name, file: file, writeError: make(chan error, 1)}, nil
+// StagedPayload stays open until the torrent has stopped all payload access.
+type StagedPayload interface {
+	storage.ClientImpl
+	Recheck() bool
+	WriteErrors() <-chan error
+	Checkpoint() error
+	Close() error
 }
+
+func NewFileStorage(file *os.File, recheck bool) StagedPayload {
+	return &fileStorage{file: file, recheck: recheck, writeError: make(chan error, 1)}
+}
+
+func (s *fileStorage) Recheck() bool             { return s.recheck }
+func (s *fileStorage) WriteErrors() <-chan error { return s.writeError }
+func (s *fileStorage) Checkpoint() error         { return s.file.Sync() }
+func (s *fileStorage) Close() error              { return s.file.Close() }
 
 func (s *fileStorage) OpenTorrent(_ context.Context, info *metainfo.Info, _ metainfo.Hash) (storage.TorrentImpl, error) {
 	if s.file == nil {

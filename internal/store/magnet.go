@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -44,4 +45,23 @@ func (s *SQLite) decodeMagnet(state, trackers string) (*download.Magnet, error) 
 		}
 	}
 	return &source, nil
+}
+
+// UpdateMagnetCheckpoint flushes the WAL before allowing a staged payload to
+// be written or moved. Its connection is reserved until NORMAL is restored.
+func (s *SQLite) UpdateMagnetCheckpoint(ctx context.Context, item download.Item) error {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "PRAGMA synchronous=FULL"); err != nil {
+		return err
+	}
+	defer conn.ExecContext(context.Background(), "PRAGMA synchronous=NORMAL")
+	var metadata []byte
+	if item.Magnet != nil {
+		metadata = item.Magnet.Metadata
+	}
+	return s.update(ctx, conn, item, nil, nil, metadata)
 }

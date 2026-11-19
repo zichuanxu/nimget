@@ -1,11 +1,11 @@
 package magnet
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
 	"log/slog"
-	"os"
 	"sync"
 	"time"
 
@@ -66,9 +66,9 @@ func (r *Runner) release() {
 // output before storage is opened. publish runs with payload handles closed
 // and the torrent disconnected.
 func (r *Runner) Run(ctx context.Context, source download.Magnet,
-	prepare func(name string, total int64) (*os.Root, error),
+	prepare func(info *metainfo.Info, metadata []byte) (StagedPayload, error),
 	report func(download.Phase, download.Progress),
-	publish func(root *os.Root, staged string) error,
+	publish func() error,
 ) error {
 	if len(source.Trackers) == 0 {
 		return errors.New("tracker information is unavailable; remove this task and add the magnet again")
@@ -89,11 +89,11 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	tor, added, err := client.AddTorrentSpec(&torrent.TorrentSpec{
-		AddTorrentOpts: torrent.AddTorrentOpts{
-			InfoHash: hash, DeferStorageOpen: true, DisableInitialPieceCheck: true,
-		},
-	})
+	spec, err := resumeSpec(hash, source.Metadata)
+	if err != nil {
+		return err
+	}
+	tor, added, err := client.AddTorrentSpec(spec)
 	if err != nil {
 		return errors.New("could not start peer discovery for the magnet")
 	}
@@ -102,20 +102,12 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	}
 	tor.DisallowDataDownload()
 	tor.DisallowDataUpload()
-	var root *os.Root
-	var staged *fileStorage
 	stopDiscovery := discover(ctx, client, tor, source.Trackers)
-	defer func() {
+	stop := sync.OnceFunc(func() {
 		stopDiscovery()
 		tor.Drop()
-		if staged != nil {
-			_ = staged.file.Close()
-			_ = root.Remove(staged.name)
-		}
-		if root != nil {
-			_ = root.Close()
-		}
-	}()
+	})
+	defer stop()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -131,31 +123,72 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	if info.SymlinkPath != nil || info.Attr != "" && info.Attr != "x" {
 		return errors.New("torrent metadata does not describe a regular file")
 	}
-	root, err = prepare(info.BestName(), info.Length)
+	meta := tor.Metainfo()
+	var encoded bytes.Buffer
+	if err := (&metainfo.MetaInfo{InfoBytes: meta.InfoBytes, PieceLayers: meta.PieceLayers}).Write(&encoded); err != nil {
+		return errors.New("could not save verified torrent metadata")
+	}
+	staged, err := prepare(info, encoded.Bytes())
 	if err != nil {
 		return err
 	}
-	staged, err = newStagedFile(root)
-	if err != nil {
-		return err
+	var transferErr error
+	switch {
+	case ctx.Err() != nil:
+		transferErr = ctx.Err()
+	default:
+		transferErr = downloadPayload(ctx, tor, info, staged, report)
 	}
-	if err := tor.OpenStorage(ctx, staged); err != nil {
-		return errors.New("could not open the staged torrent file")
+	stop()
+	if err := errors.Join(staged.Checkpoint(), staged.Close()); err != nil {
+		return errors.Join(transferErr, err)
 	}
-	tor.AllowDataDownload()
-	tor.DownloadAll()
-	if err := transfer(ctx, tor, info, staged.writeError, report); err != nil {
-		return err
-	}
-	stopDiscovery()
-	tor.Drop()
-	if err := errors.Join(staged.file.Sync(), staged.file.Close()); err != nil {
-		return err
+	if transferErr != nil {
+		return transferErr
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return publish(root, staged.name)
+	return publish()
+}
+
+func resumeSpec(hash metainfo.Hash, metadata []byte) (*torrent.TorrentSpec, error) {
+	spec := &torrent.TorrentSpec{}
+	if len(metadata) != 0 {
+		saved, err := metainfo.Load(bytes.NewReader(metadata))
+		if err != nil || saved.HashInfoBytes() != hash {
+			return nil, errors.New("saved torrent metadata does not match its identity")
+		}
+		if len(saved.PieceLayers) == 0 {
+			saved.PieceLayers = nil
+		}
+		spec, err = torrent.TorrentSpecFromMetaInfoErr(saved)
+		if err != nil {
+			return nil, errors.New("saved torrent metadata is invalid")
+		}
+	}
+	spec.InfoHash = hash
+	spec.DeferStorageOpen = true
+	spec.DisableInitialPieceCheck = true
+	return spec, nil
+}
+
+func downloadPayload(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, staged StagedPayload, report func(download.Phase, download.Progress)) error {
+	if err := tor.OpenStorage(ctx, staged); err != nil {
+		return errors.New("could not open the staged torrent payload")
+	}
+	defer func() {
+		report(download.PhaseTransferring, download.Progress{Completed: verifiedBytes(tor, info), Total: info.Length})
+	}()
+	if staged.Recheck() {
+		if err := tor.VerifyDataContext(ctx); err != nil {
+			return err
+		}
+		report(download.PhaseWaitingPeers, download.Progress{Completed: verifiedBytes(tor, info), Total: info.Length})
+	}
+	tor.AllowDataDownload()
+	tor.DownloadAll()
+	return transfer(ctx, tor, info, staged.WriteErrors(), report)
 }
 
 func transfer(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, writeError <-chan error, report func(download.Phase, download.Progress)) error {

@@ -21,6 +21,7 @@ import (
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
+	"golang.org/x/time/rate"
 )
 
 func TestTrackedMagnetPublishesVerifiedBytesAtFreeDestination(t *testing.T) {
@@ -115,6 +116,12 @@ func TestPrivateMagnetFailsWithoutOpeningPayloadStorage(t *testing.T) {
 
 func trackedMagnetFixture(t *testing.T, name string, payload []byte, private bool) string {
 	t.Helper()
+	link, _ := trackedMagnetPeer(t, name, payload, private, nil)
+	return link
+}
+
+func trackedMagnetPeer(t *testing.T, name string, payload []byte, private bool, limit *rate.Limiter) (string, *torrent.Torrent) {
+	t.Helper()
 	seedDir := t.TempDir()
 	source := filepath.Join(seedDir, name)
 	if err := os.WriteFile(source, payload, 0o600); err != nil {
@@ -134,6 +141,9 @@ func trackedMagnetFixture(t *testing.T, name string, payload []byte, private boo
 	seedConfig.NoDHT, seedConfig.NoDefaultPortForwarding, seedConfig.DisableUTP, seedConfig.DisableIPv6 = true, true, true, true
 	seedConfig.DisableTrackers = true
 	seedConfig.Seed = true
+	if limit != nil {
+		seedConfig.UploadRateLimiter = limit
+	}
 	seedConfig.Slogger = slog.New(slog.DiscardHandler)
 	seed, err := torrent.NewClient(seedConfig)
 	if err != nil {
@@ -162,7 +172,7 @@ func trackedMagnetFixture(t *testing.T, name string, payload []byte, private boo
 		_, _ = w.Write(announce)
 	}))
 	t.Cleanup(tracker.Close)
-	return fmt.Sprintf("magnet:?xt=urn:btih:%s&dn=fallback&tr=%s", ti.HashInfoBytes().HexString(), url.QueryEscape(tracker.URL+"/announce/secret-path?passkey=test-only"))
+	return fmt.Sprintf("magnet:?xt=urn:btih:%s&dn=fallback&tr=%s", ti.HashInfoBytes().HexString(), url.QueryEscape(tracker.URL+"/announce/secret-path?passkey=test-only")), seeder
 }
 
 func waitForMagnetTask(t *testing.T, ctx context.Context, list func() ([]download.Item, error), id string) download.Item {

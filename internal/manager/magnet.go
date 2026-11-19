@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -12,8 +13,10 @@ import (
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/magnet"
 	"github.com/amemiya02/nimget/internal/netproxy"
+	"github.com/amemiya02/nimget/internal/partialfile"
 	"github.com/amemiya02/nimget/internal/quarantine"
 	"github.com/amemiya02/nimget/internal/settings"
+	"github.com/anacrolix/torrent/metainfo"
 )
 
 func (m *Manager) addMagnet(ctx context.Context, req download.Request) (download.Item, error) {
@@ -104,7 +107,7 @@ func (m *Manager) startMagnet(ctx context.Context, item download.Item, s setting
 	item.Status, item.Phase = download.StatusRunning, download.PhaseMetadata
 	item.UpdatedAt = now.UTC()
 	item.Error, item.Failure = "", ""
-	item.Completed, item.Total = 0, -1
+	item.Completed = 0
 	if err := m.repo.Update(ctx, item); err != nil {
 		return err
 	}
@@ -127,60 +130,126 @@ func (m *Manager) runMagnet(ctx context.Context, j *job, item download.Item) {
 	if item.Magnet == nil {
 		runErr = errors.New("saved magnet download is missing its source")
 	} else {
+		var root *os.Root
 		runErr = m.magnets.Run(ctx, *item.Magnet,
-			func(metadataName string, total int64) (*os.Root, error) {
-				name = sanitizeFilename(metadataName)
+			func(info *metainfo.Info, metadata []byte) (magnet.StagedPayload, error) {
+				name = sanitizeFilename(info.BestName())
 				if name == "" {
 					name = item.Magnet.V1
 				}
-				return m.prepareMagnet(ctx, j, name, total)
+				dir, payload, err := m.prepareMagnet(ctx, j, name, info.Length, metadata)
+				root = dir
+				return payload, err
 			},
 			func(phase download.Phase, progress download.Progress) {
 				m.reportMagnet(ctx, j, phase, progress)
 			},
-			func(root *os.Root, staged string) error {
-				return m.publishMagnet(ctx, j, root, staged, name)
+			func() error {
+				return m.publishMagnet(ctx, j, root, name)
 			})
+		if root != nil {
+			_ = root.Close()
+		}
 	}
 	canceled := ctx.Err() != nil
 	j.cancel()
 	m.finish(j, runErr, canceled)
 }
 
-func (m *Manager) prepareMagnet(ctx context.Context, j *job, name string, total int64) (*os.Root, error) {
+func (m *Manager) prepareMagnet(ctx context.Context, j *job, name string, total int64, metadata []byte) (*os.Root, magnet.StagedPayload, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	item := j.item
+	source := *item.Magnet
+	item.Magnet = &source
 	dir, err := m.confineMagnetDirectory(item.Directory)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+	if source.Stage == nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, nil, err
+		}
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	item.Destination, err = m.reserveMagnetDestination(ctx, item.ID, dir, name)
+	file, stage, fresh, err := openMagnetStage(root, source.Stage)
+	if err != nil {
+		root.Close()
+		return nil, nil, err
+	}
+	source.Stage, source.Metadata = stage, metadata
+	if item.Destination == "" {
+		item.Destination, err = m.reserveMagnetDestination(ctx, item.ID, dir, name)
+	}
 	if err == nil {
 		item.Name = filepath.Base(item.Destination)
 		item.Total = total
 		item.Phase = download.PhaseWaitingPeers
 		item.UpdatedAt = m.opts.Now().UTC()
-		err = m.repo.Update(ctx, item)
+		err = m.saveMagnetCheckpoint(ctx, item)
 	}
 	if err != nil {
-		_ = root.Close()
-		return nil, err
+		file.Close()
+		if fresh {
+			_ = root.Remove(stage.Name)
+		}
+		root.Close()
+		return nil, nil, err
 	}
+	source.Metadata = nil
 	j.item = item
 	j.total.Store(total)
 	m.publish(download.EventUpdated, item)
-	return root, nil
+	return root, magnet.NewFileStorage(file, !fresh), nil
+}
+
+func openMagnetStage(root *os.Root, stage *download.MagnetObject) (*os.File, *download.MagnetObject, bool, error) {
+	rootID, err := partialfile.RootIdentity(root)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if stage != nil {
+		if rootID != stage.RootID {
+			return nil, nil, false, errors.New("the magnet save directory changed; restore it and retry")
+		}
+		file, object, err := partialfile.OpenRooted(root, stage.Name, true, false)
+		if err == nil {
+			if object.ID != stage.ID {
+				file.Close()
+				return nil, nil, false, errors.New("the staged magnet file was replaced; move the replacement aside and retry")
+			}
+			return file, stage, false, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, nil, false, err
+		}
+	}
+	name := ".nimget-magnet-" + rand.Text() + ".part"
+	file, object, err := partialfile.OpenRooted(root, name, true, true)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if err := partialfile.SyncRoot(root); err != nil {
+		file.Close()
+		_ = root.Remove(name)
+		return nil, nil, false, err
+	}
+	return file, &download.MagnetObject{RootID: rootID, Name: name, ID: object.ID}, true, nil
+}
+
+func (m *Manager) saveMagnetCheckpoint(ctx context.Context, item download.Item) error {
+	if repo, ok := m.repo.(interface {
+		UpdateMagnetCheckpoint(context.Context, download.Item) error
+	}); ok {
+		return repo.UpdateMagnetCheckpoint(ctx, item)
+	}
+	return m.repo.Update(ctx, item)
 }
 
 // reserveMagnetDestination is called under the manager lock so a web download
@@ -225,7 +294,7 @@ func (m *Manager) reportMagnet(ctx context.Context, j *job, phase download.Phase
 	}
 }
 
-func (m *Manager) publishMagnet(ctx context.Context, j *job, root *os.Root, staged, name string) error {
+func (m *Manager) publishMagnet(ctx context.Context, j *job, root *os.Root, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -247,6 +316,7 @@ func (m *Manager) publishMagnet(ctx context.Context, j *job, root *os.Root, stag
 	if err != nil || !os.SameFile(originalDir, currentDir) {
 		return errors.New("the magnet save directory changed during transfer")
 	}
+	staged := item.Magnet.Stage.Name
 	if err := quarantine.Mark(filepath.Join(dir, staged), item.URL); err != nil {
 		return fmt.Errorf("quarantine verified torrent file: %w", err)
 	}
@@ -268,7 +338,7 @@ func (m *Manager) publishMagnet(ctx context.Context, j *job, root *os.Root, stag
 		} else if err != nil {
 			return fmt.Errorf("publish verified torrent file: %w", err)
 		}
-		return nil
+		return root.Remove(staged)
 	}
 	return errors.New("could not find a free destination for the magnet")
 }

@@ -1,0 +1,97 @@
+package partialfile
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Object identifies a real file or directory by its identity on the current
+// volume. An occupied leaf that cannot be owned (such as a link) has no ID.
+type Object struct {
+	ID        string
+	Directory bool
+}
+
+func leafOK(name string) bool {
+	return name != "" && name != "." && name != ".." && filepath.IsLocal(name) &&
+		!strings.ContainsAny(name, "/\\:\x00")
+}
+
+// RootIdentity identifies the opened directory itself, even if its name changes.
+func RootIdentity(root *os.Root) (string, error) {
+	parent, err := root.Open(".")
+	if err != nil {
+		return "", err
+	}
+	defer parent.Close()
+	object, err := handleIdentity(parent)
+	if err == nil && (!object.Directory || object.ID == "") {
+		return "", errors.New("download directory identity is unavailable")
+	}
+	return object.ID, err
+}
+
+// InspectRooted checks a single leaf without following links.
+func InspectRooted(root *os.Root, name string) (Object, error) {
+	if !leafOK(name) {
+		return Object{}, Collision("invalid leaf name")
+	}
+	parent, err := root.Open(".")
+	if err != nil {
+		return Object{}, err
+	}
+	defer parent.Close()
+	return inspectRooted(parent, name)
+}
+
+// OpenRooted opens a regular partial file without following links under the
+// opened directory. The handle pins writes to the same object that was checked.
+func OpenRooted(root *os.Root, name string, writable, create bool) (*os.File, Object, error) {
+	if !leafOK(name) {
+		return nil, Object{}, Collision("invalid leaf name")
+	}
+	parent, err := root.Open(".")
+	if err != nil {
+		return nil, Object{}, err
+	}
+	defer parent.Close()
+	file, err := openRooted(parent, name, writable, create)
+	if err != nil {
+		return nil, Object{}, err
+	}
+	if err := validate(file); err != nil {
+		file.Close()
+		return nil, Object{}, err
+	}
+	object, err := handleIdentity(file)
+	if err != nil || object.ID == "" || object.Directory {
+		file.Close()
+		return nil, Object{}, errors.Join(Collision("file identity is unavailable"), err)
+	}
+	return file, object, nil
+}
+
+// MoveRooted publishes a file or directory to an absent leaf on the same
+// volume. Both leaf names are relative to the same opened directory.
+func MoveRooted(root *os.Root, source, dest string, expected Object) error {
+	if !leafOK(source) || !leafOK(dest) || expected.ID == "" {
+		return Collision("invalid publication source or destination")
+	}
+	parent, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	return moveRooted(parent, source, dest, expected)
+}
+
+func SyncRoot(root *os.Root) error {
+	parent, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	return syncRoot(parent)
+}

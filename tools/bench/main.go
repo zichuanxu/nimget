@@ -1,8 +1,8 @@
 //go:build unix || windows
 
-// Command bench measures nimget against aria2c on a local server that caps
-// each connection's bandwidth, as CDNs do, and checks the M1 performance gate
-// in DESIGN.md section 8:
+// Command bench measures HTTP downloads against a loopback server. With
+// -curl, it reports medians for NimGet, aria2 and curl. The default comparison
+// checks the M1 performance gate in DESIGN.md section 8:
 //
 //	throughput >= 95% of aria2c, < 1 CPU core at 1 Gbps, RSS < 100 MB
 //
@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -46,32 +47,54 @@ func (r result) coresAt1Gbps() float64 {
 func main() {
 	nimget := flag.String("nimget", "./nimget", "path to the nimget binary")
 	aria := flag.String("aria2c", "aria2c", "path to aria2c; skipped when missing")
-	sizeMiB := flag.Int("size", 256, "throttled file size in MiB")
+	curl := flag.String("curl", "", "path to curl; run the three-client comparison when set")
+	baseline := flag.String("baseline", "", "optional earlier NimGet binary for the three-client comparison")
+	rounds := flag.Int("rounds", 5, "rounds in the three-client comparison")
+	ariaConns := flag.Int("aria-connections", 0, "aria2 connections in comparison mode (default: match NimGet up to 16)")
+	sizeMiB := flag.Int("size", 256, "file size in MiB for the capped test or three-client comparison")
 	rawMiB := flag.Int("raw-size", 512, "unthrottled file size in MiB")
 	rate := flag.Float64("rate", 4, "per-connection cap in MiB/s")
 	latency := flag.Duration("latency", 0, "response delay on the throttled server")
-	conns := flag.Int("connections", 16, "connections for both tools")
+	noRanges := flag.Bool("no-ranges", false, "serve full responses even when a client requests a byte range")
+	conns := flag.Int("connections", 16, "NimGet connections, also used for aria2 unless overridden in comparison mode")
 	gate := flag.Bool("gate", false, "exit non-zero when the gate fails")
 	serveSize := flag.Int("serve", 0, "serve this many MiB on loopback and print the URL and SHA-256")
 	flag.Parse()
 	if *serveSize > 0 {
-		src := serve(randomData(*serveSize<<20), *rate*(1<<20), *latency)
+		src := serve(randomData(*serveSize<<20), *rate*(1<<20), *latency, *noRanges)
 		fmt.Printf("%s %x\n", src.url, src.sum)
 		_, _ = io.Copy(io.Discard, os.Stdin) // exit with the parent, however it ends
+		return
+	}
+	if *curl != "" {
+		if *gate || *rounds < 1 || *sizeMiB < 1 {
+			check(errors.New("the three-client comparison requires a positive size and round count and runs separately from -gate"))
+		}
+		if *ariaConns == 0 {
+			*ariaConns = min(*conns, 16)
+		}
+		for _, bin := range []string{*nimget, *aria, *curl} {
+			_, err := exec.LookPath(bin)
+			check(err)
+		}
+		if *baseline != "" {
+			_, err := exec.LookPath(*baseline)
+			check(err)
+		}
+		src := spawnServer(*sizeMiB, *rate, *latency, *noRanges)
+		compareClients(src, *nimget, *aria, *curl, *baseline, *conns, *ariaConns, *rounds)
 		return
 	}
 	if *gate && !hasPeakRSS {
 		check(fmt.Errorf("the performance gate requires peak RSS measurements, which are unavailable on this platform"))
 	}
 
-	dir, err := os.MkdirTemp("", "nimget-bench-")
-	check(err)
-	defer os.RemoveAll(dir)
+	dir := os.TempDir()
 
 	// Servers run in child processes: on Linux a child's max RSS includes the
 	// memory it shared with its parent before exec, so the parent stays small.
-	throttled := spawnServer(*sizeMiB, *rate, *latency)
-	unthrottled := spawnServer(*rawMiB, 0, 0)
+	throttled := spawnServer(*sizeMiB, *rate, *latency, *noRanges)
+	unthrottled := spawnServer(*rawMiB, 0, 0, *noRanges)
 
 	// Each figure is the best of three runs, which keeps scheduler noise on
 	// shared CI runners out of the 95% comparison.
@@ -159,8 +182,9 @@ type source struct {
 // be finalized and the servers would exit early.
 var serverLifelines []io.WriteCloser
 
-func spawnServer(sizeMiB int, rate float64, latency time.Duration) source {
-	cmd := exec.Command(os.Args[0], "-serve", strconv.Itoa(sizeMiB), "-rate", strconv.FormatFloat(rate, 'f', -1, 64), "-latency", latency.String())
+func spawnServer(sizeMiB int, rate float64, latency time.Duration, noRanges bool) source {
+	cmd := exec.Command(os.Args[0], "-serve", strconv.Itoa(sizeMiB), "-rate", strconv.FormatFloat(rate, 'f', -1, 64),
+		"-latency", latency.String(), "-no-ranges="+strconv.FormatBool(noRanges))
 	stdout, err := cmd.StdoutPipe()
 	check(err)
 	stdin, err := cmd.StdinPipe()
@@ -189,18 +213,20 @@ func randomData(size int) []byte {
 	return data
 }
 
-// serve exposes data with ranges and a strong ETag. A positive rate caps
+// serve exposes data with a strong ETag. A positive rate caps
 // every response at that many bytes per second.
-func serve(data []byte, rate float64, latency time.Duration) source {
+func serve(data []byte, rate float64, latency time.Duration, noRanges bool) source {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	check(err)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(latency)
 		w.Header().Set("ETag", `"bench-v1"`)
-		w.Header().Set("Accept-Ranges", "bytes")
+		if !noRanges {
+			w.Header().Set("Accept-Ranges", "bytes")
+		}
 		start, end := 0, len(data)-1
 		status := http.StatusOK
-		if spec, ok := strings.CutPrefix(r.Header.Get("Range"), "bytes="); ok {
+		if spec, ok := strings.CutPrefix(r.Header.Get("Range"), "bytes="); ok && !noRanges {
 			first, last, _ := strings.Cut(spec, "-")
 			start, _ = strconv.Atoi(first)
 			if last != "" {
@@ -236,25 +262,38 @@ func serve(data []byte, rate float64, latency time.Duration) source {
 }
 
 func runNimget(bin string, src source, dir, name string, conns int) result {
-	out := filepath.Join(dir, strings.NewReplacer(" ", "-", "(", "", ")", "").Replace(name))
-	return measure(name, src, out, exec.Command(bin, "download", "--connections", strconv.Itoa(conns), src.url, out))
+	return mustMeasure(name, src, dir, func(out string) *exec.Cmd {
+		return exec.Command(bin, "download", "--connections", strconv.Itoa(conns), src.url, out)
+	})
 }
 
 func runAria(bin string, src source, dir, name string, conns int) result {
-	out := filepath.Join(dir, strings.NewReplacer(" ", "-", "(", "", ")", "").Replace(name))
 	n := strconv.Itoa(conns)
-	return measure(name, src, out, exec.Command(bin, "-x"+n, "-s"+n, "-k1M", "--file-allocation=none",
-		"--allow-overwrite=true", "--console-log-level=warn", "--summary-interval=0",
-		"-d", filepath.Dir(out), "-o", filepath.Base(out), src.url))
+	return mustMeasure(name, src, dir, func(out string) *exec.Cmd {
+		return exec.Command(bin, "--no-conf", "--no-proxy=127.0.0.1", "-x"+n, "-s"+n, "-k1M", "--file-allocation=none",
+			"--console-log-level=warn", "--summary-interval=0", "-d", filepath.Dir(out), "-o", filepath.Base(out), src.url)
+	})
 }
 
-func measure(name string, src source, out string, cmd *exec.Cmd) result {
+func mustMeasure(name string, src source, dir string, command func(string) *exec.Cmd) result {
+	r, err := measure(name, src, dir, command)
+	check(err)
+	return r
+}
+
+func measure(name string, src source, dir string, command func(string) *exec.Cmd) (_ result, err error) {
+	sampleDir, err := os.MkdirTemp(dir, "nimget-bench-download-")
+	if err != nil {
+		return result{}, err
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(sampleDir)) }()
+	out := filepath.Join(sampleDir, "download.bin")
+	cmd := command(out)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	began := time.Now()
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s failed: %v\n%s", name, err, stderr.String())
-		os.Exit(1)
+		return result{}, fmt.Errorf("%s failed: %w\n%s", name, err, stderr.String())
 	}
 	r := result{
 		name: name, wall: time.Since(began), bytes: src.size,
@@ -262,8 +301,7 @@ func measure(name string, src source, out string, cmd *exec.Cmd) result {
 		maxRSS: peakRSS(cmd.ProcessState),
 	}
 	r.correct = fileSum(out) == src.sum
-	_ = os.Remove(out)
-	return r
+	return r, nil
 }
 
 // fileSum streams the file: reading it whole would grow this process, and on

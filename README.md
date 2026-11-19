@@ -11,6 +11,12 @@ NimGet is a lightweight, open-source download manager built in Go for macOS and 
 - Desktop app: tray icon, notifications, drag and drop, cURL import, clipboard monitor, batch URLs, sleep or shut down when done; English and Simplified Chinese, light and dark themes.
 - Chrome and Edge extension with [automatic download capture, manual handoff, and website sessions](docs/browser-handoff.md).
 
+## Download benchmark
+
+On Windows 11, NimGet finished a 512 MiB download from an uncapped loopback server in **1.24 s** median across five runs. Windows curl took **6.14 s** and aria2 took **3.97 s**. NimGet used 8 connections and aria2 used 16.
+
+With a 64 MiB fixture capped at 4 MiB/s per connection and a 350 ms response delay, the five-run medians were **3.52 s** for NimGet, **16.39 s** for curl, and **4.11 s** for aria2. NimGet and aria2 each used 6 connections. [Benchmark settings and reproduction commands](docs/http-benchmarks.md#three-client-benchmark)
+
 ## Install on Windows
 
 The [Windows release guide](docs/windows-release.md) covers the x64 installer, matching Chrome and Edge extension archive, and SHA-256 checksums. See the [Windows installation guide](docs/windows-installer.md) for WebView2, upgrades, and uninstall. Follow the [extension pairing guide](docs/browser-pairing.md) for browser setup.
@@ -91,7 +97,7 @@ internal/curlimport/  "Copy as cURL" parser
 internal/api/         Authenticated loopback JSON and SSE API
 internal/client/      Service client
 internal/service/     Service composition, lifecycle, paths, and token
-tools/bench/          Performance gate against aria2c
+tools/bench/          HTTP comparison with curl and aria2c, plus the CI performance gate
 docs/                 Source startup guide, usage reference, desktop checklist
 app/                  Desktop app (Wails v3 module): bindings, tray, React frontend
 DESIGN.md             Design contract and M0–M6 roadmap

@@ -1,5 +1,48 @@
 # HTTP download benchmarks on Windows
 
+## Three-client benchmark
+
+On Windows 11 build 26200 with an Intel Core i9-13900H and an NTFS SSD, NimGet completed the uncapped 512 MiB loopback download faster than Windows curl 8.22.0 and aria2 1.37.0 in all five rounds. All clients wrote to the same volume on the same machine. The tools ran one at a time in rotating order. Timing covers process start through completion, followed by SHA-256 verification and immediate removal of the output and any sidecars.
+
+| 512 MiB uncapped loopback | Connections | Median time | Median MiB/s | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| NimGet | 8 | 1.24 s | 412.51 | 5/5 |
+| Windows curl | 1 | 6.14 s | 83.35 | 5/5 |
+| aria2 | 16 | 3.97 s | 129.12 | 5/5 |
+
+NimGet also finished first in all five rounds with a 64 MiB fixture capped at 4 MiB/s per connection and a 350 ms delay before each response. NimGet and aria2 used the same six-connection setting.
+
+| 64 MiB capped and delayed loopback | Connections | Median time | Median MiB/s | SHA-256 |
+| --- | ---: | ---: | ---: | --- |
+| NimGet | 6 | 3.52 s | 18.16 | 5/5 |
+| Windows curl | 1 | 16.39 s | 3.91 | 5/5 |
+| aria2 | 6 | 4.11 s | 15.59 | 5/5 |
+
+In a separate loopback test, the server ignored Range and waited 250 ms before responding with a 16 MiB file. Reusing the complete probe response reduced NimGet's median time from 0.73 s at commit `9e7a018` to 0.43 s, about 41% less time over seven rounds. The engine reads the response it already has, saving a GET. aria2 also hands the received response to its download command after processing the headers. [aria2 HTTP response handling](https://github.com/aria2/aria2/blob/release-1.37.0/src/HttpResponseCommand.cc)
+
+| 16 MiB, no Range, 250 ms response delay | Median time | Median MiB/s | SHA-256 |
+| --- | ---: | ---: | --- |
+| NimGet baseline | 0.73 s | 22.02 | 7/7 |
+| NimGet | 0.43 s | 37.36 | 7/7 |
+| Windows curl | 0.38 s | 42.56 | 7/7 |
+| aria2 | 0.45 s | 35.29 | 7/7 |
+
+Build and run the comparison from the repository root in PowerShell. Set `$aria` to the installed [aria2c executable](https://github.com/aria2/aria2/releases/tag/release-1.37.0).
+
+```powershell
+$nimget = Join-Path $env:TEMP 'nimget-current.exe'
+$bench = Join-Path $env:TEMP 'nimget-bench.exe'
+$curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+go build -trimpath -o $nimget ./cmd/nimget
+go build -o $bench ./tools/bench
+& $bench -nimget $nimget -aria2c $aria -curl $curl -size 512 -rate 0 -connections 8 -aria-connections 16 -rounds 5
+& $bench -nimget $nimget -aria2c $aria -curl $curl -size 64 -rate 4 -latency 350ms -connections 6 -rounds 5
+```
+
+For the single-connection scenario, use `-size 16 -rate 0 -latency 250ms -no-ranges -connections 1 -rounds 7`. Pass an executable built from commit `9e7a018` with `-baseline` to reproduce the before-and-after comparison. aria2 uses `-k1M`, `--file-allocation=none`, and its default disk cache. These figures measure local loopback performance. The public HTTPS measurements below show how results vary by source.
+
+## Earlier Windows measurements
+
 Measured on November 19, 2026, on Windows 11 build 26200, an Intel Core i9-13900H, Wi-Fi, and an NTFS SSD. The v1.4.4 baseline used the same source tree as tag `v1.4.4`, built with Go 1.27.4. The updated build includes the initial range balancing change. Tests used Windows curl 8.22.0, Microsoft Edge 157.0.4341.60, and aria2 1.37.0. [Windows curl](https://learn.microsoft.com/en-us/windows/curl/) · [aria2 release](https://github.com/aria2/aria2/releases/tag/release-1.37.0)
 
 Complete-file tests timed the download and verified the output size and SHA-256 after timing. Clients wrote to fresh files on the same volume and took turns in each comparison. Some loopback tests ran during public HTTPS tests and shared the same machine and disk. Edge used its built-in downloader in a fresh, already-launched profile. aria2 used `--file-allocation=none` and, for multi-connection runs, matching `-x` and `-s` values with `-k1M`. Public HTTPS results reflect this machine, network, and the tested sources.

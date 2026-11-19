@@ -63,11 +63,7 @@ func TestTrackedMagnetPublishesVerifiedBytesAtFreeDestination(t *testing.T) {
 	if done.Status != download.StatusCompleted || done.Completed != int64(len(payload)) || done.Total != done.Completed {
 		t.Fatalf("expected verified completion at %s: %+v", want, done)
 	}
-	wantFile, wantErr := os.Stat(want)
-	gotFile, gotErr := os.Stat(done.Destination)
-	if wantErr != nil || gotErr != nil || !os.SameFile(wantFile, gotFile) || filepath.Base(done.Destination) != filepath.Base(want) {
-		t.Fatalf("destination = %q; want %q (%v, %v)", done.Destination, want, gotErr, wantErr)
-	}
+	assertMagnetOutputPath(t, want, done.Destination)
 	got, err := os.ReadFile(want)
 	if err != nil || !bytes.Equal(got, payload) {
 		t.Fatalf("fixture output mismatch: %d bytes, %v", len(got), err)
@@ -214,6 +210,15 @@ func waitForMagnetTask(t *testing.T, ctx context.Context, list func() ([]downloa
 			t.Fatalf("torrent task %s did not finish: %+v", id, last)
 		case <-tick.C:
 		}
+	}
+}
+
+func assertMagnetOutputPath(t *testing.T, want, got string) {
+	t.Helper()
+	wantFile, wantErr := os.Stat(want)
+	gotFile, gotErr := os.Stat(got)
+	if wantErr != nil || gotErr != nil || !os.SameFile(wantFile, gotFile) || filepath.Base(got) != filepath.Base(want) {
+		t.Fatalf("destination = %q; want %q (%v, %v)", got, want, gotErr, wantErr)
 	}
 }
 

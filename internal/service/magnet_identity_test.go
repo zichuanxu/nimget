@@ -147,7 +147,7 @@ func TestHybridMagnetReconcilesRunningAliasesAndCanBeDownloadedAgain(t *testing.
 	})
 	for _, topic := range []string{fixture.v1, fixture.v2, fixture.v1 + "&xt=" + fixture.v2} {
 		match, err := c.Add(ctx, download.Request{URL: fixture.link(topic) + "&dn=another", Directory: otherDir})
-		if err != nil || match.ID != owner.ID || match.Directory != dir || match.Destination != active.Destination || match.Completed < active.Completed {
+		if err != nil || match.ID != owner.ID || match.Directory != owner.Directory || match.Destination != active.Destination || match.Completed < active.Completed {
 			t.Fatalf("repeat submission lost the active owner or its progress: %+v, %v", match, err)
 		}
 	}
@@ -249,9 +249,10 @@ func waitForMagnetState(t *testing.T, ctx context.Context, list func() ([]downlo
 
 func assertMagnetPayload(t *testing.T, item download.Item, destination string, payload []byte) {
 	t.Helper()
-	if item.Status != download.StatusCompleted || item.Destination != destination || item.Completed != int64(len(payload)) || item.Total != item.Completed {
+	if item.Status != download.StatusCompleted || item.Completed != int64(len(payload)) || item.Total != item.Completed {
 		t.Fatalf("expected verified torrent at %q: %+v", destination, item)
 	}
+	assertMagnetOutputPath(t, destination, item.Destination)
 	got, err := os.ReadFile(destination)
 	if err != nil || !bytes.Equal(got, payload) {
 		t.Fatalf("torrent output mismatch: %d bytes, %v", len(got), err)

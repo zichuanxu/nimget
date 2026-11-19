@@ -7,10 +7,18 @@
 <p align="center">An open-source download manager for Windows and macOS, with a CLI and headless queue that also run on Linux.</p>
 
 <p align="center">
+  <a href="https://github.com/amemiya02/nimget/releases/latest"><img src="https://img.shields.io/github/v/release/amemiya02/nimget?label=release" alt="Latest release"></a>
+  <a href="https://github.com/amemiya02/nimget/actions/workflows/ci.yml"><img src="https://github.com/amemiya02/nimget/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status on main"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 license"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/amemiya02/nimget/releases/latest"><strong>Download NimGet</strong></a>
   · <a href="#benchmarks">Benchmarks</a>
   · <a href="docs/usage.md">Documentation</a>
 </p>
+
+<p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
 
 ![NimGet desktop queue on Windows with example downloads](docs/assets/nimget-desktop.png)
 

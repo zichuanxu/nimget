@@ -1,6 +1,6 @@
 # nimget — Design Contract
 
-**`github.com/amemiya02/nimget`** · Apache-2.0 · Go 1.25 · open source, free
+**`github.com/amemiya02/nimget`** · Apache-2.0 · Go 1.27 · open source, free
 
 A cross-platform download manager with a desktop GUI and CLI. A paired Chrome or Edge
 extension can send downloads to the desktop app.
@@ -232,6 +232,110 @@ ffmpeg -i in.ts -c copy -movflags +faststart out.mp4
 
 It runs as a child process, so failures stay isolated. Without ffmpeg the `.ts` file is
 the final output. No LGPL obligations arise because nothing is redistributed.
+
+### 3.11 Magnet downloads (planned)
+
+The first release accepts `magnet:` links in the desktop New Download dialog and
+through `nimget add`. Both entry points submit to the shared service queue.
+Browser handoff, OS link association, and `.torrent` import are follow-up work.
+
+Support public v1 (`btih`, including hex and base32), v2 (`btmh`), and hybrid links.
+Each magnet download retrieves all files in the torrent. A single-file torrent
+produces a file, and a multi-file torrent produces a task-owned directory. See
+[ADR 0001](docs/adr/0001-nimget-owns-magnet-downloads.md) for runtime ownership and
+[ADR 0002](docs/adr/0002-magnet-download-output.md) for output ownership.
+
+Allow rate-limited piece uploads while downloading. Once the verified output is
+in place, stop transfers for that torrent and complete the download task so the
+queue can run its normal completion actions.
+
+#### Task lifecycle and limits
+
+- Add validates the magnet and saves the task before attempting network discovery.
+  A magnet's display name is a hint. The verified torrent metadata supplies the
+  actual name, files, and total size. The task shows a phase while the total is
+  unknown, and reports verified payload bytes once downloading starts.
+- Keep the existing task statuses. A running magnet download occupies one queue
+  slot while resolving metadata, waiting for peers, or transferring. These are
+  distinct phases in the task details. A bounded wait without progress ends the
+  attempt with a retryable reason and releases the slot. Pause, retry, and service
+  shutdown retain verified metadata and resumable pieces.
+- A repeated add returns the existing unfinished task and preserves its destination
+  and progress. Use the full normalized hashes for lookup and reconcile hybrid
+  aliases when metadata is verified, before opening output storage. If two tasks
+  turn out to describe the same hybrid torrent, atomically assign the output
+  reservation to one task and finish the other as a duplicate with a reference to
+  the owner. See
+  [ADR 0003](docs/adr/0003-magnet-download-identity.md). A completed download can
+  be explicitly downloaded again to a free destination.
+- An effective manual or system proxy requires explicit user consent to direct
+  BitTorrent traffic. A task waiting for consent stays queued and uses no slot.
+  Check the policy before starting peer or tracker traffic and when settings change.
+  Consent belongs to the task, survives restart, and can be revoked. A task that
+  loses permission to connect checkpoints and returns to the queue to await consent.
+- BitTorrent payload reads share the existing global download rate budget and its
+  schedule. Use a separate global BitTorrent upload limit for piece exchanges.
+  Per-task BitTorrent rate limiting is follow-up work. HTTP headers, website sessions,
+  segment counts, and per-host connection limits apply to the HTTP-based sources.
+
+#### Engine and persistence
+
+- Route by source kind before HTTP inspection. Keep the manager as the owner of
+  queue policy, task IDs, and status transitions. An in-process runner uses one
+  BitTorrent client, opened on demand and closed when the last active magnet attempt
+  exits. The engine is based on `anacrolix/torrent` v1.63.0 with the upstream
+  pull request fix for empty files in v2 torrents. Its pinned revision
+  requires Go 1.27. See [ADR 0004](docs/adr/0004-bit-torrent-engine-in-service.md).
+- Persist magnet-specific state in SQLite under the existing task ID, including the
+  requested directory, hash claims and verified aliases, verified metadata, direct
+  consent, and output manifest. Use the HTTP-based source kind as the migration
+  default for existing tasks. Keep the staged piece state associated with the task
+  ID and verified torrent identity. After an interruption, verify pieces whose
+  saved completion state cannot be trusted.
+- Use trackers and DHT to find public peers, including DHT for trackerless magnets.
+  Validate discovery hints before use. Reject metadata marked private before
+  opening storage for the payload. Redact raw tracker URLs and credentials from logs
+  and task errors. Private-tracker workflows and credentials are follow-up work.
+
+#### Output publication and deletion
+
+The user picks a save directory when adding a link. Derive the final name from
+verified metadata, then reserve that path using the existing collision suffix for
+generated names. Check for overlaps between a reserved directory and other tasks'
+destinations. Validate the entire file manifest before opening staging storage,
+including paths that escape the staging root and names that collide on the target
+filesystem. Keep staging on the destination volume and scope all writes to it.
+
+When piece verification finishes, flush the output, apply the existing quarantine
+behavior to payload files, and close storage handles. Persist a pending publication
+record with the final path and staging object's filesystem identity. Move the output
+with a filesystem operation that fails if the target exists. If a new file takes
+the generated name, reserve another suffix and retry the move. If the filesystem
+cannot publish safely, keep staged data and show a retryable output error.
+
+On startup, reconcile pending publications before running or deleting those tasks.
+Retry the move if staging is intact. If the move already happened, check the saved
+identity at the final path before recording completion. If ownership is unclear,
+preserve the data and report the conflict. Open or reveal the result according to
+its output kind. Delete-with-files uses the saved manifest and ownership checks,
+preserving files the user added, replaced, or modified and removing only empty
+directories after cleanup.
+
+#### Acceptance checks
+
+- First verify the engine in the Windows and macOS desktop builds and the existing
+  headless cross-build matrix. Check delayed storage opening, piece verification,
+  and limiter behavior before pinning a dependency.
+- Use controlled BitTorrent fixtures to exercise v1, v2, and hybrid downloads,
+  both output kinds, duplicate adds and hybrid aliases, pause and restart recovery,
+  and verified output from both supported entry points.
+- Exercise timeout and retry with unavailable peers, mixed HTTP and BitTorrent queue
+  limits, trackerless discovery, private metadata rejection, zero task traffic while
+  blocked by proxy policy, consent revocation, and upload stopping on completion,
+  pause, or shutdown.
+- Exercise destination collisions, unsafe paths, interruption around output publication,
+  and safe deletion on the supported filesystems. Confirm that existing task data
+  migrates and HTTP-based tasks still follow their lifecycle through the shared queue.
 
 ---
 

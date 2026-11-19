@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,27 @@ const (
 type Config struct {
 	Mode Mode   `json:"mode,omitempty"`
 	URL  string `json:"url,omitempty"` // manual only: http://, https://, or socks5:// with optional user:pass@
+}
+
+// Effective reports whether direct network traffic must be blocked. BitTorrent
+// has no request URL to which the HTTP proxy's host bypass list can apply.
+func Effective(c Config) bool {
+	switch c.Mode {
+	case ModeNone:
+		return false
+	case "", ModeSystem:
+		if systemSettings() != nil {
+			return true
+		}
+		for _, key := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
+			if os.Getenv(key) != "" {
+				return true
+			}
+		}
+		return false
+	default:
+		return true
+	}
 }
 
 // Validate rejects unknown modes and malformed or unsupported manual URLs.

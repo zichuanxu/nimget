@@ -23,6 +23,7 @@ import (
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/engine"
 	"github.com/amemiya02/nimget/internal/logging"
+	"github.com/amemiya02/nimget/internal/magnet"
 	"github.com/amemiya02/nimget/internal/netproxy"
 	"github.com/amemiya02/nimget/internal/queuefile"
 	"github.com/amemiya02/nimget/internal/service"
@@ -175,7 +176,8 @@ func newAddCommand(cfg *cliConfig) *cobra.Command {
 		Use:   "add URL [OUTPUT]",
 		Short: "Queue a download in the service",
 		Long: "Queue a download in the service. Without OUTPUT the file name comes from the server\n" +
-			"and the file goes to --dir, or to a category folder under the download root.",
+			"and the file goes to --dir, or to a category folder under the download root.\n" +
+			"For a magnet link, use --dir to choose the save directory. The torrent names the output.",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := cfg.client()
@@ -225,7 +227,7 @@ func newAddCommand(cfg *cliConfig) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&isBatch, "batch", false, "treat URL as a pattern: [1-10], [01-10], [a-z], [0-100:5], {a,b}")
-	cmd.Flags().StringVar(&dir, "dir", "", "directory for a server-named file")
+	cmd.Flags().StringVar(&dir, "dir", "", "save directory for a web or magnet download")
 	cmd.Flags().StringVar(&priority, "priority", "normal", "low, normal, or high")
 	cmd.Flags().IntVar(&connections, "connections", 0, "connections, 1-32 (default: site or global setting)")
 	cmd.Flags().StringVar(&speed, "speed-limit", "0", "speed limit in bytes per second, with K, M, or G suffix; 0 for none")
@@ -333,10 +335,13 @@ func newImportCommand(cfg *cliConfig) *cobra.Command {
 			}
 			failed := 0
 			for i, req := range reqs {
-				if _, err := c.Add(cmd.Context(), req); err != nil {
-					failed++
-					reportRejectedEntry(cmd, i)
+				if !magnet.IsLink(strings.TrimSpace(req.URL)) {
+					if _, err := c.Add(cmd.Context(), req); err == nil {
+						continue
+					}
 				}
+				failed++
+				reportRejectedEntry(cmd, i)
 			}
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Added %d of %d downloads.\n", len(reqs)-failed, len(reqs)); err != nil {
 				return err
@@ -354,9 +359,10 @@ func newImportCommand(cfg *cliConfig) *cobra.Command {
 func newSetCommand(cfg *cliConfig) *cobra.Command {
 	var priority, speed string
 	var connections int
+	var allowDirect bool
 	cmd := &cobra.Command{
 		Use:   "set ID",
-		Short: "Change a download's priority, connections, or speed limit",
+		Short: "Change a download's options or direct BitTorrent consent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := cfg.client()
@@ -381,12 +387,16 @@ func newSetCommand(cfg *cliConfig) *cobra.Command {
 			if cmd.Flags().Changed("connections") {
 				patch.Connections = &connections
 			}
+			if cmd.Flags().Changed("allow-direct") {
+				patch.DirectConnectionAllowed = &allowDirect
+			}
 			return c.Update(cmd.Context(), args[0], patch)
 		},
 	}
 	cmd.Flags().StringVar(&priority, "priority", "", "low, normal, or high")
 	cmd.Flags().IntVar(&connections, "connections", 0, "connections, 1-32; 0 for the default")
 	cmd.Flags().StringVar(&speed, "speed-limit", "", "speed limit in bytes per second, with K, M, or G suffix; 0 for none")
+	cmd.Flags().BoolVar(&allowDirect, "allow-direct", false, "allow direct BitTorrent connections for this task while a proxy is active (use --allow-direct=false to revoke)")
 	return cmd
 }
 

@@ -136,6 +136,26 @@ func clashes(a, b string) bool {
 	return false
 }
 
+// A reservation owns its entire path. A second task cannot reserve an
+// ancestor or descendant, even when one save directory uses a symlink alias.
+func reservationsClash(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	overlaps := func(a, b string) bool {
+		return clashes(a, b) || within(a, b) || within(b, a)
+	}
+	return overlaps(a, b) || overlaps(reservationPath(a), reservationPath(b))
+}
+
+func reservationPath(path string) string {
+	parent, err := resolveExisting(filepath.Dir(path))
+	if err != nil {
+		return path
+	}
+	return filepath.Join(parent, filepath.Base(path))
+}
+
 // freeName returns dir/name, or "name (N).ext" when that path is taken by a
 // file, partial state, or another queued download. The caller holds the
 // manager lock, so two adds cannot pick the same name; the engine's

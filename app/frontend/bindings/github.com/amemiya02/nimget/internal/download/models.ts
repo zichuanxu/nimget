@@ -57,6 +57,12 @@ export enum Failure {
     FailureFilesystemPermission = "filesystem-permission",
     FailureNetwork = "network",
     FailureUnsupportedMedia = "unsupported-media",
+    FailureMagnetMetadataStalled = "magnet-metadata-stalled",
+    FailureMagnetPeersStalled = "magnet-peers-stalled",
+    FailureMagnetTransferStalled = "magnet-transfer-stalled",
+    FailureMagnetPrivate = "magnet-private",
+    FailureMagnetMetadataInvalid = "magnet-metadata-invalid",
+    FailureMagnetPublication = "magnet-publication",
 };
 
 export class Item {
@@ -70,6 +76,17 @@ export class Item {
     "failure"?: Failure;
     "recovery"?: Recovery;
     "priority": number;
+    "sourceKind"?: SourceKind;
+    "phase"?: Phase;
+    "name"?: string;
+    "directory"?: string;
+    "duplicateOf"?: string;
+
+    /**
+     * DirectConnectionAllowed is this magnet task's consent to use BitTorrent
+     * directly while the configured proxy is in effect.
+     */
+    "directConnectionAllowed"?: boolean;
 
     /**
      * Connections overrides the site and default connection count when set.
@@ -136,6 +153,11 @@ export class Patch {
     "speedLimit"?: number | null;
 
     /**
+     * DirectConnectionAllowed grants or revokes per-task BitTorrent consent.
+     */
+    "directConnectionAllowed"?: boolean | null;
+
+    /**
      * URL replaces the source of a stopped, failed or paused download and
      * queues it for recovery. Supply Headers with the new request context.
      * Omitted headers are cleared when replacing the source.
@@ -158,14 +180,26 @@ export class Patch {
      * Creates a new Patch instance from a string or object.
      */
     static createFrom($$source: any = {}): Patch {
-        const $$createField4_0 = $$createType2;
+        const $$createField5_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("headers" in $$parsedSource) {
-            $$parsedSource["headers"] = $$createField4_0($$parsedSource["headers"]);
+            $$parsedSource["headers"] = $$createField5_0($$parsedSource["headers"]);
         }
         return new Patch($$parsedSource as Partial<Patch>);
     }
 }
+
+export enum Phase {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    PhaseMetadata = "metadata",
+    PhaseWaitingPeers = "waiting-peers",
+    PhaseTransferring = "transferring",
+    PhaseProxyBlocked = "proxy-blocked",
+};
 
 export enum Recovery {
     /**
@@ -212,6 +246,19 @@ export class Request {
         return new Request($$parsedSource as Partial<Request>);
     }
 }
+
+/**
+ * SourceKind identifies how a download task is fetched. Existing tasks use
+ * the zero value for HTTP and HTTPS.
+ */
+export enum SourceKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    SourceMagnet = "magnet",
+};
 
 export enum Status {
     /**

@@ -61,24 +61,39 @@ const (
 type Failure string
 
 const (
-	FailureAuthorization        Failure = "authorization"
-	FailureDiskSpace            Failure = "disk-space"
-	FailureFilesystemPermission Failure = "filesystem-permission"
-	FailureNetwork              Failure = "network"
-	FailureUnsupportedMedia     Failure = "unsupported-media"
+	FailureAuthorization         Failure = "authorization"
+	FailureDiskSpace             Failure = "disk-space"
+	FailureFilesystemPermission  Failure = "filesystem-permission"
+	FailureNetwork               Failure = "network"
+	FailureUnsupportedMedia      Failure = "unsupported-media"
+	FailureMagnetMetadataStalled Failure = "magnet-metadata-stalled"
+	FailureMagnetPeersStalled    Failure = "magnet-peers-stalled"
+	FailureMagnetTransferStalled Failure = "magnet-transfer-stalled"
+	FailureMagnetPrivate         Failure = "magnet-private"
+	FailureMagnetMetadataInvalid Failure = "magnet-metadata-invalid"
+	FailureMagnetPublication     Failure = "magnet-publication"
 )
 
 type Item struct {
-	ID          string   `json:"id"`
-	URL         string   `json:"url"`
-	Destination string   `json:"destination"`
-	Status      Status   `json:"status"`
-	Completed   int64    `json:"completed"`
-	Total       int64    `json:"total"`
-	Error       string   `json:"error,omitempty"`
-	Failure     Failure  `json:"failure,omitempty"`
-	Recovery    Recovery `json:"recovery,omitempty"`
-	Priority    int      `json:"priority"`
+	ID          string     `json:"id"`
+	URL         string     `json:"url"`
+	Destination string     `json:"destination"`
+	Status      Status     `json:"status"`
+	Completed   int64      `json:"completed"`
+	Total       int64      `json:"total"`
+	Error       string     `json:"error,omitempty"`
+	Failure     Failure    `json:"failure,omitempty"`
+	Recovery    Recovery   `json:"recovery,omitempty"`
+	Priority    int        `json:"priority"`
+	SourceKind  SourceKind `json:"sourceKind,omitempty"`
+	Phase       Phase      `json:"phase,omitempty"`
+	Name        string     `json:"name,omitempty"`
+	Directory   string     `json:"directory,omitempty"`
+	DuplicateOf string     `json:"duplicateOf,omitempty"`
+	Magnet      *Magnet    `json:"-"`
+	// DirectConnectionAllowed is this magnet task's consent to use BitTorrent
+	// directly while the configured proxy is in effect.
+	DirectConnectionAllowed bool `json:"directConnectionAllowed,omitempty"`
 	// Connections overrides the site and default connection count when set.
 	Connections int `json:"connections,omitempty"`
 	// SpeedLimit caps this download in bytes per second; 0 is none.
@@ -113,6 +128,8 @@ type Patch struct {
 	Priority    *int   `json:"priority,omitempty"`
 	Connections *int   `json:"connections,omitempty"`
 	SpeedLimit  *int64 `json:"speedLimit,omitempty"`
+	// DirectConnectionAllowed grants or revokes per-task BitTorrent consent.
+	DirectConnectionAllowed *bool `json:"directConnectionAllowed,omitempty"`
 	// URL replaces the source of a stopped, failed or paused download and
 	// queues it for recovery. Supply Headers with the new request context.
 	// Omitted headers are cleared when replacing the source.
@@ -139,6 +156,8 @@ type Event struct {
 	Sequence int64     `json:"sequence,omitempty"`
 	Type     EventType `json:"type"`
 	Item     Item      `json:"item"`
+	// CompletedMagnetPublication also signals completion during startup recovery.
+	CompletedMagnetPublication bool `json:"-"`
 }
 
 type Repository interface {
@@ -152,6 +171,10 @@ type Repository interface {
 	Delete(context.Context, string) error
 	// UpdateWithHeaders stores the item and its replacement request headers atomically.
 	UpdateWithHeaders(context.Context, Item) error
+	// UpdateMagnetOwnership stores verified aliases and their duplicate rows atomically.
+	UpdateMagnetOwnership(ctx context.Context, owner Item, duplicates []Item) error
+	// UpdateMagnetTrackers replaces the sealed discovery hints without changing task state.
+	UpdateMagnetTrackers(context.Context, string, []string) error
 	// LoadSettings returns the stored settings, or ok=false when none are.
 	LoadSettings(context.Context) (s settings.Settings, ok bool, err error)
 	SaveSettings(context.Context, settings.Settings) error

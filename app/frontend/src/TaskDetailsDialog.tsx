@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent } from "react";
 import { Info } from "lucide-react";
-import { Desktop, Failure, Item, Patch, Recovery, Status } from "./api";
-import { bytes, parseSpeed, speedText } from "./format";
+import { Desktop, Failure, Item, Patch, Phase, Recovery, SourceKind, Status } from "./api";
+import { bytes, parseSpeed, speedText, taskStatus } from "./format";
 import { useI18n } from "./i18n";
 import { taskFailure } from "./taskFailure";
 import { Modal } from "./ui";
@@ -18,6 +18,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
   const [priority, setPriority] = useState(item.priority);
   const [connections, setConnections] = useState(item.connections ? String(item.connections) : "");
   const [limit, setLimit] = useState(speedText(item.speedLimit ?? 0));
+  const [directConsent, setDirectConsent] = useState<boolean>();
   const [changed, setChanged] = useState({ priority: false, connections: false, speedLimit: false });
   const [invalid, setInvalid] = useState<"connections" | "speedLimit" | null>(null);
   const [error, setError] = useState("");
@@ -25,6 +26,9 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
   const failure = taskFailure(item);
   const restartRequired = item.recovery === Recovery.RecoveryRestartRequired;
   const failed = item.status === Status.StatusFailed;
+  const magnet = item.sourceKind === SourceKind.SourceMagnet;
+  const showDirectConsent = magnet && item.status !== Status.StatusCompleted && !item.duplicateOf;
+  const consentChanged = showDirectConsent && directConsent !== undefined;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -34,6 +38,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
     setInvalid(null);
     const patch = new Patch();
     if (changed.priority) patch.priority = priority;
+    if (consentChanged) patch.directConnectionAllowed = directConsent;
     if (changed.connections) {
       const value = connections.trim();
       const count = Number(value);
@@ -91,7 +96,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
       footer={
         <>
           <button type="button" disabled={busy} onClick={onClose}>{t("common.close")}</button>
-          <button type="submit" className="primary" form={`${id}-form`} disabled={busy || !Object.values(changed).some(Boolean)}>
+          <button type="submit" className="primary" form={`${id}-form`} disabled={busy || !(consentChanged || Object.values(changed).some(Boolean))}>
             {t("common.save")}
           </button>
         </>
@@ -99,9 +104,9 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
     >
       <dl className="task-facts">
         <dt>{t("details.destination")}</dt>
-        <dd>{item.destination}{fileNotice && <div className="file-warning">{fileNotice}</div>}</dd>
+        <dd>{item.destination || item.directory}{fileNotice && <div className="file-warning">{fileNotice}</div>}</dd>
         <dt>{t("details.status")}</dt>
-        <dd>{t(`status.${item.status}` as "status.queued")}</dd>
+        <dd>{taskStatus(item, t)}</dd>
         <dt>{t("details.progress")}</dt>
         <dd>{item.total > 0 ? t("row.of", { done, total: bytes(item.total) }) : done}</dd>
       </dl>
@@ -118,7 +123,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
             {failure === Failure.FailureAuthorization && (
               <button type="button" disabled={busy} onClick={onRecover}>{t("row.reauth")}</button>
             )}
-            <button type="button" disabled={busy} onClick={() => void retry()}>{t("row.retry")}</button>
+            {!item.duplicateOf && <button type="button" disabled={busy} onClick={() => void retry()}>{t("row.retry")}</button>}
           </div>
         </div>
       ) : item.recovery === Recovery.RecoveryValidateSource ? (
@@ -137,7 +142,26 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
           </select>
           <span className="hint" id={`${id}-priority-hint`}>{t("details.priorityHint")}</span>
         </div>
-        <div className="field">
+        {showDirectConsent && (
+          <div className="field">
+            <label className="check task-direct-consent" htmlFor={`${id}-direct-consent`}>
+              <input
+                id={`${id}-direct-consent`}
+                name="directConnectionAllowed"
+                type="checkbox"
+                checked={directConsent ?? !!item.directConnectionAllowed}
+                disabled={busy}
+                aria-describedby={`${id}-direct-consent-hint`}
+                onChange={(event) => setDirectConsent(event.target.checked)}
+              />
+              {t("details.directConsent")}
+            </label>
+            <span className="hint" id={`${id}-direct-consent-hint`}>
+              {t(item.phase === Phase.PhaseProxyBlocked ? "details.directConsentBlocked" : "details.directConsentHint")}
+            </span>
+          </div>
+        )}
+        {!magnet && <><div className="field">
           <label className="field-label" htmlFor={`${id}-connections`}>{t("add.connections")}</label>
           <input id={`${id}-connections`} name="connections" inputMode="numeric" placeholder={t("add.default")} value={connections} disabled={busy} aria-describedby={describe("connections")} aria-invalid={invalid === "connections"} onChange={(event) => {
             setConnections(event.target.value);
@@ -161,6 +185,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
           }} />
           <span className="hint" id={`${id}-speedLimit-hint`}>{t("details.speedHint")}</span>
         </div>
+        </>}
         {error && <p className="error-text" id={`${id}-error`} role="alert">{error}</p>}
       </form>
     </Modal>

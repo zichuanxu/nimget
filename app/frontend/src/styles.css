@@ -414,6 +414,7 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
   border-radius: 999px; font-size: 12px; font-weight: 600; flex: none; color: var(--text-2); background: var(--track);
 }
 .status .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.status.has-phase { height: auto; min-height: 22px; max-width: 100%; padding-block: 3px; line-height: 1.15; white-space: normal; }
 .status.running { color: var(--accent-text); background: var(--accent-soft); }
 .status.completed { color: var(--green); background: var(--green-soft); }
 .status.failed { color: var(--red); background: var(--red-soft); }
@@ -588,6 +589,7 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .task-facts dt { color: var(--text-2); }
 .task-facts dd { margin: 0; overflow-wrap: anywhere; }
 .task-options { display: grid; gap: 12px; }
+.task-direct-consent { min-block-size: 44px; }
 .task-recovery { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .task-recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 

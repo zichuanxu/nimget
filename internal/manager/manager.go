@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -21,6 +22,8 @@ import (
 
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/hls"
+	"github.com/amemiya02/nimget/internal/magnet"
+	"github.com/amemiya02/nimget/internal/netproxy"
 	"github.com/amemiya02/nimget/internal/settings"
 	"golang.org/x/time/rate"
 )
@@ -41,10 +44,15 @@ const (
 
 type Options struct {
 	Publish func(download.Event)
-	Now     func() time.Time
-	Logger  *slog.Logger
+	// MagnetPublicationCheckpoint observes the two durable publication boundaries.
+	MagnetPublicationCheckpoint func(download.MagnetPublicationStep, download.Item)
+	Now                         func() time.Time
+	Logger                      *slog.Logger
 	// DownloadRoots lists the directories destinations must resolve inside.
-	DownloadRoots []string
+	DownloadRoots      []string
+	MagnetLoopbackOnly bool
+	MagnetDHTBootstrap []netip.AddrPort
+	MagnetStallTimeout time.Duration
 	// FlushInterval is how often in-memory progress is persisted, orphaned
 	// running rows are requeued, the schedule is applied, and the scheduler
 	// retries after a store error. It defaults to 5s.
@@ -60,10 +68,11 @@ type Options struct {
 // without taking any manager lock, so a slow SQLite write can never stall the
 // engine; the Run loop copies it into item and publishes it.
 type job struct {
-	cancel    context.CancelFunc
-	item      download.Item
-	completed atomic.Int64
-	total     atomic.Int64
+	cancel         context.CancelFunc
+	checkpointDone chan struct{}
+	item           download.Item
+	completed      atomic.Int64
+	total          atomic.Int64
 	// host and conns are this job's share of the per-host connection cap.
 	host    string
 	conns   int
@@ -75,11 +84,12 @@ func (j *job) progress() (completed, total int64) {
 }
 
 type Manager struct {
-	repo   download.Repository
-	runner download.Runner
-	opts   Options
-	roots  []string
-	log    *slog.Logger
+	repo    download.Repository
+	runner  download.Runner
+	magnets *magnet.Runner
+	opts    Options
+	roots   []string
+	log     *slog.Logger
 
 	wake         chan struct{}
 	progressWake chan struct{}
@@ -87,6 +97,8 @@ type Manager struct {
 
 	// global caps all downloads together; its limit follows the schedule.
 	global *rate.Limiter
+	// torrentUpload caps payload uploads across all active magnets.
+	torrentUpload *rate.Limiter
 	// settings is replaced under mu and read without it.
 	settings atomic.Pointer[settings.Settings]
 
@@ -147,6 +159,15 @@ func New(repo download.Repository, runner download.Runner, opts Options) (*Manag
 		m.log.Error("stored settings are invalid; using defaults", "err", err)
 		stored = opts.Defaults
 	}
+	if stored.TorrentUploadLimit == 0 {
+		stored.TorrentUploadLimit = settings.DefaultTorrentUploadLimit
+	}
+	m.torrentUpload = rate.NewLimiter(rate.Limit(stored.TorrentUploadLimit), magnet.UploadBurst)
+	m.magnets = magnet.NewRunner(m.global, m.torrentUpload, magnet.Options{
+		LoopbackOnly: opts.MagnetLoopbackOnly,
+		DHTBootstrap: opts.MagnetDHTBootstrap,
+		StallTimeout: opts.MagnetStallTimeout,
+	})
 	m.settings.Store(&stored)
 	m.applySchedule(opts.Now())
 	return m, nil
@@ -179,15 +200,27 @@ func (m *Manager) Settings() settings.Settings {
 // Folders picked in the GUI (ExtraRoots) widen destination confinement, so
 // clients may only remove them; AddExtraRoot adds one.
 func (m *Manager) UpdateSettings(ctx context.Context, s settings.Settings) error {
+	checkpoints, err := m.updateSettings(ctx, s)
+	if err != nil {
+		return err
+	}
+	return waitForCheckpoints(ctx, checkpoints...)
+}
+
+func (m *Manager) updateSettings(ctx context.Context, s settings.Settings) ([]<-chan struct{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	current := m.Settings()
+	// Settings documents from older clients omit the upload cap.
+	if s.TorrentUploadLimit == 0 {
+		s.TorrentUploadLimit = current.TorrentUploadLimit
+	}
 	s, err := s.Unmask(current)
 	if err != nil {
-		return fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
+		return nil, fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
 	}
 	if err := s.ValidateHeaderEdits(current); err != nil {
-		return fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
+		return nil, fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
 	}
 	kept := []string{}
 	for _, dir := range s.ExtraRoots {
@@ -209,25 +242,30 @@ func (m *Manager) AddExtraRoot(ctx context.Context, dir string) error {
 		return nil
 	}
 	s.ExtraRoots = append(slices.Clone(s.ExtraRoots), dir)
-	return m.saveSettings(ctx, s)
+	_, err := m.saveSettings(ctx, s)
+	return err
 }
 
 // saveSettings validates, stores, and applies s. The caller holds m.mu.
-func (m *Manager) saveSettings(ctx context.Context, s settings.Settings) error {
+func (m *Manager) saveSettings(ctx context.Context, s settings.Settings) ([]<-chan struct{}, error) {
 	if err := s.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
+		return nil, fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
 	}
 	if err := m.repo.SaveSettings(ctx, s); err != nil {
-		return err
+		return nil, err
 	}
+	m.torrentUpload.SetLimit(rate.Limit(s.TorrentUploadLimit))
 	m.settings.Store(&s)
-	m.applySchedule(m.opts.Now())
+	checkpoints := m.applySchedule(m.opts.Now())
 	m.log.Info("settings updated")
 	m.signal()
-	return nil
+	return checkpoints, nil
 }
 
 func (m *Manager) Add(ctx context.Context, req download.Request) (download.Item, error) {
+	if magnet.IsLink(strings.TrimSpace(req.URL)) {
+		return m.addMagnet(ctx, req)
+	}
 	return m.add(ctx, req, m.opts.InspectTimeout, "", func(ctx context.Context, item download.Item) (bool, error) {
 		return true, m.repo.Create(ctx, item)
 	})
@@ -300,7 +338,7 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 	}
 	owner := func(path string) string {
 		for _, existing := range items {
-			if clashes(existing.Destination, path) {
+			if reservationsClash(existing.Destination, path) {
 				return existing.ID
 			}
 		}
@@ -375,21 +413,27 @@ func (m *Manager) listLocked(ctx context.Context) ([]download.Item, error) {
 }
 
 func (m *Manager) Pause(ctx context.Context, id string) error {
-	return m.transition(ctx, id, false, func(item *download.Item) error {
+	var checkpointDone <-chan struct{}
+	err := m.transition(ctx, id, false, func(item *download.Item) error {
 		if item.Status != download.StatusQueued && item.Status != download.StatusRunning {
 			return fmt.Errorf("%w: cannot pause a %s download", ErrInvalidTransition, item.Status)
 		}
 		if j, ok := m.active[item.ID]; ok {
 			j.cancel()
+			checkpointDone = j.checkpointDone
 			j.item.Status = download.StatusPaused
 			item.Completed, item.Total = j.progress()
 		}
 		item.Status = download.StatusPaused
+		item.Phase = ""
 		item.Error, item.Failure = "", ""
 		return nil
 	})
+	if err != nil || checkpointDone == nil {
+		return err
+	}
+	return waitForCheckpoints(ctx, checkpointDone)
 }
-
 func (m *Manager) Resume(ctx context.Context, id string) error {
 	return m.requeue(ctx, id, download.StatusPaused)
 }
@@ -429,7 +473,18 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 			return fmt.Errorf("%w: %w", download.ErrInvalidDownload, err)
 		}
 	}
-	err := m.transition(ctx, id, p.URL != nil || p.Headers != nil, func(item *download.Item) error {
+	m.mu.Lock()
+	err := m.transitionLocked(ctx, id, p.URL != nil || p.Headers != nil, func(item *download.Item) error {
+		if item.SourceKind == download.SourceMagnet && (p.URL != nil || p.Headers != nil || p.Connections != nil || p.SpeedLimit != nil) {
+			return fmt.Errorf("%w: only priority and direct-connection consent can be changed on a magnet download", download.ErrInvalidDownload)
+		}
+		if p.DirectConnectionAllowed != nil {
+			if item.SourceKind != download.SourceMagnet {
+				return fmt.Errorf("%w: direct-connection consent applies only to magnet downloads", download.ErrInvalidDownload)
+			}
+			item.DirectConnectionAllowed = *p.DirectConnectionAllowed
+			item.Phase = queuedMagnetPhase(*item, netproxy.Effective(m.Settings().Proxy))
+		}
 		if p.URL != nil {
 			if _, active := m.active[id]; active {
 				return ErrActive
@@ -461,14 +516,29 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 		}
 		return nil
 	})
-	if err == nil {
-		m.signal()
+	var checkpoint <-chan struct{}
+	if err == nil && p.DirectConnectionAllowed != nil && !*p.DirectConnectionAllowed {
+		if j := m.active[id]; j != nil && magnetProxyBlocked(j.item, netproxy.Effective(m.Settings().Proxy)) {
+			j.cancel()
+			checkpoint = j.checkpointDone
+		}
 	}
-	return err
+	m.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	m.signal()
+	if checkpoint != nil {
+		return waitForCheckpoints(ctx, checkpoint)
+	}
+	return nil
 }
 
 func (m *Manager) requeue(ctx context.Context, id string, from download.Status) error {
 	err := m.transition(ctx, id, false, func(item *download.Item) error {
+		if item.DuplicateOf != "" {
+			return fmt.Errorf("%w: %s", ErrInvalidTransition, item.Error)
+		}
 		if item.Status != from {
 			return fmt.Errorf("%w: expected a %s download, got %s", ErrInvalidTransition, from, item.Status)
 		}
@@ -481,6 +551,7 @@ func (m *Manager) requeue(ctx context.Context, id string, from download.Status) 
 			return ErrActive
 		}
 		item.Status = download.StatusQueued
+		item.Phase = queuedMagnetPhase(*item, netproxy.Effective(m.Settings().Proxy))
 		item.Error, item.Failure = "", ""
 		return nil
 	})
@@ -519,6 +590,9 @@ func (m *Manager) Restart(ctx context.Context, id string) error {
 }
 
 func (m *Manager) discardPartial(item download.Item) error {
+	if item.SourceKind == download.SourceMagnet {
+		return nil
+	}
 	return m.runner.Discard(download.Spec{URL: item.URL, Destination: item.Destination, ResumeKey: item.ID})
 }
 
@@ -527,6 +601,10 @@ func (m *Manager) discardPartial(item download.Item) error {
 func (m *Manager) transition(ctx context.Context, id string, withHeaders bool, change func(*download.Item) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.transitionLocked(ctx, id, withHeaders, change)
+}
+
+func (m *Manager) transitionLocked(ctx context.Context, id string, withHeaders bool, change func(*download.Item) error) error {
 	item, err := m.repo.Get(ctx, id)
 	if err != nil {
 		return err
@@ -550,6 +628,7 @@ func (m *Manager) transition(ctx context.Context, id string, withHeaders bool, c
 			j.limiter.SetLimit(limitOf(item.SpeedLimit))
 		}
 		j.item.Priority, j.item.Connections, j.item.SpeedLimit = item.Priority, item.Connections, item.SpeedLimit
+		j.item.DirectConnectionAllowed = item.DirectConnectionAllowed
 	}
 	m.publish(download.EventUpdated, item)
 	return nil
@@ -571,6 +650,11 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 	if _, ok := m.active[id]; ok {
 		return ErrActive
 	}
+	if removeFiles && hasMagnetPublication(item) {
+		if err := m.recoverMagnetPublication(ctx, &item); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidTransition, err)
+		}
+	}
 	if err := m.repo.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -579,6 +663,9 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 	m.log.Info("download deleted", "id", id, "removeFiles", removeFiles)
 	if !removeFiles {
 		return nil
+	}
+	if item.SourceKind == download.SourceMagnet {
+		return m.removeMagnetFiles(ctx, item)
 	}
 	// Re-check confinement: a symlinked ancestor may have changed since Add.
 	if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
@@ -647,7 +734,14 @@ func (m *Manager) requeueOrphans(ctx context.Context) {
 		if _, ok := m.active[item.ID]; ok || item.Status != download.StatusRunning {
 			continue
 		}
+		if hasMagnetPublication(item) {
+			if err := m.retryMagnetPublication(ctx, item); err != nil {
+				m.log.Error("recover magnet publication", "id", item.ID, "err", err)
+			}
+			continue
+		}
 		item.Status = download.StatusQueued
+		item.Phase = queuedMagnetPhase(item, netproxy.Effective(m.Settings().Proxy))
 		item.UpdatedAt = m.opts.Now().UTC()
 		if err := m.repo.Update(ctx, item); err != nil {
 			m.log.Error("requeue interrupted download", "id", item.ID, "err", err)
@@ -661,18 +755,25 @@ func (m *Manager) requeueOrphans(ctx context.Context) {
 // applySchedule sets the global speed limit in force at now and stops
 // running downloads when the queue window closes; they return to the queue.
 // The caller holds m.mu.
-func (m *Manager) applySchedule(now time.Time) {
+func (m *Manager) applySchedule(now time.Time) []<-chan struct{} {
 	s := m.Settings()
 	m.global.SetLimit(limitOf(s.SpeedLimitAt(now)))
-	if s.QueueOpen(now) {
-		return
-	}
+	queueOpen := s.QueueOpen(now)
+	proxy := netproxy.Effective(s.Proxy)
+	var checkpoints []<-chan struct{}
 	for id, j := range m.active {
-		if j.item.Status == download.StatusRunning {
+		if j.item.Status != download.StatusRunning {
+			continue
+		}
+		if magnetProxyBlocked(j.item, proxy) {
+			j.cancel()
+			checkpoints = append(checkpoints, j.checkpointDone)
+		} else if !queueOpen {
 			m.log.Info("queue window closed; stopping download", "id", id)
 			j.cancel()
 		}
 	}
+	return checkpoints
 }
 
 // schedule starts queued downloads, highest priority first and then in the
@@ -682,6 +783,8 @@ func (m *Manager) schedule(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	items, err := m.repo.List(ctx) // ordered by creation
 	if err != nil {
 		m.log.Error("list downloads for scheduling", "err", err)
@@ -695,13 +798,33 @@ func (m *Manager) schedule(ctx context.Context) {
 	}
 	sort.SliceStable(queued, func(a, b int) bool { return queued[a].Priority > queued[b].Priority })
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	s, now := m.Settings(), m.opts.Now()
+	proxy := netproxy.Effective(s.Proxy)
+	for i, item := range queued {
+		if hasMagnetPublication(item) {
+			if err := m.recoverQueuedMagnetPublication(ctx, item.ID); err != nil {
+				m.log.Error("recover queued magnet publication", "id", item.ID, "err", err)
+			}
+			continue
+		}
+		if phase := queuedMagnetPhase(item, proxy); phase != item.Phase {
+			item.Phase = phase
+			item.UpdatedAt = now.UTC()
+			queued[i] = item
+			if err := m.repo.Update(ctx, item); err != nil {
+				m.log.Error("record magnet proxy phase", "id", item.ID, "err", err)
+				continue
+			}
+			m.publish(download.EventUpdated, item)
+		}
+	}
 	if !s.QueueOpen(now) {
 		return
 	}
 	for _, item := range queued {
+		if item.Phase == download.PhaseProxyBlocked {
+			continue
+		}
 		if len(m.active) >= s.MaxConcurrent {
 			return
 		}
@@ -731,6 +854,12 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	}
 	if item.Status != download.StatusQueued {
 		return nil
+	}
+	if hasMagnetPublication(item) {
+		return nil // The local move is handled ahead of network scheduling.
+	}
+	if item.SourceKind == download.SourceMagnet {
+		return m.startMagnet(ctx, item, s, now)
 	}
 	// Four downloads at eight connections each must not become 32 sockets
 	// against one server: each takes what is left of its host's cap.
@@ -810,8 +939,10 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	defer m.mu.Unlock()
 	id := j.item.ID
 	delete(m.active, id)
-	if m.hostConns[j.host] -= j.conns; m.hostConns[j.host] <= 0 {
-		delete(m.hostConns, j.host)
+	if j.conns > 0 {
+		if m.hostConns[j.host] -= j.conns; m.hostConns[j.host] <= 0 {
+			delete(m.hostConns, j.host)
+		}
 	}
 	defer m.signal()
 
@@ -820,8 +951,15 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 		m.log.Error("load finished download", "id", id, "err", err)
 		return
 	}
+	if item.SourceKind == download.SourceMagnet && item.Status == download.StatusCompleted {
+		return // Publication already committed and emitted completion.
+	}
+	if item.DuplicateOf != "" {
+		return // Alias reconciliation already recorded this task's terminal state.
+	}
 	item.Completed, item.Total = j.progress()
 	item.UpdatedAt = m.opts.Now().UTC()
+	item.Phase = ""
 	switch {
 	case runErr == nil:
 		// Checked first: a Pause that raced the final rename must not hide a
@@ -847,6 +985,10 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	default:
 		item.Status = download.StatusFailed
 		item.Error = taskDiagnostic(runErr)
+		var outputErr *magnetOutputError
+		if errors.As(runErr, &outputErr) {
+			item.Error = outputErr.Error()
+		}
 		item.Failure = classifyFailure(runErr)
 		if j.item.WebsiteSession != nil && item.Failure == download.FailureAuthorization {
 			item.Error += ". The website session may have expired. " + websiteSessionRecovery
@@ -854,6 +996,9 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 		if errors.Is(runErr, download.ErrRestartRequired) {
 			item.Recovery = download.RecoveryRestartRequired
 		}
+	}
+	if item.Status == download.StatusQueued && item.SourceKind == download.SourceMagnet {
+		item.Phase = queuedMagnetPhase(item, netproxy.Effective(m.Settings().Proxy))
 	}
 	if err := m.repo.Update(context.Background(), item); err != nil {
 		// The row stays "running"; requeueOrphans recovers it on the next tick.
@@ -921,8 +1066,13 @@ func (m *Manager) signal() {
 
 // The caller holds m.mu, so snapshots and events share one order.
 func (m *Manager) publish(eventType download.EventType, item download.Item) {
+	m.publishEvent(download.Event{Type: eventType, Item: item})
+}
+
+func (m *Manager) publishEvent(event download.Event) {
 	m.sequence++
-	m.opts.Publish(download.Event{Sequence: m.sequence, Type: eventType, Item: item})
+	event.Sequence = m.sequence
+	m.opts.Publish(event)
 }
 
 func validateURL(rawURL string) error {

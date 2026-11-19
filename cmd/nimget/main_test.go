@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/amemiya02/nimget/internal/client"
 	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/netproxy"
 	"github.com/amemiya02/nimget/internal/service"
 	"github.com/amemiya02/nimget/internal/settings"
 )
@@ -129,6 +131,65 @@ func (p *serviceProcess) item(t *testing.T) download.Item {
 		t.Fatalf("items = %+v; want exactly one", items)
 	}
 	return items[0]
+}
+
+func TestAddCommandQueuesMagnetInSelectedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "downloads")
+	svc := startServiceProcess(t, dir, root)
+	prefs, err := svc.client.Settings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefs.Proxy = netproxy.Config{Mode: netproxy.ModeManual, URL: "http://127.0.0.1:1"}
+	if _, err := svc.client.PutSettings(t.Context(), prefs); err != nil {
+		t.Fatal(err)
+	}
+	const v1 = "urn:btih:0123456789abcdef0123456789abcdef01234567"
+	const v2 = "urn:btmh:1220a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+	const tracker = "&tr=http%3A%2F%2F127.0.0.1%3A1%2Fannounce"
+	link := "magnet:?xt=" + v2 + "&xt=" + v1 + tracker
+	cmd := nimget("--address", svc.address, "--token-file", filepath.Join(dir, "token"), "add", link, "--dir", filepath.Join("downloads", "magnets"))
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("nimget add magnet: %v: %s", err, output)
+	}
+	var item download.Item
+	if err := json.Unmarshal(output, &item); err != nil {
+		t.Fatal(err)
+	}
+	wantParent, wantErr := os.Stat(dir)
+	gotDirectory := filepath.Dir(item.Directory)
+	gotParent, gotErr := os.Stat(filepath.Dir(gotDirectory))
+	if wantErr != nil || gotErr != nil || !os.SameFile(wantParent, gotParent) || filepath.Base(gotDirectory) != "downloads" || filepath.Base(item.Directory) != "magnets" {
+		t.Fatalf("save directory = %q; want magnets under %q (%v, %v)", item.Directory, root, gotErr, wantErr)
+	}
+	if item.SourceKind != download.SourceMagnet || item.Status != download.StatusQueued || svc.item(t).ID != item.ID {
+		t.Fatalf("unexpected magnet submission: %+v", item)
+	}
+	repeated, err := svc.client.Add(t.Context(), download.Request{URL: "magnet:?xt=" + v1 + "&xt=" + v2 + tracker})
+	if err != nil || repeated.ID != item.ID {
+		t.Fatalf("service intake disagreed with CLI: %+v, %v", repeated, err)
+	}
+	if item.Phase != download.PhaseProxyBlocked {
+		t.Fatalf("nimget add did not surface the proxy block: %+v", item)
+	}
+	if err := svc.client.Pause(t.Context(), item.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []struct {
+		flag string
+		want bool
+	}{{"--allow-direct", true}, {"--allow-direct=false", false}} {
+		cmd := nimget("--address", svc.address, "--token-file", filepath.Join(dir, "token"), "set", item.ID, change.flag)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("nimget set %s: %v: %s", change.flag, err, output)
+		}
+		if got := svc.item(t).DirectConnectionAllowed; got != change.want {
+			t.Fatalf("nimget set %s saved consent %t, want %t", change.flag, got, change.want)
+		}
+	}
 }
 
 func TestServiceResumesAfterKill(t *testing.T) {

@@ -36,7 +36,7 @@ func (d *Desktop) MissingDownloadFiles(ctx context.Context, ids []string) (map[s
 		if item.Status != download.StatusCompleted {
 			continue
 		}
-		if exists, err := downloadedFileExists(item.Destination); err == nil && !exists {
+		if exists, err := downloadedOutputExists(item); err == nil && !exists {
 			missing[id] = MissingDownloadFile{
 				Destination:   item.Destination,
 				FolderMissing: downloadFolderMissing(filepath.Dir(item.Destination)),
@@ -44,6 +44,21 @@ func (d *Desktop) MissingDownloadFiles(ctx context.Context, ids []string) (map[s
 		}
 	}
 	return missing, nil
+}
+
+func directoryOutput(item download.Item) bool {
+	return item.Magnet != nil && item.Magnet.Output != nil && item.Magnet.Output.Directory
+}
+
+func downloadedOutputExists(item download.Item) (bool, error) {
+	if !directoryOutput(item) {
+		return downloadedFileExists(item.Destination)
+	}
+	info, err := os.Lstat(item.Destination)
+	if isMissingPath(err) {
+		return false, nil
+	}
+	return err == nil && info.IsDir(), err
 }
 
 func (d *Desktop) requireDownloadFile(path string) error {

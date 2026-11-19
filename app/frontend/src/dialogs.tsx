@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent } from "react";
 import { KeyRound, Moon, Power, RotateCw, Trash2 } from "lucide-react";
 import { Desktop, Item, Recovery, Status, message } from "./api";
-import { baseName } from "./format";
+import { taskName } from "./format";
 import { useI18n } from "./i18n";
 import { Modal } from "./ui";
 
@@ -53,7 +53,7 @@ export function DeleteDialog({ item, onClose, onError, focusFallback }: {
         </>
       }
     >
-      <p className="filename">{baseName(item.destination)}</p>
+      <p className="filename">{taskName(item)}</p>
       <label className="check">
         <input type="checkbox" checked={files} onChange={(e) => setFiles(e.target.checked)} />
         {item.status === Status.StatusCompleted ? t("delete.file") : t("delete.partial")}
@@ -114,7 +114,7 @@ export function ReauthDialog({ item, onClose, focusFallback }: {
       }
     >
       {restartRequired && <p>{t("reauth.restartBody")}</p>}
-      <p id={id + "-help"} className="muted">{t("reauth.body", { name: baseName(item.destination) })}</p>
+      <p id={id + "-help"} className="muted">{t("reauth.body", { name: taskName(item) })}</p>
       <form id={id + "-form"} method="post" onSubmit={submit}>
         <label className="field" htmlFor={id}>
           <span className="field-label">{t("reauth.source")}</span>

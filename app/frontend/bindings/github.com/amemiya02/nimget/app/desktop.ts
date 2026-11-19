@@ -152,7 +152,7 @@ export function MissingDownloadFiles(ids: string[]): $CancellablePromise<{ [_ in
 }
 
 /**
- * Open opens a completed download with its default application.
+ * Open opens a completed file or directory.
  */
 export function Open(id: string): $CancellablePromise<void> {
     return $Call.ByID(3857631364, id);
@@ -230,8 +230,7 @@ export function Retry(id: string): $CancellablePromise<void> {
 }
 
 /**
- * Reveal shows a download in Finder or Explorer, or its folder while the
- * file does not exist yet.
+ * Reveal shows the download or its containing folder in Finder or Explorer.
  */
 export function Reveal(id: string): $CancellablePromise<void> {
     return $Call.ByID(3591417225, id);

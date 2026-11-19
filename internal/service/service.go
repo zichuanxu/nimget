@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -27,11 +28,19 @@ type Config struct {
 	TokenPath string
 	// DownloadRoots confine destinations; they default to DefaultDownloadRoot.
 	DownloadRoots []string
+	// MagnetLoopbackOnly confines BitTorrent listeners for isolated fixtures.
+	MagnetLoopbackOnly bool
+	// MagnetDHTBootstrap overrides the default DHT bootstrap nodes.
+	MagnetDHTBootstrap []netip.AddrPort
+	// MagnetStallTimeout bounds BitTorrent inactivity; zero uses the default.
+	MagnetStallTimeout time.Duration
 	// Runner defaults to the engine, using the proxy from the settings.
 	Runner download.Runner
 	Logger *slog.Logger
 	// Publish also receives every manager event; it must not block.
 	Publish func(download.Event)
+	// MagnetPublicationCheckpoint observes the publication boundaries.
+	MagnetPublicationCheckpoint func(download.MagnetPublicationStep, download.Item)
 	// Sealer encrypts stored secrets; it defaults to a key in the OS keyring.
 	Sealer *secrets.Sealer
 }
@@ -123,9 +132,13 @@ func New(cfg Config) (*Service, error) {
 		}
 	}
 	mgr, err = manager.New(db, cfg.Runner, manager.Options{
-		Publish:       publish,
-		Logger:        cfg.Logger,
-		DownloadRoots: cfg.DownloadRoots,
+		Publish:                     publish,
+		MagnetPublicationCheckpoint: cfg.MagnetPublicationCheckpoint,
+		MagnetLoopbackOnly:          cfg.MagnetLoopbackOnly,
+		MagnetDHTBootstrap:          cfg.MagnetDHTBootstrap,
+		MagnetStallTimeout:          cfg.MagnetStallTimeout,
+		Logger:                      cfg.Logger,
+		DownloadRoots:               cfg.DownloadRoots,
 	})
 	if err != nil {
 		_ = db.Close()

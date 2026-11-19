@@ -15,6 +15,7 @@ import (
 	"github.com/amemiya02/nimget/internal/curlimport"
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/logging"
+	"github.com/amemiya02/nimget/internal/magnet"
 	"github.com/amemiya02/nimget/internal/manager"
 	"github.com/amemiya02/nimget/internal/service"
 	"github.com/amemiya02/nimget/internal/settings"
@@ -43,9 +44,11 @@ var errNotRunning = errors.New("the download service is not running")
 // Desktop is bound to the frontend: its exported methods become TypeScript
 // functions.
 type Desktop struct {
-	app      *application.App
-	window   *application.WebviewWindow
-	notifier atomic.Pointer[notifications.NotificationService]
+	app                *application.App
+	window             *application.WebviewWindow
+	notifier           atomic.Pointer[notifications.NotificationService]
+	launchDownloadFile func(string) error
+	showDownloadPath   func(string, bool) error
 
 	svc     *service.Service
 	mgr     *manager.Manager
@@ -187,7 +190,23 @@ func (d *Desktop) Add(req download.Request) (download.Item, error) {
 	if err != nil {
 		return download.Item{}, err
 	}
-	return m.Add(context.Background(), req)
+	item, err := m.Add(context.Background(), req)
+	if err != nil && magnet.IsLink(strings.TrimSpace(req.URL)) {
+		switch {
+		case errors.Is(err, magnet.ErrInvalidLink):
+			err = errors.New(d.tr("Enter a magnet link with a complete BitTorrent v1 or v2 info hash."))
+		case errors.Is(err, magnet.ErrInvalidTracker):
+			err = errors.New(d.tr("Use a magnet link with valid HTTP, HTTPS, or UDP tracker addresses."))
+		case errors.Is(err, download.ErrInvalidDownload):
+			err = errors.New(d.tr("Choose a save folder NimGet can use for this magnet download."))
+		default:
+			if d.log != nil {
+				d.log.Warn("add magnet download", "err", err)
+			}
+			err = errors.New(d.tr("Could not queue the magnet download. Try again."))
+		}
+	}
+	return item, err
 }
 
 func (d *Desktop) Pause(id string) error {
@@ -342,7 +361,7 @@ func (d *Desktop) PickDirectory() (string, error) {
 	return dir, m.AddExtraRoot(context.Background(), dir)
 }
 
-// Open opens a completed download with its default application.
+// Open opens a completed file or directory.
 func (d *Desktop) Open(id string) error {
 	item, err := d.item(id)
 	if err != nil {
@@ -351,27 +370,39 @@ func (d *Desktop) Open(id string) error {
 	if item.Status != download.StatusCompleted {
 		return errors.New("the download has not completed")
 	}
+	if directoryOutput(item) {
+		exists, err := downloadedOutputExists(item)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return errors.New(d.tr("The download folder no longer exists."))
+		}
+		return d.showDownloadPath(item.Destination, false)
+	}
 	if err := d.requireDownloadFile(item.Destination); err != nil {
 		return err
 	}
-	return d.app.Browser.OpenFile(item.Destination)
+	return d.launchDownloadFile(item.Destination)
 }
 
-// Reveal shows a download in Finder or Explorer, or its folder while the
-// file does not exist yet.
+// Reveal shows the download or its containing folder in Finder or Explorer.
 func (d *Desktop) Reveal(id string) error {
 	item, err := d.item(id)
 	if err != nil {
 		return err
 	}
-	if exists, _ := downloadedFileExists(item.Destination); exists {
-		return d.app.Env.OpenFileManager(item.Destination, true)
+	if exists, _ := downloadedOutputExists(item); exists {
+		return d.showDownloadPath(item.Destination, !directoryOutput(item))
 	}
-	folder := filepath.Dir(item.Destination)
+	folder := item.Directory
+	if item.Destination != "" || item.SourceKind != download.SourceMagnet {
+		folder = filepath.Dir(item.Destination)
+	}
 	if downloadFolderMissing(folder) {
 		return errors.New(d.tr("The download folder no longer exists."))
 	}
-	return d.app.Env.OpenFileManager(folder, false)
+	return d.showDownloadPath(folder, false)
 }
 
 func (d *Desktop) item(id string) (download.Item, error) {
@@ -414,7 +445,7 @@ func (d *Desktop) forward() {
 			delete(running, item.ID)
 		case item.Status == download.StatusRunning:
 			running[item.ID] = true
-		case running[item.ID] && e.Type == download.EventUpdated:
+		case (running[item.ID] || e.CompletedMagnetPublication) && e.Type == download.EventUpdated:
 			delete(running, item.ID)
 			select {
 			case d.notifications <- item:

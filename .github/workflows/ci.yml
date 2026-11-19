@@ -113,6 +113,8 @@ jobs:
 
       - run: go vet -tags production .
 
+      - run: go test -tags production ./...
+
       - name: build desktop app
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then

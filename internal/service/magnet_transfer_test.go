@@ -58,8 +58,13 @@ func TestTrackedMagnetPublishesVerifiedBytesAtFreeDestination(t *testing.T) {
 
 	done := waitForMagnetTask(t, ctx, func() ([]download.Item, error) { return c.List(ctx) }, queued.ID)
 	want := filepath.Join(dir, "fixture (1).txt")
-	if done.Status != download.StatusCompleted || done.Destination != want || done.Completed != int64(len(payload)) || done.Total != done.Completed {
+	if done.Status != download.StatusCompleted || done.Completed != int64(len(payload)) || done.Total != done.Completed {
 		t.Fatalf("expected verified completion at %s: %+v", want, done)
+	}
+	wantFile, wantErr := os.Stat(want)
+	gotFile, gotErr := os.Stat(done.Destination)
+	if wantErr != nil || gotErr != nil || !os.SameFile(wantFile, gotFile) || filepath.Base(done.Destination) != filepath.Base(want) {
+		t.Fatalf("destination = %q; want %q (%v, %v)", done.Destination, want, gotErr, wantErr)
 	}
 	got, err := os.ReadFile(want)
 	if err != nil || !bytes.Equal(got, payload) {

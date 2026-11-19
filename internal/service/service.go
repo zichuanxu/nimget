@@ -27,6 +27,8 @@ type Config struct {
 	TokenPath string
 	// DownloadRoots confine destinations; they default to DefaultDownloadRoot.
 	DownloadRoots []string
+	// MagnetLoopbackOnly confines BitTorrent listeners for isolated fixtures.
+	MagnetLoopbackOnly bool
 	// Runner defaults to the engine, using the proxy from the settings.
 	Runner download.Runner
 	Logger *slog.Logger
@@ -123,9 +125,10 @@ func New(cfg Config) (*Service, error) {
 		}
 	}
 	mgr, err = manager.New(db, cfg.Runner, manager.Options{
-		Publish:       publish,
-		Logger:        cfg.Logger,
-		DownloadRoots: cfg.DownloadRoots,
+		Publish:            publish,
+		Logger:             cfg.Logger,
+		DownloadRoots:      cfg.DownloadRoots,
+		MagnetLoopbackOnly: cfg.MagnetLoopbackOnly,
 	})
 	if err != nil {
 		_ = db.Close()

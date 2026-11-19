@@ -159,7 +159,13 @@ func TestAddCommandQueuesMagnetInSelectedDirectory(t *testing.T) {
 	if err := json.Unmarshal(output, &item); err != nil {
 		t.Fatal(err)
 	}
-	if item.SourceKind != download.SourceMagnet || item.Status != download.StatusQueued || item.Directory != filepath.Join(root, "magnets") || svc.item(t).ID != item.ID {
+	wantParent, wantErr := os.Stat(dir)
+	gotDirectory := filepath.Dir(item.Directory)
+	gotParent, gotErr := os.Stat(filepath.Dir(gotDirectory))
+	if wantErr != nil || gotErr != nil || !os.SameFile(wantParent, gotParent) || filepath.Base(gotDirectory) != "downloads" || filepath.Base(item.Directory) != "magnets" {
+		t.Fatalf("save directory = %q; want magnets under %q (%v, %v)", item.Directory, root, gotErr, wantErr)
+	}
+	if item.SourceKind != download.SourceMagnet || item.Status != download.StatusQueued || svc.item(t).ID != item.ID {
 		t.Fatalf("unexpected magnet submission: %+v", item)
 	}
 	repeated, err := svc.client.Add(t.Context(), download.Request{URL: "magnet:?xt=" + v1 + "&xt=" + v2 + tracker})

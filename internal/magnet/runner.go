@@ -15,15 +15,16 @@ import (
 )
 
 type Runner struct {
-	mu       sync.Mutex
-	client   *torrent.Client
-	active   int
-	limit    *rate.Limiter
-	metadata chan struct{}
+	mu           sync.Mutex
+	client       *torrent.Client
+	active       int
+	limit        *rate.Limiter
+	loopbackOnly bool
+	metadata     chan struct{}
 }
 
-func NewRunner(limit *rate.Limiter) *Runner {
-	return &Runner{limit: limit, metadata: make(chan struct{}, 1)}
+func NewRunner(limit *rate.Limiter, loopbackOnly bool) *Runner {
+	return &Runner{limit: limit, loopbackOnly: loopbackOnly, metadata: make(chan struct{}, 1)}
 }
 
 func (r *Runner) acquire() (*torrent.Client, error) {
@@ -32,6 +33,10 @@ func (r *Runner) acquire() (*torrent.Client, error) {
 	if r.client == nil {
 		cfg := torrent.NewDefaultClientConfig()
 		cfg.ListenPort = 0
+		if r.loopbackOnly {
+			cfg.SetListenAddr("127.0.0.1:0")
+			cfg.DisableIPv6 = true
+		}
 		cfg.NoDHT = true
 		cfg.DisableTrackers = true
 		cfg.NoDefaultPortForwarding = true

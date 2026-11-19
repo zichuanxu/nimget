@@ -193,6 +193,14 @@ func (m *Manager) Settings() settings.Settings {
 // Folders picked in the GUI (ExtraRoots) widen destination confinement, so
 // clients may only remove them; AddExtraRoot adds one.
 func (m *Manager) UpdateSettings(ctx context.Context, s settings.Settings) error {
+	checkpoints, err := m.updateSettings(ctx, s)
+	if err != nil {
+		return err
+	}
+	return waitForCheckpoints(ctx, checkpoints...)
+}
+
+func (m *Manager) updateSettings(ctx context.Context, s settings.Settings) ([]<-chan struct{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	current := m.Settings()
@@ -202,10 +210,10 @@ func (m *Manager) UpdateSettings(ctx context.Context, s settings.Settings) error
 	}
 	s, err := s.Unmask(current)
 	if err != nil {
-		return fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
+		return nil, fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
 	}
 	if err := s.ValidateHeaderEdits(current); err != nil {
-		return fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
+		return nil, fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
 	}
 	kept := []string{}
 	for _, dir := range s.ExtraRoots {
@@ -227,23 +235,24 @@ func (m *Manager) AddExtraRoot(ctx context.Context, dir string) error {
 		return nil
 	}
 	s.ExtraRoots = append(slices.Clone(s.ExtraRoots), dir)
-	return m.saveSettings(ctx, s)
+	_, err := m.saveSettings(ctx, s)
+	return err
 }
 
 // saveSettings validates, stores, and applies s. The caller holds m.mu.
-func (m *Manager) saveSettings(ctx context.Context, s settings.Settings) error {
+func (m *Manager) saveSettings(ctx context.Context, s settings.Settings) ([]<-chan struct{}, error) {
 	if err := s.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
+		return nil, fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
 	}
 	if err := m.repo.SaveSettings(ctx, s); err != nil {
-		return err
+		return nil, err
 	}
 	m.torrentUpload.SetLimit(rate.Limit(s.TorrentUploadLimit))
 	m.settings.Store(&s)
-	m.applySchedule(m.opts.Now())
+	checkpoints := m.applySchedule(m.opts.Now())
 	m.log.Info("settings updated")
 	m.signal()
-	return nil
+	return checkpoints, nil
 }
 
 func (m *Manager) Add(ctx context.Context, req download.Request) (download.Item, error) {
@@ -416,12 +425,7 @@ func (m *Manager) Pause(ctx context.Context, id string) error {
 	if err != nil || checkpointDone == nil {
 		return err
 	}
-	select {
-	case <-checkpointDone:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return waitForCheckpoints(ctx, checkpointDone)
 }
 func (m *Manager) Resume(ctx context.Context, id string) error {
 	return m.requeue(ctx, id, download.StatusPaused)
@@ -462,7 +466,8 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 			return fmt.Errorf("%w: %w", download.ErrInvalidDownload, err)
 		}
 	}
-	err := m.transition(ctx, id, p.URL != nil || p.Headers != nil, func(item *download.Item) error {
+	m.mu.Lock()
+	err := m.transitionLocked(ctx, id, p.URL != nil || p.Headers != nil, func(item *download.Item) error {
 		if item.SourceKind == download.SourceMagnet && (p.URL != nil || p.Headers != nil || p.Connections != nil || p.SpeedLimit != nil) {
 			return fmt.Errorf("%w: only priority and direct-connection consent can be changed on a magnet download", download.ErrInvalidDownload)
 		}
@@ -506,10 +511,22 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 		}
 		return nil
 	})
-	if err == nil {
-		m.signal()
+	var checkpoint <-chan struct{}
+	if err == nil && p.DirectConnectionAllowed != nil && !*p.DirectConnectionAllowed {
+		if j := m.active[id]; j != nil && magnetProxyBlocked(j.item, netproxy.Effective(m.Settings().Proxy)) {
+			j.cancel()
+			checkpoint = j.checkpointDone
+		}
 	}
-	return err
+	m.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	m.signal()
+	if checkpoint != nil {
+		return waitForCheckpoints(ctx, checkpoint)
+	}
+	return nil
 }
 
 func (m *Manager) requeue(ctx context.Context, id string, from download.Status) error {
@@ -578,6 +595,10 @@ func (m *Manager) discardPartial(item download.Item) error {
 func (m *Manager) transition(ctx context.Context, id string, withHeaders bool, change func(*download.Item) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.transitionLocked(ctx, id, withHeaders, change)
+}
+
+func (m *Manager) transitionLocked(ctx context.Context, id string, withHeaders bool, change func(*download.Item) error) error {
 	item, err := m.repo.Get(ctx, id)
 	if err != nil {
 		return err
@@ -728,22 +749,25 @@ func (m *Manager) requeueOrphans(ctx context.Context) {
 // applySchedule sets the global speed limit in force at now and stops
 // running downloads when the queue window closes; they return to the queue.
 // The caller holds m.mu.
-func (m *Manager) applySchedule(now time.Time) {
+func (m *Manager) applySchedule(now time.Time) []<-chan struct{} {
 	s := m.Settings()
 	m.global.SetLimit(limitOf(s.SpeedLimitAt(now)))
 	queueOpen := s.QueueOpen(now)
 	proxy := netproxy.Effective(s.Proxy)
+	var checkpoints []<-chan struct{}
 	for id, j := range m.active {
 		if j.item.Status != download.StatusRunning {
 			continue
 		}
-		if !queueOpen {
-			m.log.Info("queue window closed; stopping download", "id", id)
+		if magnetProxyBlocked(j.item, proxy) {
 			j.cancel()
-		} else if magnetProxyBlocked(j.item, proxy) {
+			checkpoints = append(checkpoints, j.checkpointDone)
+		} else if !queueOpen {
+			m.log.Info("queue window closed; stopping download", "id", id)
 			j.cancel()
 		}
 	}
+	return checkpoints
 }
 
 // schedule starts queued downloads, highest priority first and then in the

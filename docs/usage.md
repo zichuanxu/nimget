@@ -105,7 +105,9 @@ Relative paths are resolved against the client's working directory. On restart, 
 
 Paste a public, tracked single-file BitTorrent v1 magnet in **New Download** or pass the quoted link to `nimget add`. Use **Save to** or `--dir` to pick the parent directory. The verified torrent metadata supplies the file name.
 
-The task enters the queue before peer discovery. Once NimGet retrieves the file list, progress counts verified pieces. NimGet adds the final file after verification and uses a numbered suffix if that name is already taken. A magnet stays queued while a proxy is active.
+The task enters the queue before peer discovery. Once NimGet retrieves the file list, progress counts verified pieces. NimGet adds the final file after verification and uses a numbered suffix if that name is already taken.
+
+When a proxy is active, a magnet waits in the queue until you allow that task to make direct BitTorrent connections. In **Download details**, select **Allow direct BitTorrent connections** and save, or run `nimget set <id> --allow-direct`. Consent survives restart. Clear the checkbox and save, or run `nimget set <id> --allow-direct=false`, to revoke consent. When the proxy is active, revoking consent stops the transfer and keeps its saved progress.
 
 ### Settings
 

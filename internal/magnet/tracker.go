@@ -13,14 +13,21 @@ import (
 	"github.com/anacrolix/torrent/tracker"
 )
 
-// Own tracker request contexts per attempt. The torrent client's built-in
-// announcer can keep an in-flight request alive after the torrent is dropped.
-func discover(ctx context.Context, client *torrent.Client, tor *torrent.Torrent, hints []string, hashes []metainfo.Hash) func() {
+// Own discovery contexts per attempt so network requests stop before the
+// torrent is dropped, including when other tasks still use the client.
+func discover(ctx context.Context, client *torrent.Client, tor *torrent.Torrent, hints []string, hashes []metainfo.Hash, dhtReady <-chan struct{}) func() {
 	ctx, cancel := context.WithCancel(ctx)
 	var workers sync.WaitGroup
 	for _, hint := range hints {
 		for _, hash := range hashes {
 			workers.Go(func() { announce(ctx, client, tor, hint, hash) })
+		}
+	}
+	for _, server := range client.DhtServers() {
+		if server, ok := server.(torrent.AnacrolixDhtServerWrapper); ok {
+			for _, hash := range hashes {
+				workers.Go(func() { lookupDHT(ctx, server.Server, tor, hash, dhtReady) })
+			}
 		}
 	}
 	return func() {

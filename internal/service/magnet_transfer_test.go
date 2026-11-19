@@ -124,6 +124,34 @@ func trackedMagnetFixture(t *testing.T, name string, payload []byte, private boo
 
 func trackedMagnetPeer(t *testing.T, name string, payload []byte, private bool, limit *rate.Limiter) (string, *torrent.Torrent, *atomic.Bool) {
 	t.Helper()
+	hash, seeder, address := seedMagnetPeer(t, name, payload, private, limit)
+	compact := binary.BigEndian.AppendUint16(append([]byte(nil), address.IP.To4()...), uint16(address.Port))
+	announce, err := bencode.Marshal(map[string]any{"interval": 30, "peers": string(compact)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trackerOnline := new(atomic.Bool)
+	trackerOnline.Store(true)
+	noPeers, err := bencode.Marshal(map[string]any{"interval": 30, "peers": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/announce/secret-path" {
+			t.Errorf("unexpected tracker request path")
+		}
+		if trackerOnline.Load() {
+			_, _ = w.Write(announce)
+		} else {
+			_, _ = w.Write(noPeers)
+		}
+	}))
+	t.Cleanup(tracker.Close)
+	return fmt.Sprintf("magnet:?xt=urn:btih:%s&dn=fallback&tr=%s", hash.HexString(), url.QueryEscape(tracker.URL+"/announce/secret-path?passkey=test-only")), seeder, trackerOnline
+}
+
+func seedMagnetPeer(t *testing.T, name string, payload []byte, private bool, limit *rate.Limiter) (metainfo.Hash, *torrent.Torrent, *net.TCPAddr) {
+	t.Helper()
 	seedDir := t.TempDir()
 	source := filepath.Join(seedDir, name)
 	if err := os.WriteFile(source, payload, 0o600); err != nil {
@@ -161,30 +189,7 @@ func trackedMagnetPeer(t *testing.T, name string, payload []byte, private bool, 
 	case <-time.After(8 * time.Second):
 		t.Fatal("fixture peer did not verify its seed file")
 	}
-	address := seed.ListenAddrs()[0].(*net.TCPAddr)
-	compact := binary.BigEndian.AppendUint16(append([]byte(nil), address.IP.To4()...), uint16(address.Port))
-	announce, err := bencode.Marshal(map[string]any{"interval": 30, "peers": string(compact)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	trackerOnline := new(atomic.Bool)
-	trackerOnline.Store(true)
-	noPeers, err := bencode.Marshal(map[string]any{"interval": 30, "peers": ""})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tracker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/announce/secret-path" {
-			t.Errorf("unexpected tracker request path")
-		}
-		if trackerOnline.Load() {
-			_, _ = w.Write(announce)
-		} else {
-			_, _ = w.Write(noPeers)
-		}
-	}))
-	t.Cleanup(tracker.Close)
-	return fmt.Sprintf("magnet:?xt=urn:btih:%s&dn=fallback&tr=%s", ti.HashInfoBytes().HexString(), url.QueryEscape(tracker.URL+"/announce/secret-path?passkey=test-only")), seeder, trackerOnline
+	return ti.HashInfoBytes(), seeder, seed.ListenAddrs()[0].(*net.TCPAddr)
 }
 
 func waitForMagnetTask(t *testing.T, ctx context.Context, list func() ([]download.Item, error), id string) download.Item {

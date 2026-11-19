@@ -145,7 +145,7 @@ func (s *SQLite) create(ctx context.Context, db executor, item download.Item) er
 	if err != nil {
 		return err
 	}
-	magnetState, err := encodeMagnetState(item.Magnet)
+	magnetState, err := encodeMagnetState(item)
 	if err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func (s *SQLite) UpdateWithHeaders(ctx context.Context, item download.Item) erro
 }
 
 func (s *SQLite) update(ctx context.Context, db executor, item download.Item, headers, websiteSession *string, metadata []byte) error {
-	magnetState, err := encodeMagnetState(item.Magnet)
+	magnetState, err := encodeMagnetState(item)
 	if err != nil {
 		return err
 	}
@@ -291,10 +291,12 @@ func (s *SQLite) scanItem(row scanner) (download.Item, error) {
 		&item.SourceKind, &item.Phase, &item.Name, &magnetState, &trackers, &metadata); err != nil {
 		return download.Item{}, err
 	}
-	var err error
-	if item.Magnet, err = s.decodeMagnet(magnetState, trackers); err != nil {
+	source, err := s.decodeMagnet(magnetState, trackers)
+	if err != nil {
 		return download.Item{}, err
 	}
+	item.Magnet = source.Magnet
+	item.DirectConnectionAllowed = source.DirectConnectionAllowed
 	if item.Magnet != nil {
 		item.Directory = item.Magnet.Directory
 		item.Magnet.Metadata = metadata

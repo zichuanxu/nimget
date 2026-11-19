@@ -589,6 +589,7 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .task-facts dt { color: var(--text-2); }
 .task-facts dd { margin: 0; overflow-wrap: anywhere; }
 .task-options { display: grid; gap: 12px; }
+.task-direct-consent { min-block-size: 44px; }
 .task-recovery { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .task-recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 

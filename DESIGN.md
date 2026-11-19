@@ -113,6 +113,12 @@ The probe request keeps default negotiation so server capability is observed
 honestly. If HTTP/1.1 is refused, fall back to single-stream HTTP/2. Probe and
 segment responses must agree on the validator (section 3.3).
 
+When a download probe receives a full `200 OK` response, the single-stream
+downloader can consume that body directly. The probe timeout governs the
+initial response. The download uses the regular idle timeout while reading
+the retained body. A retryable body failure falls back to a plain GET with
+the full retry budget.
+
 Both transports honour the configured proxy (section 4.3).
 
 ### 3.3 Validators: when to parallelize and when to resume

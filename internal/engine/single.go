@@ -12,8 +12,22 @@ import (
 	"github.com/amemiya02/nimget/internal/logging"
 )
 
-// single downloads over one plain GET for servers without ranges or a known
-// size. Each attempt restarts from zero; there is nothing to checkpoint.
+type initialResponse struct {
+	resp   *http.Response
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+}
+
+func (r *initialResponse) close() {
+	if r != nil && r.resp != nil {
+		r.cancel(nil)
+		_ = r.resp.Body.Close()
+		r.resp = nil
+	}
+}
+
+// single downloads over one stream, using the probe body when the server
+// ignored Range. Each attempt restarts from zero.
 func (j *job) single(ctx context.Context, info probeInfo) error {
 	e := j.engine
 	if err := j.discard(); err != nil {
@@ -29,6 +43,21 @@ func (j *job) single(ctx context.Context, info probeInfo) error {
 		return fmt.Errorf("create partial file: %w", err)
 	}
 	defer f.Close()
+	if info.initial != nil {
+		// A server can advertise the full size on the Range probe but leave
+		// its body incomplete. A failed probe body does not consume any of
+		// the ordinary GET attempts.
+		first := j.singleOnce(ctx, info, f)
+		if first == nil {
+			return nil
+		}
+		if !first.retryable {
+			return first
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	var last *attemptError
 	for attempt := 0; attempt < e.cfg.MaxAttempts; attempt++ {
 		if last != nil {
@@ -64,11 +93,20 @@ func (j *job) singleOnce(ctx context.Context, info probeInfo, f *os.File) *attem
 		return closeSynced(f)
 	}
 
-	reqCtx, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
+	initial := info.initial
+	var reqCtx context.Context
+	var cancel context.CancelCauseFunc
+	var resp *http.Response
+	if initial != nil && initial.resp != nil {
+		resp = initial.resp
+		reqCtx, cancel = initial.ctx, initial.cancel
+		defer initial.close()
+	} else {
+		reqCtx, cancel = context.WithCancelCause(ctx)
+		defer cancel(nil)
+	}
 	stall := newStallTimer(e.cfg.StallTimeout, func() { cancel(ErrStalled) })
 	defer stall.Stop()
-	reqCtx = stall.trace(reqCtx)
 	interrupted := func(err error) *attemptError {
 		if errors.Is(context.Cause(reqCtx), ErrStalled) && ctx.Err() == nil {
 			err = ErrStalled
@@ -76,18 +114,22 @@ func (j *job) singleOnce(ctx context.Context, info probeInfo, f *os.File) *attem
 		return retryable(fmt.Errorf("download: %w", err))
 	}
 
-	req, err := e.newRequest(reqCtx, j.url)
-	if err != nil {
-		return fatal(err)
+	if resp != nil {
+		stall.Reset(e.cfg.StallTimeout)
+	} else {
+		req, err := e.newRequest(stall.trace(reqCtx), j.url)
+		if err != nil {
+			return fatal(err)
+		}
+		if info.etag != "" {
+			req.Header.Set("If-Match", info.etag)
+		}
+		resp, err = e.cfg.ProbeClient.Do(req)
+		if err != nil {
+			return interrupted(logging.HTTPError(err))
+		}
+		defer resp.Body.Close()
 	}
-	if info.etag != "" {
-		req.Header.Set("If-Match", info.etag)
-	}
-	resp, err := e.cfg.ProbeClient.Do(req)
-	if err != nil {
-		return interrupted(logging.HTTPError(err))
-	}
-	defer resp.Body.Close()
 	if err := identityEncoding(resp); err != nil {
 		return fatal(err)
 	}

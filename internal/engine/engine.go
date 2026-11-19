@@ -230,32 +230,11 @@ func (e *Engine) downloadFile(ctx context.Context, rawURL, dest string, onProgre
 	// One automatic restart covers a representation change between the probe
 	// and a later request; one more covers a server that refuses HTTP/1.1.
 	for attempt := 0; attempt < 3; attempt++ {
-		info, err := e.probe(ctx, rawURL)
+		info, err := e.probe(ctx, rawURL, true)
 		if err != nil {
 			return err
 		}
-		if isDASHManifest(info.contentType, info.finalURL) {
-			return fmt.Errorf("%w: DASH manifests are unsupported. %s", download.ErrUnsupportedMedia, supportedMediaSource)
-		}
-		// The final URL catches a redirect to an .m3u8 served as a generic type.
-		if hls.Detect(info.contentType, info.finalURL, nil) {
-			return errPlaylist // handled after the lock is released
-		}
-		if e.cfg.ValidateSource {
-			paths := []string{dest + ".hls"}
-			if !info.ranges || info.size <= 0 {
-				paths = append(paths, job.part, job.meta)
-			}
-			if err := partialfile.RequireAbsent(paths...); err != nil {
-				return err
-			}
-		}
-		if info.ranges && info.size > 0 {
-			err = job.ranged(ctx, info)
-		} else {
-			err = job.single(ctx, info)
-		}
-		switch {
+		switch err := job.transfer(ctx, info); {
 		case err == nil:
 			return job.commit()
 		case errors.Is(err, errNeedsHTTP2) && job.segments != e.cfg.ProbeClient:
@@ -282,6 +261,30 @@ type job struct {
 	progress    *progressReporter
 	segments    *http.Client
 	connections int
+}
+
+func (j *job) transfer(ctx context.Context, info probeInfo) error {
+	defer info.initial.close()
+	if isDASHManifest(info.contentType, info.finalURL) {
+		return fmt.Errorf("%w: DASH manifests are unsupported. %s", download.ErrUnsupportedMedia, supportedMediaSource)
+	}
+	// The final URL catches a redirect to an .m3u8 served as a generic type.
+	if hls.Detect(info.contentType, info.finalURL, nil) {
+		return errPlaylist // handled after the lock is released
+	}
+	if j.engine.cfg.ValidateSource {
+		paths := []string{j.dest + ".hls"}
+		if !info.ranges || info.size <= 0 {
+			paths = append(paths, j.part, j.meta)
+		}
+		if err := partialfile.RequireAbsent(paths...); err != nil {
+			return err
+		}
+	}
+	if info.ranges && info.size > 0 {
+		return j.ranged(ctx, info)
+	}
+	return j.single(ctx, info)
 }
 
 func (j *job) discard() error {
@@ -405,6 +408,7 @@ type probeInfo struct {
 	lastModified string
 	sourceScope  string
 	sourcePath   string
+	initial      *initialResponse // complete response to a Range probe, when retained for downloading
 	// For Inspect.
 	disposition, contentType, finalURL string
 }
@@ -418,7 +422,7 @@ func isDASHManifest(contentType, rawURL string) bool {
 	return err == nil && strings.EqualFold(filepath.Ext(u.Path), ".mpd")
 }
 
-func (e *Engine) probe(ctx context.Context, rawURL string) (probeInfo, error) {
+func (e *Engine) probe(ctx context.Context, rawURL string, keepFullResponse bool) (probeInfo, error) {
 	var lastErr error
 	for attempt := 0; attempt < e.cfg.MaxAttempts; attempt++ {
 		if attempt > 0 {
@@ -431,7 +435,7 @@ func (e *Engine) probe(ctx context.Context, rawURL string) (probeInfo, error) {
 				return probeInfo{}, err
 			}
 		}
-		info, aerr := e.probeOnce(ctx, rawURL)
+		info, aerr := e.probeOnce(ctx, rawURL, keepFullResponse)
 		if aerr == nil {
 			return info, nil
 		}
@@ -446,9 +450,18 @@ func (e *Engine) probe(ctx context.Context, rawURL string) (probeInfo, error) {
 	return probeInfo{}, lastErr
 }
 
-func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *attemptError) {
-	reqCtx, cancel := context.WithTimeout(ctx, e.cfg.StallTimeout)
-	defer cancel()
+func (e *Engine) probeOnce(ctx context.Context, rawURL string, keepFullResponse bool) (probeInfo, *attemptError) {
+	reqCtx, cancel := context.WithCancelCause(ctx)
+	// Limit the probe itself. A retained body gets its own idle timer once
+	// the downloader is ready to read it.
+	timer := time.AfterFunc(e.cfg.StallTimeout, func() { cancel(context.DeadlineExceeded) })
+	var retained bool
+	defer func() {
+		timer.Stop()
+		if !retained {
+			cancel(nil)
+		}
+	}()
 	req, err := e.newRequest(reqCtx, rawURL)
 	if err != nil {
 		return probeInfo{}, fatal(err)
@@ -458,7 +471,11 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 	if err != nil {
 		return probeInfo{}, retryable(fmt.Errorf("probe request: %w", logging.HTTPError(err)))
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if !retained {
+			_ = resp.Body.Close()
+		}
+	}()
 	if err := identityEncoding(resp); err != nil {
 		return probeInfo{}, fatal(err)
 	}
@@ -480,8 +497,14 @@ func (e *Engine) probeOnce(ctx context.Context, rawURL string) (probeInfo, *atte
 		info.size, info.ranges = total, true
 		return info, nil
 	case http.StatusOK:
-		// Range ignored. The body is not drained; closing drops the connection.
 		info.size = resp.ContentLength
+		if keepFullResponse && info.size != 0 && resp.Header.Get("Content-Range") == "" {
+			if !timer.Stop() {
+				return probeInfo{}, retryable(fmt.Errorf("probe response: %w", context.DeadlineExceeded))
+			}
+			info.initial = &initialResponse{resp: resp, ctx: reqCtx, cancel: cancel}
+			retained = true
+		}
 		return info, nil
 	case http.StatusRequestedRangeNotSatisfiable:
 		if total, ok := parseUnsatisfiedContentRange(resp.Header.Get("Content-Range")); ok && total == 0 {
@@ -573,7 +596,7 @@ func (e *Engine) Inspect(ctx context.Context, rawURL string) (Remote, error) {
 	if err := validateHTTPURL(rawURL); err != nil {
 		return Remote{}, err
 	}
-	info, err := e.probe(ctx, rawURL)
+	info, err := e.probe(ctx, rawURL, false)
 	if err != nil {
 		return Remote{}, err
 	}

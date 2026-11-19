@@ -43,6 +43,7 @@ import BulkRemovalResult from "./BulkRemovalResult";
 import ReleaseActions from "./ReleaseActions";
 import SettingsDialog from "./SettingsDialog";
 import TaskDetailsDialog from "./TaskDetailsDialog";
+import UpdateControls, { type UpdateCheck } from "./UpdateControls";
 import { CountdownDialog, DeleteDialog, ReauthDialog } from "./dialogs";
 import Sparkline from "./Sparkline";
 import { baseName, bytes, eta, fileKind, looksLikeCurl, looksLikeURL, speed, taskName, taskStatus, type FileKind } from "./format";
@@ -127,6 +128,7 @@ function Shell() {
   const [retainAddDraft, setRetainAddDraft] = useState(false);
   const [addFormKey, setAddFormKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [legacyImportID, setLegacyImportID] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Item | null>(null);
@@ -134,6 +136,7 @@ function Shell() {
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [clip, setClip] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheck>({ status: "idle" });
   const [queuingUpdate, setQueuingUpdate] = useState(false);
   const [canConvert, setCanConvert] = useState(false);
   const [converting, setConverting] = useState<string | null>(null);
@@ -161,6 +164,22 @@ function Shell() {
   const ok = useCallback((text: string) => setToast({ kind: "ok", text }), []);
 
   const { items, samples, history, reload } = useQueue(fail);
+
+  function openSettings() {
+    setUpdateCheck((check) => check.status === "checking" ? check : { status: "idle" });
+    setSettingsOpen(true);
+  }
+
+  async function checkForUpdate() {
+    if (updateCheck.status === "checking") return;
+    setUpdateCheck({ status: "checking" });
+    try {
+      const { update } = await Desktop.CheckForUpdate();
+      setUpdateCheck({ status: "checked", release: update });
+    } catch {
+      setUpdateCheck({ status: "failed" });
+    }
+  }
 
   async function downloadUpdate(version: string) {
     setQueuingUpdate(true);
@@ -301,7 +320,7 @@ function Shell() {
     if (file) return t(file.folderMissing ? "row.folderMissing" : "row.fileMissing");
   }, [missingFile, t]);
   const contextItem = context ? pageRows.find((item) => item.id === context.id) : undefined;
-  const modalOpen = !!(adding || settingsOpen || deleting || reauth || countdown || details || bulkConfirming || removalDetailsOpen || backupOpen || legacyImportID);
+  const modalOpen = !!(adding || settingsOpen || updatesOpen || deleting || reauth || countdown || details || bulkConfirming || removalDetailsOpen || backupOpen || legacyImportID);
   useEffect(() => {
     if (context && !contextItem) setContext(null);
   }, [context, contextItem]);
@@ -372,7 +391,7 @@ function Shell() {
         setAdding({});
       } else if (mod && e.key === ",") {
         e.preventDefault();
-        setSettingsOpen(true);
+        openSettings();
       } else if (mod && e.key.toLowerCase() === "f") {
         e.preventDefault();
         search.current?.focus();
@@ -476,11 +495,22 @@ function Shell() {
           bps={totalSpeed}
           history={history}
         />
-        <button className="nav-item" onClick={() => setSettingsOpen(true)} title={`${t("nav.settings")} (${isMac ? "⌘" : "Ctrl+"},)`}>
-          <SettingsIcon size={16} />
-          <span className="grow">{t("nav.settings")}</span>
-          {state && <span className="version">{/^\d/.test(state.version) ? `v${state.version}` : state.version}</span>}
-        </button>
+        <div className="nav">
+          {state?.canCheckUpdates && (
+            <button type="button" className="nav-item" aria-haspopup="dialog" onClick={() => {
+              setUpdatesOpen(true);
+              void checkForUpdate();
+            }}>
+              <RotateCw size={16} aria-hidden="true" />
+              {t("update.check")}
+            </button>
+          )}
+          <button className="nav-item" onClick={openSettings} title={`${t("nav.settings")} (${isMac ? "⌘" : "Ctrl+"},)`}>
+            <SettingsIcon size={16} />
+            <span className="grow">{t("nav.settings")}</span>
+            {state && <span className="version">{/^\d/.test(state.version) ? `v${state.version}` : state.version}</span>}
+          </button>
+        </div>
       </aside>
 
       <section className="main">
@@ -756,9 +786,23 @@ function Shell() {
           <p>{t("backup.warning")}</p>
         </Modal>
       )}
+      {updatesOpen && state && (
+        <Modal icon={RotateCw} size="small" title={t("update.title")} onClose={() => setUpdatesOpen(false)} focusFallback={focusSearch}>
+          <UpdateControls
+            state={state}
+            check={updateCheck}
+            queuing={queuingUpdate}
+            onCheck={checkForUpdate}
+            onDownload={downloadUpdate}
+            onClose={() => setUpdatesOpen(false)}
+          />
+        </Modal>
+      )}
       {settingsOpen && state && (
         <SettingsDialog
           state={state}
+          updateCheck={updateCheck}
+          onCheckForUpdate={checkForUpdate}
           queuingUpdate={queuingUpdate}
           onDownloadUpdate={downloadUpdate}
           onClose={() => setSettingsOpen(false)}

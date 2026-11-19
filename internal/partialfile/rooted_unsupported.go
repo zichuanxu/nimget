@@ -15,4 +15,5 @@ func openRooted(*os.File, string, bool, bool) (*os.File, error)     { return nil
 func moveRooted(*os.File, string, string, Object) error             { return errRootedUnsupported }
 func renameRooted(*os.File, string, *os.File, string, Object) error { return errRootedUnsupported }
 func mkdirPrivate(*os.Root, string) error                           { return errRootedUnsupported }
+func removePrivateDirectory(*os.File, string, Object) error         { return errRootedUnsupported }
 func syncRoot(*os.File) error                                       { return errRootedUnsupported }

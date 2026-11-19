@@ -368,11 +368,12 @@ func removeMagnetObject(ctx context.Context, root *os.Root, object *download.Mag
 	if err := partialfile.MkdirPrivate(root, slotName); err != nil {
 		return err
 	}
-	defer root.Remove(slotName) // Remove only the empty slot; it may hold preserved data.
-	slot, err := root.OpenRoot(slotName)
+	slot, slotObject, err := partialfile.OpenRootedDirectory(root, slotName)
 	if err != nil {
 		return err
 	}
+	// A nonempty slot holds preserved data and must stay available.
+	defer partialfile.RemovePrivateDirectory(root, slotName, slotObject)
 	defer slot.Close()
 
 	var entryErr error

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
 	"sync"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -32,10 +31,6 @@ type StagedPayload interface {
 	WriteErrors() <-chan error
 	Checkpoint() error
 	Close() error
-}
-
-func NewFileStorage(file *os.File, recheck bool) StagedPayload {
-	return newPieceStorage(file, recheck)
 }
 
 func newPieceStorage(file payloadIO, recheck bool) StagedPayload {

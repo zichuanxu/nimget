@@ -15,6 +15,15 @@ const (
 	PhaseProxyBlocked Phase = "proxy-blocked"
 )
 
+// MagnetError carries a stable reason alongside the diagnostic.
+type MagnetError struct {
+	Reason Failure
+	Err    error
+}
+
+func (e *MagnetError) Error() string { return e.Err.Error() }
+func (e *MagnetError) Unwrap() error { return e.Err }
+
 // Magnet holds service-only state. Tracker hints may contain credentials and
 // are stored separately from the public URL.
 type Magnet struct {

@@ -67,6 +67,63 @@ func testMagnetPublishesNestedDirectory(t *testing.T, kind string) {
 	}
 }
 
+func TestMagnetWithOnePayloadAndPaddingPublishesAFile(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	cfg := handoffServiceConfig(t)
+	c := magnetClient(t, startHandoffService(t, cfg), cfg.TokenPath)
+	prefs, err := c.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefs.Proxy = netproxy.Config{Mode: netproxy.ModeNone}
+	if _, err := c.PutSettings(ctx, prefs); err != nil {
+		t.Fatal(err)
+	}
+	seedRoot := t.TempDir()
+	folder := filepath.Join(seedRoot, "container")
+	if err := os.Mkdir(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const name = "field-notes.txt"
+	payload := bytes.Repeat([]byte("field notes"), 3500)
+	for file, data := range map[string][]byte{
+		"first-pad": make([]byte, 519), name: payload, "last-pad": make([]byte, 123),
+	} {
+		if err := os.WriteFile(filepath.Join(folder, file), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	info := metainfo.Info{PieceLength: 16 << 10}
+	if err := info.BuildFromFilePath(folder); err != nil {
+		t.Fatal(err)
+	}
+	for i := range info.Files {
+		if info.Files[i].Path[0] != name {
+			info.Files[i].Attr = "p"
+		}
+	}
+	raw, err := bencode.Marshal(&info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := &metainfo.MetaInfo{InfoBytes: raw}
+	tracker, _ := trackDirectoryFixture(t, seedRoot, meta)
+	link := fmt.Sprintf("magnet:?xt=urn:btih:%s&tr=%s", meta.HashInfoBytes().HexString(), url.QueryEscape(tracker))
+	item, err := c.Add(ctx, download.Request{URL: link})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := waitForMagnetTask(t, ctx, func() ([]download.Item, error) { return c.List(ctx) }, item.ID)
+	want := filepath.Join(cfg.DownloadRoots[0], name)
+	got, err := os.ReadFile(want)
+	if done.Status != download.StatusCompleted || done.Total != int64(len(payload)) ||
+		done.Completed != done.Total || err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("single payload must be published without padding: %+v, %d bytes, %v", done, len(got), err)
+	}
+	assertMagnetOutputPath(t, want, done.Destination)
+}
+
 func TestMagnetDirectoryReservationExcludesDescendantDownloads(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()

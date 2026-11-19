@@ -116,6 +116,33 @@ func MoveRooted(root *os.Root, source, dest string, expected Object) error {
 	return moveRooted(parent, source, dest, expected)
 }
 
+// RenameRooted moves an occupied leaf into an absent leaf on the same volume.
+// Cleanup uses it to isolate the object before establishing ownership or unlinking.
+func RenameRooted(from *os.Root, source string, to *os.Root, dest string) error {
+	if !leafOK(source) || !leafOK(dest) {
+		return Collision("invalid rooted rename source or destination")
+	}
+	parent, err := from.Open(".")
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	target, err := to.Open(".")
+	if err != nil {
+		return err
+	}
+	defer target.Close()
+	return renameRooted(parent, source, target, dest, Object{})
+}
+
+// MkdirPrivate creates a directory confined to the current user.
+func MkdirPrivate(root *os.Root, name string) error {
+	if !leafOK(name) {
+		return Collision("invalid private directory name")
+	}
+	return mkdirPrivate(root, name)
+}
+
 func SyncRoot(root *os.Root) error {
 	parent, err := root.Open(".")
 	if err != nil {

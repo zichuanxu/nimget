@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/amemiya02/nimget/internal/download"
@@ -49,7 +50,7 @@ func openMagnetDirectoryStage(root *os.Root, stage *download.MagnetObject, manif
 	tree := newMagnetTree(child, entries)
 	if err := errors.Join(tree.create(entries), partialfile.SyncRoot(root)); err != nil {
 		child.Close()
-		_ = removeMagnetDirectory(context.Background(), root, stage)
+		_ = removeMagnetObject(context.Background(), root, stage)
 		return nil, nil, false, err
 	}
 	return directoryStorage(manifest, tree, entries, true), stage, true, nil
@@ -217,8 +218,8 @@ func (t magnetTree) verifyLeaf(ctx context.Context, parent *os.Root, leaf string
 	return nil
 }
 
-func removeMagnetDirectory(ctx context.Context, root *os.Root, object *download.MagnetObject) error {
-	tree, err := openMagnetTree(root, object.Name, object)
+func removeMagnetDirectoryEntries(ctx context.Context, slot *os.Root, name string, object *download.MagnetObject) error {
+	tree, err := openMagnetTree(slot, name, object)
 	if err != nil {
 		return err
 	}
@@ -233,29 +234,18 @@ func removeMagnetDirectory(ctx context.Context, root *os.Root, object *download.
 			continue
 		}
 		err := tree.visit(entry.Path, func(parent *os.Root, leaf string) error {
-			actual, err := partialfile.InspectRooted(parent, leaf)
-			if err != nil {
-				return err
-			}
-			if actual.ID != entry.ID || actual.Directory != entry.Directory {
-				return errors.New("a download entry was replaced")
-			}
-			if entry.Digest != "" {
-				if err := tree.verifyLeaf(ctx, parent, leaf, entry); err != nil {
-					return err
+			held := "entry-" + strconv.Itoa(i)
+			expected := partialfile.Object{ID: entry.ID, Directory: entry.Directory}
+			return removeMagnetLeaf(parent, leaf, slot, held, expected, func() error {
+				if entry.Digest != "" {
+					return tree.verifyLeaf(ctx, slot, held, entry)
 				}
-			}
-			return parent.Remove(leaf)
+				return nil
+			})
 		})
 		if !errors.Is(err, os.ErrNotExist) && cleanupErr == nil {
 			cleanupErr = err
 		}
 	}
-	if err := tree.root.Close(); err != nil {
-		return errors.Join(cleanupErr, err)
-	}
-	if actual, err := partialfile.InspectRooted(root, object.Name); err != nil || actual != stagedObject(object) {
-		return errors.Join(cleanupErr, errors.New("the download directory was replaced"), err)
-	}
-	return errors.Join(cleanupErr, root.Remove(object.Name))
+	return errors.Join(cleanupErr, tree.root.Close())
 }

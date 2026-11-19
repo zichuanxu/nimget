@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,7 +34,8 @@ func TestCLICompletesMagnetAlongsideUpgradedHTTPTask(t *testing.T) {
 	t.Cleanup(web.Close)
 
 	magnetBytes := bytes.Repeat([]byte("NimGet CLI fixture\n"), 4000)
-	link := testfixture.TrackedV1Magnet(t, "magnet.txt", magnetBytes)
+	fixture := testfixture.ServeV2Magnet(t, "magnet.txt", magnetBytes, false, nil)
+	link := fixture.Link(fixture.V2)
 	dbPath, tokenPath := filepath.Join(dir, "nimget.db"), filepath.Join(dir, "token")
 	writeLegacyHTTPQueue(t, dbPath, web.URL+"/existing.txt", webPath)
 
@@ -43,7 +45,7 @@ func TestCLICompletesMagnetAlongsideUpgradedHTTPTask(t *testing.T) {
 	}
 	svc, err := service.New(service.Config{
 		Address: "127.0.0.1:0", DatabasePath: dbPath, TokenPath: tokenPath,
-		DownloadRoots: []string{root}, Sealer: sealer, MagnetLoopbackOnly: true,
+		DownloadRoots: []string{root}, Sealer: sealer, MagnetLoopbackOnly: true, MagnetStallTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -159,5 +161,25 @@ func writeLegacyHTTPQueue(t *testing.T, dbPath, source, destination string) {
 		source, destination,
 	); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCLIQueueImportAcceptsWebLinks(t *testing.T) {
+	dir := t.TempDir()
+	svc := startServiceProcess(t, dir, dir)
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("web download"))
+	}))
+	t.Cleanup(web.Close)
+	const link = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+	cmd := nimget("--address", svc.address, "--token-file", filepath.Join(dir, "token"), "import", "-")
+	cmd.Stdin = strings.NewReader(link + "\n" + web.URL + "/web.txt\n")
+	output, err := cmd.CombinedOutput()
+	if err == nil || !bytes.Contains(output, []byte("Added 1 of 2 downloads.")) {
+		t.Fatalf("import mixed queue: %q, %v", output, err)
+	}
+	items, err := svc.client.List(t.Context())
+	if err != nil || len(items) != 1 || items[0].SourceKind == download.SourceMagnet {
+		t.Fatalf("queue after importing: %+v, %v", items, err)
 	}
 }

@@ -1,6 +1,11 @@
-import { Failure, type Item } from "./api";
+import { Failure, SourceKind, type Item } from "./api";
 
-export function taskFailure(item: Item): Failure {
+export function taskFailure(item: Item): Failure | "magnet-duplicate" | "magnet-unknown" {
+  if (item.sourceKind === SourceKind.SourceMagnet) {
+    if (item.duplicateOf) return "magnet-duplicate";
+    if (item.failure === Failure.FailureNetwork) return Failure.FailureMagnetPeersStalled;
+    return item.failure || "magnet-unknown";
+  }
   if (item.failure) return item.failure;
 
   // Older records only have a diagnostic. Match known messages without displaying it.

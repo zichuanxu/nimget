@@ -4,6 +4,7 @@ import (
 	"encoding/base32"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/url"
 	"slices"
 	"strconv"
@@ -18,6 +19,11 @@ const (
 	sha256MultihashPrefix = "1220"
 )
 
+var (
+	ErrInvalidLink    = errors.New("invalid magnet link")
+	ErrInvalidTracker = errors.New("invalid magnet tracker")
+)
+
 func IsLink(raw string) bool {
 	scheme, _, _ := strings.Cut(raw, ":")
 	return strings.EqualFold(scheme, "magnet")
@@ -27,7 +33,10 @@ func IsLink(raw string) bool {
 // requests. The returned public URL omits all discovery hints.
 func Parse(raw string) (source download.Magnet, name, publicURL string, err error) {
 	invalid := func(message string) (download.Magnet, string, string, error) {
-		return download.Magnet{}, "", "", errors.New(message)
+		return download.Magnet{}, "", "", fmt.Errorf("%w: %s", ErrInvalidLink, message)
+	}
+	invalidTracker := func(message string) (download.Magnet, string, string, error) {
+		return download.Magnet{}, "", "", fmt.Errorf("%w: %s", ErrInvalidTracker, message)
 	}
 	if len(raw) > 32<<10 {
 		return invalid("magnet link is too long")
@@ -77,26 +86,26 @@ func Parse(raw string) (source download.Magnet, name, publicURL string, err erro
 		}
 	}
 	if trackers := query["tr"]; len(trackers) > 32 {
-		return invalid("magnet link has too many trackers")
+		return invalidTracker("magnet link has too many trackers")
 	} else {
 		for _, tracker := range trackers {
 			u, err := url.Parse(tracker)
 			if err != nil || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
-				return invalid("magnet link contains an invalid tracker URL")
+				return invalidTracker("magnet link contains an invalid tracker URL")
 			}
 			if port := u.Port(); port != "" {
 				if value, err := strconv.ParseUint(port, 10, 16); err != nil || value == 0 {
-					return invalid("magnet tracker URL contains an invalid port")
+					return invalidTracker("magnet tracker URL contains an invalid port")
 				}
 			}
 			switch u.Scheme {
 			case "http", "https":
 			case "udp":
 				if u.Port() == "" {
-					return invalid("UDP tracker URL must include a port")
+					return invalidTracker("UDP tracker URL must include a port")
 				}
 			default:
-				return invalid("magnet trackers must use HTTP, HTTPS, or UDP")
+				return invalidTracker("magnet trackers must use HTTP, HTTPS, or UDP")
 			}
 			if !slices.Contains(source.Trackers, tracker) {
 				source.Trackers = append(source.Trackers, tracker)

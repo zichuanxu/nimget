@@ -163,7 +163,7 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	}
 	info := tor.Info()
 	if info.Private != nil && *info.Private {
-		return errors.New("private BitTorrent downloads are unsupported; use a public magnet link")
+		return &download.MagnetError{Reason: download.FailureMagnetPrivate, Err: errors.New("private BitTorrent downloads are unsupported; use a public magnet link")}
 	}
 	meta := tor.Metainfo()
 	verified, err := VerifyIdentity(source.TorrentIdentity, info, meta)
@@ -171,11 +171,11 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 		return err
 	}
 	if err := validateManifestEncoding(info, meta.InfoBytes); err != nil {
-		return err
+		return &download.MagnetError{Reason: download.FailureMagnetMetadataInvalid, Err: err}
 	}
 	manifest, err := readManifest(info)
 	if err != nil {
-		return err
+		return &download.MagnetError{Reason: download.FailureMagnetMetadataInvalid, Err: err}
 	}
 	if err := claimOwnership(verified); err != nil {
 		return err
@@ -256,18 +256,24 @@ func (r *Runner) downloadPayload(ctx context.Context, tor *torrent.Torrent, mani
 	if err := tor.OpenStorage(ctx, staged); err != nil {
 		return errors.New("could not open the staged torrent payload")
 	}
-	tor.AllowDataDownload()
-	tor.AllowDataUpload()
-	tor.DownloadAll()
 	return r.transfer(ctx, tor, manifest, staged.WriteErrors(), report)
 }
 
 func (r *Runner) transfer(ctx context.Context, tor *torrent.Torrent, manifest Manifest, writeError <-chan error, report func(download.Phase, download.Progress)) error {
+	v2Only := manifest.info.HasV2() && !manifest.info.HasV1()
+	var missingAtLastWake int
+	if v2Only {
+		_, missingAtLastWake = torrentProgress(tor, manifest)
+	}
+	tor.AllowDataDownload()
+	tor.AllowDataUpload()
+	tor.DownloadAll()
+
 	ticker := time.NewTicker(progressInterval)
 	defer ticker.Stop()
 	watch := r.newStallWatch()
 	phase := download.PhaseWaitingPeers
-	var verifiedHigh int64
+	var verifiedHigh, lastPayloadRead int64
 	defer func() {
 		report(phase, download.Progress{Completed: verifiedBytes(tor, manifest), Total: manifest.Total})
 	}()
@@ -286,7 +292,17 @@ func (r *Runner) transfer(ctx context.Context, tor *torrent.Torrent, manifest Ma
 			if stats.ActivePeers > 0 && (stats.ConnectedSeeders > 0 || stats.BytesReadUsefulData.Int64() > 0) {
 				phase = download.PhaseTransferring
 			}
-			completed := verifiedBytes(tor, manifest)
+			completed, missing := torrentProgress(tor, manifest)
+			payloadRead := stats.BytesReadData.Int64()
+			if v2Only && missing < missingAtLastWake && payloadRead == lastPayloadRead {
+				// The pinned engine can receive v2 piece hashes after it
+				// scheduled requests with no usable pieces. Reawaken idle
+				// peers once when new hashes make more pieces requestable.
+				tor.DisallowDataDownload()
+				tor.AllowDataDownload()
+				missingAtLastWake, watch.lastProgress = missing, now
+			}
+			lastPayloadRead = payloadRead
 			report(phase, download.Progress{Completed: completed, Total: manifest.Total})
 			if completed > verifiedHigh {
 				verifiedHigh, watch.lastProgress = completed, now
@@ -301,22 +317,30 @@ func (r *Runner) transfer(ctx context.Context, tor *torrent.Torrent, manifest Ma
 				default:
 				}
 				if phase == download.PhaseWaitingPeers {
-					return magnetStall("while waiting for peers")
+					return magnetStall(download.FailureMagnetPeersStalled, "while waiting for peers")
 				}
-				return magnetStall("during payload transfer")
+				return magnetStall(download.FailureMagnetTransferStalled, "during payload transfer")
 			}
 		}
 	}
 }
 
 func verifiedBytes(tor *torrent.Torrent, manifest Manifest) int64 {
-	var completed, begin int64
+	completed, _ := torrentProgress(tor, manifest)
+	return completed
+}
+
+func torrentProgress(tor *torrent.Torrent, manifest Manifest) (completed int64, missing int) {
+	var begin int64
 	for _, run := range tor.PieceStateRuns() {
 		end := begin + int64(run.Length)
 		if run.Ok && run.Complete {
 			completed += manifest.payloadBefore(end*manifest.info.PieceLength) - manifest.payloadBefore(begin*manifest.info.PieceLength)
 		}
+		if run.MissingPieceLayerHash {
+			missing += run.Length
+		}
 		begin = end
 	}
-	return completed
+	return completed, missing
 }

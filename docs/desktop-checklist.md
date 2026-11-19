@@ -84,12 +84,12 @@ go test -race ./cmd/nimget ./internal/service -run 'Magnet|MixedQueue|UploadLimi
 
 | Acceptance | Evidence |
 | --- | --- |
-| Desktop entry | `magnet.spec.ts` verifies the New Download interaction through generated bindings at the Wails transport. `TestDesktopAddCompletesMagnetDownload` calls the desktop binding against the running service and checks the downloaded bytes. |
-| CLI and queue upgrade | `TestCLICompletesMagnetAlongsideUpgradedHTTPTask` submits through `nimget add` to the authenticated service backed by a pre-magnet SQLite queue. It checks proxy blocking, CLI consent, and completion of both outputs byte for byte. |
+| Desktop entry | `magnet.spec.ts` verifies the New Download interaction through generated bindings at the Wails transport. `TestDesktopAddCompletesMagnetDownload` calls the desktop binding against the running service and checks the downloaded bytes for v1 and hybrid magnets. |
+| CLI and queue upgrade | `TestCLICompletesMagnetAlongsideUpgradedHTTPTask` submits a v2 magnet through `nimget add` to the authenticated service backed by a pre-magnet SQLite queue. It checks proxy blocking, CLI consent, and completion of both outputs byte for byte. |
 | Protocol and networking | The service tests transfer tracked v1, v2, and hybrid fixtures, including nested directories and empty files. They also cover trackerless DHT, shared download and upload limits, per-task proxy consent across restart, and disconnect on revocation. |
 | Recovery and filesystem | The service tests resume verified pieces, interrupt publication immediately before and after the exclusive move, preserve occupied destinations, and protect edited, replaced, and added files during deletion. `TestDesktopOpensAndRevealsFileAndDirectoryOutputs` checks which filesystem path the desktop binding sends to the native shell. |
 
-The [CI workflow](../.github/workflows/ci.yml) runs native filesystem and service tests on macOS and Windows, builds both desktop targets and runs their desktop binding tests. It also cross-builds the CLI for macOS amd64 and arm64, Windows amd64, and Linux amd64 and arm64. Use the manual steps above to check actual Finder and Explorer behavior in the installed desktop app.
+The [CI workflow](../.github/workflows/ci.yml) runs native filesystem and service tests on macOS and Windows, builds both desktop targets and runs their desktop binding tests. It also cross-builds the CLI for macOS amd64 and arm64, Windows amd64, and Linux amd64 and arm64. Use the manual steps above to check New Download in the native WebView and verify Finder and Explorer behavior in the installed desktop app.
 
 ## Source startup
 

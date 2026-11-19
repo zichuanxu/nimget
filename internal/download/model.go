@@ -61,11 +61,17 @@ const (
 type Failure string
 
 const (
-	FailureAuthorization        Failure = "authorization"
-	FailureDiskSpace            Failure = "disk-space"
-	FailureFilesystemPermission Failure = "filesystem-permission"
-	FailureNetwork              Failure = "network"
-	FailureUnsupportedMedia     Failure = "unsupported-media"
+	FailureAuthorization         Failure = "authorization"
+	FailureDiskSpace             Failure = "disk-space"
+	FailureFilesystemPermission  Failure = "filesystem-permission"
+	FailureNetwork               Failure = "network"
+	FailureUnsupportedMedia      Failure = "unsupported-media"
+	FailureMagnetMetadataStalled Failure = "magnet-metadata-stalled"
+	FailureMagnetPeersStalled    Failure = "magnet-peers-stalled"
+	FailureMagnetTransferStalled Failure = "magnet-transfer-stalled"
+	FailureMagnetPrivate         Failure = "magnet-private"
+	FailureMagnetMetadataInvalid Failure = "magnet-metadata-invalid"
+	FailureMagnetPublication     Failure = "magnet-publication"
 )
 
 type Item struct {
@@ -150,6 +156,8 @@ type Event struct {
 	Sequence int64     `json:"sequence,omitempty"`
 	Type     EventType `json:"type"`
 	Item     Item      `json:"item"`
+	// CompletedMagnetPublication also signals completion during startup recovery.
+	CompletedMagnetPublication bool `json:"-"`
 }
 
 type Repository interface {
@@ -165,6 +173,8 @@ type Repository interface {
 	UpdateWithHeaders(context.Context, Item) error
 	// UpdateMagnetOwnership stores verified aliases and their duplicate rows atomically.
 	UpdateMagnetOwnership(ctx context.Context, owner Item, duplicates []Item) error
+	// UpdateMagnetTrackers replaces the sealed discovery hints without changing task state.
+	UpdateMagnetTrackers(context.Context, string, []string) error
 	// LoadSettings returns the stored settings, or ok=false when none are.
 	LoadSettings(context.Context) (s settings.Settings, ok bool, err error)
 	SaveSettings(context.Context, settings.Settings) error

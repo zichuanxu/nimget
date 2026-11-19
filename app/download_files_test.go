@@ -57,6 +57,25 @@ func TestDesktopOpensAndRevealsFileAndDirectoryOutputs(t *testing.T) {
 	}
 }
 
+func TestDesktopRevealsMagnetSaveFolderBeforeMetadata(t *testing.T) {
+	d, root := desktopWithBulkTasks(t, nil)
+	task, err := d.Add(download.Request{URL: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567", Directory: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shown string
+	d.showDownloadPath = func(path string, selectFile bool) error {
+		if selectFile {
+			t.Error("reveal selected a file before metadata")
+		}
+		shown = path
+		return nil
+	}
+	if err := d.Reveal(task.ID); err != nil || shown != root {
+		t.Fatalf("Reveal = %q, %v; want %q", shown, err, root)
+	}
+}
+
 func TestMissingDownloadFilesTracksMovesAndRestoration(t *testing.T) {
 	folderTask := filepath.Join("category", "report.zip")
 	d, root := desktopWithBulkTasks(t, map[string]download.Item{

@@ -23,6 +23,7 @@ import (
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/engine"
 	"github.com/amemiya02/nimget/internal/logging"
+	"github.com/amemiya02/nimget/internal/magnet"
 	"github.com/amemiya02/nimget/internal/netproxy"
 	"github.com/amemiya02/nimget/internal/queuefile"
 	"github.com/amemiya02/nimget/internal/service"
@@ -334,10 +335,13 @@ func newImportCommand(cfg *cliConfig) *cobra.Command {
 			}
 			failed := 0
 			for i, req := range reqs {
-				if _, err := c.Add(cmd.Context(), req); err != nil {
-					failed++
-					reportRejectedEntry(cmd, i)
+				if !magnet.IsLink(strings.TrimSpace(req.URL)) {
+					if _, err := c.Add(cmd.Context(), req); err == nil {
+						continue
+					}
 				}
+				failed++
+				reportRejectedEntry(cmd, i)
 			}
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Added %d of %d downloads.\n", len(reqs)-failed, len(reqs)); err != nil {
 				return err

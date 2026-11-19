@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/amemiya02/nimget/internal/download"
@@ -52,5 +55,26 @@ func TestOnlyPassiveFilesOpenThemselves(t *testing.T) {
 		if got := passive(path); got != want {
 			t.Errorf("passive(%q) = %v", path, got)
 		}
+	}
+}
+
+func TestDesktopQueueImportAcceptsWebLinks(t *testing.T) {
+	d, _ := desktopWithBulkTasks(t, nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, "web download")
+	}))
+	defer server.Close()
+	const magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+	d.legacyQueueImport.Store(&pendingQueueImport{
+		id:   "fixture",
+		data: fmt.Appendf(nil, `{"version":1,"downloads":[{"url":%q},{"url":%q}]}`, magnet, server.URL+"/web.txt"),
+	})
+	result, err := d.FinishLegacyImport("fixture", true)
+	if err != nil || result.Added != 1 || len(result.Failed) != 1 || result.Failed[0] != 1 {
+		t.Fatalf("import queue result = %+v, %v", result, err)
+	}
+	items, err := d.List()
+	if err != nil || len(items) != 1 || items[0].SourceKind == download.SourceMagnet {
+		t.Fatalf("queue after importing: %+v, %v", items, err)
 	}
 }

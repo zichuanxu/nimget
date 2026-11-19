@@ -34,6 +34,6 @@ func statIdentity(st unix.Stat_t) Object {
 	}
 }
 
-func exclusiveRename(fd int, src, dest string) error {
-	return unix.RenameatxNp(fd, src, fd, dest, unix.RENAME_EXCL)
+func exclusiveRename(fd int, src string, target int, dest string) error {
+	return unix.RenameatxNp(fd, src, target, dest, unix.RENAME_EXCL)
 }

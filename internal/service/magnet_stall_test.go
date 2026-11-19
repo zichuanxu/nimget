@@ -11,6 +11,7 @@ import (
 
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/netproxy"
+	"github.com/amemiya02/nimget/internal/secrets"
 	"github.com/amemiya02/nimget/internal/settings"
 	"golang.org/x/time/rate"
 )
@@ -128,7 +129,12 @@ func TestMagnetPayloadStallRetainsVerifiedPiecesAndCanRetry(t *testing.T) {
 
 func assertMagnetStall(t *testing.T, item download.Item, reason string) {
 	t.Helper()
-	if item.Status != download.StatusFailed || item.Failure != download.FailureNetwork ||
+	wantFailure := map[string]download.Failure{
+		"metadata": download.FailureMagnetMetadataStalled,
+		"peers":    download.FailureMagnetPeersStalled,
+		"transfer": download.FailureMagnetTransferStalled,
+	}[reason]
+	if item.Status != download.StatusFailed || item.Failure != wantFailure ||
 		!strings.Contains(strings.ToLower(item.Error), reason) || !strings.Contains(strings.ToLower(item.Error), "retry") {
 		t.Fatalf("expected retryable magnet failure mentioning %s: %+v", reason, item)
 	}
@@ -176,5 +182,56 @@ func TestMagnetSlowScheduledPayloadDoesNotStall(t *testing.T) {
 	}
 	if done := waitForMagnetTask(t, ctx, list, item.ID); done.Status != download.StatusCompleted {
 		t.Fatalf("active transfer failed after raising the scheduled limit: %+v", done)
+	}
+}
+
+func TestReaddingMagnetRestoresTrackerHintsAfterKeyLoss(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	cfg := handoffServiceConfig(t)
+	cfg.MagnetStallTimeout = time.Second
+	svc := startHandoffService(t, cfg)
+	c := magnetClient(t, svc, cfg.TokenPath)
+	prefs, err := c.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefs.Proxy = netproxy.Config{Mode: netproxy.ModeManual, URL: "http://127.0.0.1:1"}
+	if _, err := c.PutSettings(ctx, prefs); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("tracker restored to the existing task")
+	link := trackedMagnetFixture(t, "restored.bin", payload, false)
+	original, err := c.Add(ctx, download.Request{URL: link})
+	if err != nil || original.Phase != download.PhaseProxyBlocked {
+		t.Fatalf("initial magnet = %+v, %v", original, err)
+	}
+	if err := svc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// A process without a keyring starts again with a different memory-only key.
+	cfg.Sealer, err = secrets.New(bytes.Repeat([]byte{31}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c = magnetClient(t, startHandoffService(t, cfg), cfg.TokenPath)
+	list := func() ([]download.Item, error) { return c.List(ctx) }
+	if err := c.Update(ctx, original.ID, download.Patch{DirectConnectionAllowed: new(true)}); err != nil {
+		t.Fatal(err)
+	}
+	assertMagnetStall(t, waitForMagnetTask(t, ctx, list, original.ID), "metadata")
+
+	repeated, err := c.Add(ctx, download.Request{URL: link + "&dn=different"})
+	if err != nil || repeated.ID != original.ID || repeated.Directory != original.Directory ||
+		repeated.Name != original.Name || repeated.Status != download.StatusFailed || !repeated.DirectConnectionAllowed {
+		t.Fatalf("re-add did not preserve the task: %+v, %v", repeated, err)
+	}
+	if err := c.Retry(ctx, original.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := waitForMagnetTask(t, ctx, list, original.ID)
+	got, err := os.ReadFile(done.Destination)
+	if done.Status != download.StatusCompleted || err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("retry after restoring tracker hints: %+v, %q, %v", done, got, err)
 	}
 }

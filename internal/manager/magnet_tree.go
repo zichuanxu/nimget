@@ -19,7 +19,7 @@ import (
 func magnetDirectoryEntries(manifest magnet.Manifest) ([]download.MagnetEntry, error) {
 	var entries []download.MagnetEntry
 	known := make(map[string]download.MagnetEntry)
-	invalid := errors.New("torrent metadata contains unsafe or conflicting output paths")
+	invalid := &download.MagnetError{Reason: download.FailureMagnetMetadataInvalid, Err: errors.New("torrent metadata contains unsafe or conflicting output paths")}
 	for _, file := range manifest.Files {
 		if file.Pad {
 			continue
@@ -74,7 +74,7 @@ func confineMagnetEntries(destination string, entries []download.MagnetEntry) er
 		for _, entry := range entries {
 			candidate := filepath.Join(destination, filepath.FromSlash(entry.Path))
 			if samePath(resolved, candidate) || within(resolved, candidate) {
-				return errors.New("a torrent file would be saved in an autostart location")
+				return &download.MagnetError{Reason: download.FailureMagnetMetadataInvalid, Err: errors.New("a torrent file would be saved in an autostart location")}
 			}
 		}
 	}

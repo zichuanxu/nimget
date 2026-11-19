@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -281,7 +282,7 @@ func (m *Manager) completeMagnetPublication(ctx context.Context, item *download.
 		return err
 	}
 	*item = completed
-	m.publish(download.EventUpdated, completed)
+	m.publishEvent(download.Event{Type: download.EventUpdated, Item: completed, CompletedMagnetPublication: true})
 	return nil
 }
 
@@ -363,20 +364,68 @@ func (m *Manager) removeMagnetFiles(ctx context.Context, item download.Item) err
 }
 
 func removeMagnetObject(ctx context.Context, root *os.Root, object *download.MagnetObject) error {
-	actual, missing, err := inspectPublicationLeaf(root, object.Name)
-	if err != nil || missing {
+	slotName := ".nimget-cleanup-" + rand.Text()
+	if err := partialfile.MkdirPrivate(root, slotName); err != nil {
 		return err
 	}
-	if actual != stagedObject(object) {
-		return errors.New("the download output was replaced")
+	defer root.Remove(slotName) // Remove only the empty slot; it may hold preserved data.
+	slot, err := root.OpenRoot(slotName)
+	if err != nil {
+		return err
 	}
-	if object.Directory {
-		return removeMagnetDirectory(ctx, root, object)
+	defer slot.Close()
+
+	var entryErr error
+	err = removeMagnetLeaf(root, object.Name, slot, "output", stagedObject(object), func() error {
+		if object.Directory {
+			entryErr = removeMagnetDirectoryEntries(ctx, slot, "output", object)
+			// A nonempty directory will be restored even when its only
+			// remaining entries were unknown to the original manifest.
+			return nil
+		}
+		if object.Digest != "" {
+			return verifyMagnetObject(ctx, slot, "output", object)
+		}
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		err = nil
 	}
-	if object.Digest != "" {
-		if err := verifyMagnetObject(ctx, root, object.Name, object); err != nil {
+	return errors.Join(entryErr, err)
+}
+
+// Never unlink through the original name after a separate ownership check.
+// The exclusive move may pick up a replacement, so check the moved leaf and
+// restore it by exclusive move if it does not belong to the task.
+func removeMagnetLeaf(parent *os.Root, name string, slot *os.Root, held string, expected partialfile.Object, verify func() error) error {
+	check := func(root *os.Root, leaf string) error {
+		actual, err := partialfile.InspectRooted(root, leaf)
+		if err != nil {
 			return err
 		}
+		if expected.ID == "" || actual != expected {
+			return errors.New("a download entry was replaced")
+		}
+		return nil
 	}
-	return root.Remove(object.Name)
+	if err := check(parent, name); err != nil {
+		return err
+	}
+	if err := partialfile.RenameRooted(parent, name, slot, held); err != nil {
+		return err
+	}
+	err := check(slot, held)
+	if err == nil {
+		err = verify()
+	}
+	if err == nil {
+		err = slot.Remove(held)
+	}
+	if err == nil {
+		return nil
+	}
+	if restore := partialfile.RenameRooted(slot, held, parent, name); restore != nil {
+		return errors.Join(err, fmt.Errorf("entry kept at %q: %w", filepath.Join(slot.Name(), held), restore))
+	}
+	return err
 }

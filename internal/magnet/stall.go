@@ -16,6 +16,10 @@ func (r *Runner) waitForMetadata(ctx context.Context, tor *torrent.Torrent) erro
 	ticker := time.NewTicker(progressInterval)
 	defer ticker.Stop()
 	watch := r.newStallWatch()
+	// Anacrolix counts metadata chunks even when a later hash check rejects
+	// them. Bound the attempt independently of that cumulative counter.
+	deadline := watch.lastProgress.Add(4 * r.stallTimeout)
+	var throttleGrace time.Duration
 	for {
 		select {
 		case <-ctx.Done():
@@ -24,12 +28,22 @@ func (r *Runner) waitForMetadata(ctx context.Context, tor *torrent.Torrent) erro
 			return nil
 		case now := <-ticker.C:
 			stats := tor.Stats()
-			if watch.expired(now, stats.MetadataChunksRead.Int64(), stats.BytesRead.Int64()) {
+			wireBytes := stats.BytesRead.Int64()
+			stalled := watch.expired(now, stats.MetadataChunksRead.Int64(), wireBytes)
+			// Give a capped connection time for one maximum-sized metadata
+			// exchange (16 MiB in the engine, plus protocol framing).
+			const metadataWireBudget = 17 << 20
+			if wireBytes <= metadataWireBudget && now.Before(watch.budgetUntil) {
+				bytesPerSecond := max(float64(watch.limit.Limit()), 1)
+				grace := time.Duration(metadataWireBudget / bytesPerSecond * float64(time.Second))
+				throttleGrace = max(throttleGrace, grace)
+			}
+			if stalled || now.Sub(deadline) >= throttleGrace {
 				select {
 				case <-tor.GotInfo():
 					return nil
 				default:
-					return magnetStall("while fetching torrent metadata")
+					return magnetStall(download.FailureMagnetMetadataStalled, "while fetching torrent metadata")
 				}
 			}
 		}
@@ -69,6 +83,6 @@ func (w *stallWatch) expired(now time.Time, progress, wireBytes int64) bool {
 	return now.Sub(w.lastProgress) >= w.timeout && now.Sub(w.budgetUntil) >= w.timeout
 }
 
-func magnetStall(reason string) error {
-	return fmt.Errorf("%w %s. Retry when peers are available", download.ErrStalled, reason)
+func magnetStall(reason download.Failure, diagnostic string) error {
+	return &download.MagnetError{Reason: reason, Err: fmt.Errorf("%w %s. Retry when peers are available", download.ErrStalled, diagnostic)}
 }

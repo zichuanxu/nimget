@@ -31,7 +31,15 @@ func moveRooted(parent *os.File, src, dest string, expected Object) error {
 	if object != expected {
 		return Collision("publication source has changed")
 	}
-	return exclusiveRename(int(parent.Fd()), src, dest)
+	return renameRooted(parent, src, parent, dest, expected)
+}
+
+func renameRooted(parent *os.File, src string, target *os.File, dest string, _ Object) error {
+	return exclusiveRename(int(parent.Fd()), src, int(target.Fd()), dest)
+}
+
+func mkdirPrivate(root *os.Root, name string) error {
+	return root.Mkdir(name, 0o700)
 }
 
 func syncRoot(parent *os.File) error { return parent.Sync() }

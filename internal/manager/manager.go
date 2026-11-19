@@ -650,7 +650,7 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 	if _, ok := m.active[id]; ok {
 		return ErrActive
 	}
-	if hasMagnetPublication(item) {
+	if removeFiles && hasMagnetPublication(item) {
 		if err := m.recoverMagnetPublication(ctx, &item); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidTransition, err)
 		}
@@ -1066,8 +1066,13 @@ func (m *Manager) signal() {
 
 // The caller holds m.mu, so snapshots and events share one order.
 func (m *Manager) publish(eventType download.EventType, item download.Item) {
+	m.publishEvent(download.Event{Type: eventType, Item: item})
+}
+
+func (m *Manager) publishEvent(event download.Event) {
 	m.sequence++
-	m.opts.Publish(download.Event{Sequence: m.sequence, Type: eventType, Item: item})
+	event.Sequence = m.sequence
+	m.opts.Publish(event)
 }
 
 func validateURL(rawURL string) error {

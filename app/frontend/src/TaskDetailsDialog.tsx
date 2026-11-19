@@ -118,7 +118,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
       ) : failed ? (
         <div className="task-recovery">
           <strong className="error-text">{t(`failure.title.${failure || "unknown"}`)}</strong>
-          <p>{magnet && item.error ? item.error : t(`failure.help.${failure || "unknown"}`)}</p>
+          <p>{t(`failure.help.${failure || "unknown"}`)}</p>
           <div className="task-recovery-actions">
             {failure === Failure.FailureAuthorization && (
               <button type="button" disabled={busy} onClick={onRecover}>{t("row.reauth")}</button>

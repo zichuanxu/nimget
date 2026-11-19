@@ -62,11 +62,11 @@ func announce(ctx context.Context, client *torrent.Client, tor *torrent.Torrent,
 			next = max(30*time.Second, time.Duration(reply.Interval)*time.Second)
 			peers := make([]torrent.PeerInfo, 0, min(len(reply.Peers), 200))
 			for _, peer := range reply.Peers {
-				ip, ok := netip.AddrFromSlice(peer.IP)
-				if !ok || ip.IsUnspecified() || ip.IsMulticast() || peer.Port < 1 || peer.Port > 65535 {
+				addr := validPeerAddress(peer.IP, peer.Port)
+				if addr == nil {
 					continue
 				}
-				p := torrent.PeerInfo{Addr: &net.TCPAddr{IP: ip.AsSlice(), Port: peer.Port}, Source: torrent.PeerSourceTracker}
+				p := torrent.PeerInfo{Addr: addr, Source: torrent.PeerSourceTracker}
 				copy(p.Id[:], peer.ID)
 				peers = append(peers, p)
 				if len(peers) == cap(peers) {
@@ -83,4 +83,13 @@ func announce(ctx context.Context, client *torrent.Client, tor *torrent.Torrent,
 		case <-timer.C:
 		}
 	}
+}
+
+func validPeerAddress(rawIP net.IP, port int) *net.TCPAddr {
+	ip, ok := netip.AddrFromSlice(rawIP)
+	ip = ip.Unmap()
+	if !ok || ip.IsUnspecified() || ip.IsMulticast() || port < 1 || port > 65535 {
+		return nil
+	}
+	return &net.TCPAddr{IP: ip.AsSlice(), Port: port}
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -29,6 +30,10 @@ type Config struct {
 	DownloadRoots []string
 	// MagnetLoopbackOnly confines BitTorrent listeners for isolated fixtures.
 	MagnetLoopbackOnly bool
+	// MagnetDHTBootstrap overrides the default DHT bootstrap nodes.
+	MagnetDHTBootstrap []netip.AddrPort
+	// MagnetStallTimeout bounds BitTorrent inactivity; zero uses the default.
+	MagnetStallTimeout time.Duration
 	// Runner defaults to the engine, using the proxy from the settings.
 	Runner download.Runner
 	Logger *slog.Logger
@@ -130,6 +135,8 @@ func New(cfg Config) (*Service, error) {
 		Publish:                     publish,
 		MagnetPublicationCheckpoint: cfg.MagnetPublicationCheckpoint,
 		MagnetLoopbackOnly:          cfg.MagnetLoopbackOnly,
+		MagnetDHTBootstrap:          cfg.MagnetDHTBootstrap,
+		MagnetStallTimeout:          cfg.MagnetStallTimeout,
 		Logger:                      cfg.Logger,
 		DownloadRoots:               cfg.DownloadRoots,
 	})

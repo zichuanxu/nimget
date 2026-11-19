@@ -103,9 +103,6 @@ func Parse(raw string) (source download.Magnet, name, publicURL string, err erro
 			}
 		}
 	}
-	if len(source.Trackers) == 0 {
-		return invalid("magnet link must include a tracker")
-	}
 	publicTopics := make([]string, 0, 2)
 	if source.V1 != "" {
 		publicTopics = append(publicTopics, v1Topic+source.V1)

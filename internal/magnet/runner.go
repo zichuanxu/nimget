@@ -14,17 +14,24 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// UploadBurst fits one standard BitTorrent request.
+const UploadBurst = 16 << 10
+
 type Runner struct {
-	mu           sync.Mutex
-	client       *torrent.Client
-	active       int
-	limit        *rate.Limiter
-	loopbackOnly bool
-	metadata     chan struct{}
+	mu            sync.Mutex
+	client        *torrent.Client
+	active        int
+	downloadLimit *rate.Limiter
+	uploadLimit   *rate.Limiter
+	loopbackOnly  bool
+	metadata      chan struct{}
 }
 
-func NewRunner(limit *rate.Limiter, loopbackOnly bool) *Runner {
-	return &Runner{limit: limit, loopbackOnly: loopbackOnly, metadata: make(chan struct{}, 1)}
+func NewRunner(downloadLimit, uploadLimit *rate.Limiter, loopbackOnly bool) *Runner {
+	return &Runner{
+		downloadLimit: downloadLimit, uploadLimit: uploadLimit,
+		loopbackOnly: loopbackOnly, metadata: make(chan struct{}, 1),
+	}
 }
 
 func (r *Runner) acquire() (*torrent.Client, error) {
@@ -42,9 +49,10 @@ func (r *Runner) acquire() (*torrent.Client, error) {
 		cfg.NoDefaultPortForwarding = true
 		cfg.DisableWebtorrent = true
 		cfg.DisableWebseeds = true
-		cfg.NoUpload = true
+		cfg.Seed = false
 		cfg.DefaultStorage = &fileStorage{}
-		cfg.DownloadRateLimiter = r.limit
+		cfg.DownloadRateLimiter = r.downloadLimit
+		cfg.UploadRateLimiter = r.uploadLimit
 		// Tracker URLs and transport errors can contain private passkeys.
 		cfg.Slogger = slog.New(slog.DiscardHandler)
 		client, err := torrent.NewClient(cfg)
@@ -176,6 +184,7 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 		return errors.New("could not open the staged torrent file")
 	}
 	tor.AllowDataDownload()
+	tor.AllowDataUpload()
 	tor.DownloadAll()
 	if err := transfer(ctx, tor, info, total, staged.writeError, report); err != nil {
 		return err

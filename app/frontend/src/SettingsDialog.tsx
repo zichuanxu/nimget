@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { CircleAlert, Clock, Download, Globe, Link2, Monitor, Moon, Plus, Settings as SettingsIcon, SlidersHorizontal, Sun, Trash2, Wrench, type LucideIcon } from "lucide-react";
 import BrowserPairings from "./BrowserPairings";
 import ReleaseActions from "./ReleaseActions";
@@ -28,12 +28,12 @@ const tabs: { id: Tab; icon: LucideIcon; label: "settings.general" | "settings.d
 ];
 
 /** Row is one setting: a label (and hint) on the left, its control on the right. */
-function Row({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode }) {
+function Row({ label, hint, inputId, children }: { label: ReactNode; hint?: ReactNode; inputId?: string; children: ReactNode }) {
   return (
     <div className="set-row">
       <div className="set-text">
-        <span className="set-label">{label}</span>
-        {hint && <span className="hint">{hint}</span>}
+        {inputId ? <label className="set-label" htmlFor={inputId}>{label}</label> : <span className="set-label">{label}</span>}
+        {hint && <span className="hint" id={inputId && `${inputId}-hint`}>{hint}</span>}
       </div>
       <div className="set-control">{children}</div>
     </div>
@@ -45,6 +45,10 @@ export default function SettingsDialog({ state, queuingUpdate, onDownloadUpdate,
   const [tab, setTab] = useState<Tab>("general");
   const [s, setS] = useState<Settings | null>(null);
   const [limit, setLimit] = useState("");
+  const [uploadLimit, setUploadLimit] = useState<string | null>(null);
+  const [uploadValidation, setUploadValidation] = useState(0);
+  const uploadInput = useRef<HTMLInputElement>(null);
+  const downloadFields = useId();
   const [rules, setRules] = useState<{ from: string; to: string; limit: string }[]>([]);
   const [sites, setSites] = useState<SiteDraft[]>([]);
   const [siteValidation, setSiteValidation] = useState(0);
@@ -94,6 +98,10 @@ export default function SettingsDialog({ state, queuingUpdate, onDownloadUpdate,
       .catch((err) => setError(message(err)));
   }, []);
 
+  useLayoutEffect(() => {
+    if (uploadValidation) uploadInput.current?.focus();
+  }, [uploadValidation]);
+
   async function save() {
     if (!s || saving) return;
     setError("");
@@ -102,11 +110,25 @@ export default function SettingsDialog({ state, queuingUpdate, onDownloadUpdate,
       setTab("network");
       return;
     }
+    let torrentUploadLimit = s.torrentUploadLimit;
+    if (uploadLimit !== null) {
+      try {
+        torrentUploadLimit = parseSpeed(uploadLimit);
+      } catch {
+        torrentUploadLimit = 0;
+      }
+      if (!Number.isSafeInteger(torrentUploadLimit) || torrentUploadLimit <= 0) {
+        setUploadValidation((attempt) => attempt + 1);
+        setTab("downloads");
+        return;
+      }
+    }
     setSaving(true);
     try {
       const next = new Settings({
         ...s,
         speedLimit: parseSpeed(limit),
+        torrentUploadLimit,
         schedule: { ...s.schedule, speedRules: rules.map((r) => new SpeedRule({ from: r.from, to: r.to, limit: parseSpeed(r.limit) })) },
         sites: siteValues(sites),
       });
@@ -222,14 +244,24 @@ export default function SettingsDialog({ state, queuingUpdate, onDownloadUpdate,
               <Row label={t("settings.maxConcurrent")}>
                 <input type="number" min={1} max={64} value={s.maxConcurrent} onChange={(e) => set({ maxConcurrent: num(e.target.value) })} />
               </Row>
-              <Row label={t("settings.connections")}>
-                <input type="number" min={1} max={32} value={s.connections} onChange={(e) => set({ connections: num(e.target.value) })} />
+              <Row inputId={`${downloadFields}-connections`} label={t("settings.connections")} hint={t("settings.httpConnectionsHint")}>
+                <input id={`${downloadFields}-connections`} name="connections" type="number" min={1} max={32} value={s.connections} aria-describedby={`${downloadFields}-connections-hint`} onChange={(e) => set({ connections: num(e.target.value) })} />
               </Row>
-              <Row label={t("settings.hostConnections")}>
-                <input type="number" min={1} max={64} value={s.hostConnections} onChange={(e) => set({ hostConnections: num(e.target.value) })} />
+              <Row inputId={`${downloadFields}-host-connections`} label={t("settings.hostConnections")} hint={t("settings.httpConnectionsHint")}>
+                <input id={`${downloadFields}-host-connections`} name="hostConnections" type="number" min={1} max={64} value={s.hostConnections} aria-describedby={`${downloadFields}-host-connections-hint`} onChange={(e) => set({ hostConnections: num(e.target.value) })} />
               </Row>
-              <Row label={t("settings.speedLimit")}>
-                <input placeholder={t("settings.speedHint")} value={limit} onChange={(e) => setLimit(e.target.value)} />
+              <Row inputId={`${downloadFields}-download`} label={t("settings.speedLimit")}>
+                <input id={`${downloadFields}-download`} name="speedLimit" placeholder={t("settings.speedHint")} value={limit} onChange={(e) => setLimit(e.target.value)} />
+              </Row>
+              <Row inputId={`${downloadFields}-upload`} label={t("settings.uploadLimit")} hint={
+                uploadValidation ? <span className="form-error">{t("settings.uploadLimitError")}</span> : t("settings.uploadLimitHint")
+              }>
+                <input
+                  ref={uploadInput} id={`${downloadFields}-upload`} name="torrentUploadLimit" spellCheck={false}
+                  value={uploadLimit ?? speedText(s.torrentUploadLimit ?? 0)}
+                  aria-describedby={`${downloadFields}-upload-hint`} aria-invalid={uploadValidation > 0}
+                  onChange={(e) => { setUploadLimit(e.target.value); setUploadValidation(0); }}
+                />
               </Row>
               <div className="set-group">
                 <Switch checked={s.desktop.askDirectory} onChange={(v) => desk({ askDirectory: v })} label={t("settings.askDirectory")} />

@@ -17,22 +17,25 @@ import (
 )
 
 const (
-	MaxConnections     = 32
-	MaxHostConnections = 64
+	MaxConnections            = 32
+	MaxHostConnections        = 64
+	DefaultTorrentUploadLimit = 64 << 10
 )
 
 type Settings struct {
 	// MaxConcurrent is the number of downloads running at once.
 	MaxConcurrent int `json:"maxConcurrent"`
-	// Connections is the default per download, 1 to 32.
+	// Connections is the default per HTTP-based download, 1 to 32.
 	Connections int `json:"connections"`
-	// HostConnections caps connections to one host across all downloads.
+	// HostConnections caps HTTP-based connections to one host.
 	HostConnections int `json:"hostConnections"`
 	// SpeedLimit caps all downloads together in bytes per second; 0 is none.
-	SpeedLimit int64           `json:"speedLimit"`
-	Schedule   Schedule        `json:"schedule"`
-	Proxy      netproxy.Config `json:"proxy"`
-	Sites      []Site          `json:"sites"`
+	SpeedLimit int64 `json:"speedLimit"`
+	// TorrentUploadLimit caps all active magnet uploads together in bytes per second.
+	TorrentUploadLimit int64           `json:"torrentUploadLimit,omitempty"`
+	Schedule           Schedule        `json:"schedule"`
+	Proxy              netproxy.Config `json:"proxy"`
+	Sites              []Site          `json:"sites"`
 	// ExtraRoots are directories picked in the GUI; downloads may be written
 	// under them as well as under the service's download roots.
 	ExtraRoots []string   `json:"extraRoots"`
@@ -187,9 +190,10 @@ func restoreSitePasswords(sites, stored []Site) error {
 func Default() Settings {
 	return Settings{
 		MaxConcurrent: 3, Connections: 8, HostConnections: 16,
-		Proxy:      netproxy.Config{Mode: netproxy.ModeSystem},
-		Desktop:    Desktop{ClipboardMonitor: true, Notifications: true, CheckUpdates: true},
-		Extensions: Extensions{AutoConnect: true},
+		TorrentUploadLimit: DefaultTorrentUploadLimit,
+		Proxy:              netproxy.Config{Mode: netproxy.ModeSystem},
+		Desktop:            Desktop{ClipboardMonitor: true, Notifications: true, CheckUpdates: true},
+		Extensions:         Extensions{AutoConnect: true},
 	}
 }
 
@@ -201,6 +205,9 @@ func (s Settings) Validate() error {
 	errs = append(errs, checkConnections("", s.Connections, s.HostConnections, false))
 	if s.SpeedLimit < 0 {
 		errs = append(errs, errors.New("speedLimit cannot be negative"))
+	}
+	if s.TorrentUploadLimit < 0 {
+		errs = append(errs, errors.New("torrentUploadLimit cannot be negative"))
 	}
 	if (s.Schedule.Start == "") != (s.Schedule.Stop == "") {
 		errs = append(errs, errors.New("schedule start and stop must be set together"))

@@ -117,6 +117,7 @@ The task enters the queue before peer discovery. Once NimGet retrieves the file 
   "connections": 8,
   "hostConnections": 16,
   "speedLimit": 0,
+  "torrentUploadLimit": 65536,
   "schedule": {
     "start": "01:00",
     "stop": "07:00",
@@ -133,13 +134,16 @@ The task enters the queue before peer discovery. Once NimGet retrieves the file 
 | Field | Meaning |
 | --- | --- |
 | `maxConcurrent` | Downloads running at once, 1–64. |
-| `connections` | Default connections per download, 1–32. |
-| `hostConnections` | Connections to one host across all downloads, 1–64. A download takes what its host has left; with none left it waits. |
-| `speedLimit` | Global cap in bytes per second; `0` is unlimited. |
+| `connections` | Default connections per HTTP-based download, 1–32. |
+| `hostConnections` | HTTP-based connections to one host, 1–64. A download takes what its host has left and waits if none are available. |
+| `speedLimit` | Shared download cap for HTTP-based and magnet downloads in bytes per second. Use `0` for unlimited. |
+| `torrentUploadLimit` | Shared upload cap for active magnet downloads in bytes per second. The default is 65,536 (64 KiB/s). Supply a positive value to change it. |
 | `schedule.start`, `schedule.stop` | Local `HH:MM` window in which the queue runs, wrapping past midnight. Outside it running downloads return to the queue. Leave both empty to run all day. |
 | `schedule.speedRules` | Time-of-day global limits; the first matching rule wins over `speedLimit`. |
 | `proxy.mode` | `system` (macOS and Windows settings, else `HTTP_PROXY`/`HTTPS_PROXY`), `none`, or `manual` with `proxy.url`. Loopback addresses never use a proxy. |
-| `sites` | Overrides for a host and its subdomains: connections, host cap, extra headers, and basic-auth credentials. |
+| `sites` | HTTP-based download overrides for a host and its subdomains: connections, host cap, extra headers, and basic-auth credentials. |
+
+On the desktop, open **Settings → Downloads** to set the total download limit and BitTorrent upload limit. Magnet downloads can upload verified pieces while downloading. They disconnect when paused, completed, or stopped by service shutdown.
 
 Set per-download priority, connections, and speed limit with `add` or `set`, or open **Download details** from the task's info button or menu in the desktop app. Priority affects which queued task starts next. Connection changes apply on the next attempt and still respect the server's support and the site's connection cap. A new speed limit applies to subsequent reads on a running download. An existing limiter wait may finish at the previous rate, and the total speed limit still applies. In the desktop app, leave connections blank to use the site or app default and speed limit blank to clear the task limit.
 

@@ -220,6 +220,7 @@ func TestMagnetDirectoryDeletePreservesChangesAndForeignFiles(t *testing.T) {
 	}
 	files := directoryFixtureFiles()
 	files["empty-after-cleanup/owned.txt"] = []byte("remove me")
+	files["linked/owned.txt"] = []byte("external bytes")
 	const name = "directory-cleanup"
 	link, _ := trackedDirectoryMagnet(t, name, files, "v1")
 	item, err := c.Add(ctx, download.Request{URL: link})
@@ -246,20 +247,33 @@ func TestMagnetDirectoryDeletePreservesChangesAndForeignFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(disk("notes/added.dat"), []byte("user data"))
-	outside := filepath.Join(t.TempDir(), "external.txt")
-	write(outside, []byte("external bytes"))
-	linkErr := os.Symlink(outside, disk("outside.txt"))
-	if linkErr != nil && os.PathSeparator != '\\' {
-		t.Fatal(linkErr)
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "owned.txt")
+	write(outside, files["linked/owned.txt"])
+	if err := os.Rename(disk("linked"), disk("preserved-directory")); err != nil {
+		t.Fatal(err)
+	}
+	linkErr := os.Symlink(outsideDir, disk("linked"))
+	if linkErr != nil {
+		if os.PathSeparator != '\\' {
+			t.Fatal(linkErr)
+		}
+		// A Windows test account may lack permission to create symlinks.
+		if err := os.Mkdir(disk("linked"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		write(disk("linked/owned.txt"), files["linked/owned.txt"])
 	}
 	if err := c.Delete(ctx, item.ID, true); err == nil {
 		t.Fatal("the service did not report the preserved files")
 	}
 	for file, want := range map[string][]byte{
-		disk("notes/added.dat"):  []byte("user data"),
-		disk("notes/deep/a.bin"): files["notes/deep/a.bin"],
-		disk("notes/deep/b.txt"): edited,
-		outside:                  []byte("external bytes"),
+		disk("notes/added.dat"):               []byte("user data"),
+		disk("notes/deep/a.bin"):              files["notes/deep/a.bin"],
+		disk("notes/deep/b.txt"):              edited,
+		outside:                               files["linked/owned.txt"],
+		disk("linked/owned.txt"):              files["linked/owned.txt"],
+		disk("preserved-directory/owned.txt"): files["linked/owned.txt"],
 	} {
 		got, err := os.ReadFile(file)
 		if err != nil || !bytes.Equal(got, want) {
@@ -267,7 +281,7 @@ func TestMagnetDirectoryDeletePreservesChangesAndForeignFiles(t *testing.T) {
 		}
 	}
 	if linkErr == nil {
-		if target, err := os.Readlink(disk("outside.txt")); err != nil || target != outside {
+		if target, err := os.Readlink(disk("linked")); err != nil || filepath.Clean(target) != filepath.Clean(outsideDir) {
 			t.Errorf("preserve outside reference: target %q, %v", target, err)
 		}
 	}

@@ -1,54 +1,68 @@
-# NimGet
+<p align="center">
+  <img src="app/build/appicon.png" alt="NimGet logo" width="88">
+</p>
 
-<img src="app/build/appicon.png" alt="NimGet logo" width="96">
+<h1 align="center">NimGet</h1>
 
-NimGet is a lightweight, open-source download manager built in Go for macOS and Windows. Its `nimget` CLI and background service also run on Linux.
+<p align="center">An open-source download manager for Windows and macOS, with a CLI and headless queue that also run on Linux.</p>
 
-- Up to 32 connections per download, rebalanced as they finish; byte-level resume, even after a crash.
-- Queue with priorities, per-host connection caps, speed limits, and a schedule.
-- [Public BitTorrent v1, v2, and hybrid magnet downloads](docs/usage.md#magnet-downloads) in the desktop app and headless queue.
-- HLS (`.m3u8`, AES-128) to one `.ts` file, optional MP4 conversion with ffmpeg.
-- Desktop app: tray icon, notifications, drag and drop, cURL import, clipboard monitor, batch URLs, sleep or shut down when done; English and Simplified Chinese, light and dark themes.
-- Chrome and Edge extension with [automatic download capture, manual handoff, and website sessions](docs/browser-handoff.md).
+<p align="center">
+  <a href="https://github.com/amemiya02/nimget/releases/latest"><strong>Download NimGet</strong></a>
+  · <a href="#benchmarks">Benchmarks</a>
+  · <a href="docs/usage.md">Documentation</a>
+</p>
 
-## Download benchmark
+![NimGet desktop queue on Windows with example downloads](docs/assets/nimget-desktop.png)
 
-On Windows 11, NimGet finished a 512 MiB download from an uncapped loopback server in **1.24 s** median across five runs. Windows curl took **6.14 s** and aria2 took **3.97 s**. NimGet used 8 connections and aria2 used 16.
+<p align="center"><sub>Desktop preview with example downloads</sub></p>
 
-With a 64 MiB fixture capped at 4 MiB/s per connection and a 350 ms response delay, the five-run medians were **3.52 s** for NimGet, **16.39 s** for curl, and **4.11 s** for aria2. NimGet and aria2 each used 6 connections. [Benchmark settings and reproduction commands](docs/http-benchmarks.md#three-client-benchmark)
+- **Parallel HTTP downloads.** Use up to 32 connections per file, rebalance work as connections finish, and resume eligible downloads at byte offsets after a crash.
+- **A queue you control.** Set priorities, per-host connection caps, speed limits, and a download schedule.
+- **Browser handoff.** Send links from Chrome or Edge, or opt in to automatic capture. Use an existing website session when a download needs it. [Browser integration](docs/browser-handoff.md)
+- **Magnet links and HLS.** Download public BitTorrent v1, v2, and hybrid magnets, or save supported HLS streams and optionally convert them to MP4 with FFmpeg. [Supported downloads](docs/usage.md)
+
+## Benchmarks
+
+NimGet finished first in all five rounds of two Windows 11 loopback tests. For an uncapped 512 MiB download, it delivered **3.2× aria2’s throughput** and **4.9× Windows curl’s throughput**.
+
+| Test | NimGet | Windows curl | aria2 |
+| --- | ---: | ---: | ---: |
+| 512 MiB, uncapped. NimGet used 8 connections and aria2 used 16. | **1.24 s** | 6.14 s | 3.97 s |
+| 64 MiB, 4 MiB/s per connection and 350 ms response delay. NimGet and aria2 each used 6 connections. | **3.52 s** | 16.39 s | 4.11 s |
+
+Numbers are median completion times. The benchmark verifies every output with SHA-256 and removes it after each run. Public download speeds vary by source and network. [Full results and reproduction commands](docs/http-benchmarks.md)
 
 ## Install on Windows
 
-The [Windows release guide](docs/windows-release.md) covers the x64 installer, matching Chrome and Edge extension archive, and SHA-256 checksums. See the [Windows installation guide](docs/windows-installer.md) for WebView2, upgrades, and uninstall. Follow the [extension pairing guide](docs/browser-pairing.md) for browser setup.
+Get the x64 setup file and `SHA256SUMS.txt` from the [latest release](https://github.com/amemiya02/nimget/releases/latest). NimGet runs on Windows 10 and 11 with the WebView2 Runtime. [Installation and checksum guide](docs/windows-installer.md)
 
 ## Install on macOS
 
-Releases from v1.1.0 include `NimGet-<version>-macos-universal.dmg` for Apple silicon and Intel Macs running macOS 13 or later. Check its hash against `SHA256SUMS-macos.txt` on the release page (`shasum -a 256 NimGet-*.dmg`), open the disk image, and drag NimGet to Applications.
+Get the universal DMG and `SHA256SUMS-macos.txt` from the [latest release](https://github.com/amemiya02/nimget/releases/latest). NimGet runs on Apple silicon and Intel Macs with macOS 13 or later.
 
-The app is signed ad hoc, not with a paid Developer ID, so macOS blocks the first launch. Open System Settings > Privacy & Security and choose **Open Anyway** for NimGet, or run `xattr -dr com.apple.quarantine /Applications/NimGet.app` once. The browser extension is the same unpacked Chrome and Edge extension as on Windows; download `NimGet-<version>-chromium-extension.zip` from the same release and follow the [extension pairing guide](docs/browser-pairing.md).
+Verify the image with `shasum -a 256 NimGet-*.dmg`, then open it and drag NimGet to Applications. If macOS blocks the ad-hoc-signed build on first launch, go to **System Settings → Privacy & Security** and select **Open Anyway**.
 
-## Update NimGet
+## Get started
 
-Published desktop builds check GitHub for stable updates daily by default. Select **Check for updates** in the sidebar to check at any time, even when automatic checks are off. **Download update** adds the compatible Windows installer or macOS disk image to the queue. NimGet checks its SHA-256 digest before marking the download complete. Quit NimGet and install the downloaded package using the steps for your platform.
+1. Open NimGet, choose **New download**, and paste an HTTP(S) URL or magnet link.
+2. For Chrome or Edge, download the Chromium extension ZIP from the same release and [pair it with NimGet](docs/browser-pairing.md).
+3. To update the desktop app, select **Check for updates** in the sidebar. NimGet verifies the installer checksum before adding it to your completed downloads.
 
-## Run from source
+## Build from source
 
-Building from source requires Git and Go 1.27+. The desktop app also needs Node.js 22.12+ and, on macOS, the Xcode command line tools. On Windows it needs the WebView2 Runtime.
+Use Git and Go 1.27 or later for the CLI on Windows, macOS, or Linux.
 
-```bash
+```sh
 git clone https://github.com/amemiya02/nimget.git
 cd nimget
+go run ./cmd/nimget download https://github.com/amemiya02/nimget/releases/latest/download/SHA256SUMS.txt ./nimget-checksums.txt
 ```
 
-Run the CLI directly:
+Start the headless queue with `go run ./cmd/nimget service`, then use `go run ./cmd/nimget add URL` and `go run ./cmd/nimget list` in another terminal. The same client commands work with the desktop app while it is running.
 
-```bash
-go run ./cmd/nimget download https://example.com/file.iso ./file.iso
-```
+The desktop build also needs Node.js 22.12 or later and the platform prerequisites in the [source guide](docs/source.md).
 
-Run the desktop app (macOS and Windows; `app/` is its own Go module):
-
-```bash
+```sh
 cd app/frontend
 npm ci
 npm run build
@@ -56,53 +70,10 @@ cd ..
 go run .
 ```
 
-For a headless queue, run `go run ./cmd/nimget service` from the repository root and keep that terminal open. In another terminal, use `go run ./cmd/nimget add URL` and `go run ./cmd/nimget list`. The desktop app runs the same service, so these commands also work while it is open. Quit any other NimGet app or service before starting one: they share port 51000 and a single-instance lock.
+## Contributing
 
-[docs/source.md](docs/source.md) covers local builds, UI live reload, and updating your checkout. [docs/usage.md](docs/usage.md) covers every command, the settings, and the HTTP API.
-
-## Development
-
-Run `go test ./...` at the repository root and again in `app/`. To build a local CLI for the examples in the usage reference, run `go build ./cmd/nimget` from the repository root; this creates `nimget` (`nimget.exe` on Windows).
-
-After changing a bound Go method or type, regenerate the TypeScript bindings (CI checks them):
-
-```bash
-go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.26
-cd app && wails3 generate bindings -clean=true -ts -f '-tags production'
-```
-
-The design and roadmap are in [DESIGN.md](DESIGN.md); [docs/desktop-checklist.md](docs/desktop-checklist.md) is the manual test list.
-
-## Repository layout
-
-```text
-cmd/nimget/             Cobra CLI: service, add, list, set, pause, resume, retry, delete, settings, export, import, download, version
-internal/download/    Shared queue model, errors, and event contract
-internal/engine/      Download engine: work-stealing ranges, checkpoints, validation
-internal/filelock/    OS advisory file locks
-internal/logging/     slog setup and URL redaction
-internal/store/       SQLite persistence
-internal/manager/     Queue, priorities, host caps, limits, schedule, naming, confinement
-internal/settings/    Settings document and schedule rules
-internal/netproxy/    Manual and system proxy selection
-internal/hls/         HLS playlists, AES-128, TS/fMP4 concatenation, segment resume
-internal/remux/       Optional ffmpeg remux of .ts to .mp4
-internal/batch/       Batch URL patterns
-internal/queuefile/   Queue import and export
-internal/power/       Sleep and shut down
-internal/update/      Stable release checks and update package selection
-internal/quarantine/  Marks completed files as downloaded from the internet
-internal/secrets/     AES-GCM sealing with a key in the OS keyring
-internal/curlimport/  "Copy as cURL" parser
-internal/api/         Authenticated loopback JSON and SSE API
-internal/client/      Service client
-internal/service/     Service composition, lifecycle, paths, and token
-tools/bench/          HTTP comparison with curl and aria2c, plus the CI performance gate
-docs/                 Source startup guide, usage reference, desktop checklist
-app/                  Desktop app (Wails v3 module): bindings, tray, React frontend
-DESIGN.md             Design contract and M0–M6 roadmap
-```
+Run `go test ./...` from the repository root and again from `app/`. See the [source guide](docs/source.md) for the development workflow, the [desktop checklist](docs/desktop-checklist.md) for manual checks, and [DESIGN.md](DESIGN.md) for the engine and architecture.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+[Apache-2.0](LICENSE). See [NOTICE](NOTICE) for third-party notices.

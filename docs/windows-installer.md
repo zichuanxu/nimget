@@ -26,7 +26,7 @@ Uninstall keeps application data, including the queue, settings, logs, WebView2 
 
 ## Build the installer
 
-On Windows, install Go 1.26+, Node.js 22.12+ and PowerShell 7.4+. Install [NSIS 3.13](https://sourceforge.net/projects/nsis/files/NSIS%203/3.13/). Put makensis.exe on PATH or supply its location with -MakeNSIS.
+On Windows, install Go 1.27+, Node.js 22.12+ and PowerShell 7.4+. Install [NSIS 3.13](https://sourceforge.net/projects/nsis/files/NSIS%203/3.13/). Put makensis.exe on PATH or supply its location with -MakeNSIS.
 
 From the repository root:
 

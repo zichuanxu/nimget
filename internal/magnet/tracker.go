@@ -48,8 +48,10 @@ func announce(ctx context.Context, client *torrent.Client, tor *torrent.Torrent,
 	}
 	for ctx.Err() == nil {
 		if info := tor.Info(); info != nil {
-			req.Downloaded = verifiedBytes(tor, info)
-			req.Left = info.TotalLength() - req.Downloaded
+			if manifest, err := readManifest(info); err == nil {
+				req.Downloaded = verifiedBytes(tor, manifest)
+				req.Left = manifest.Total - req.Downloaded
+			}
 		}
 		attempt, cancel := context.WithTimeout(ctx, tracker.DefaultTrackerAnnounceTimeout)
 		reply, err := peerTracker.Announce(attempt, req, tracker.AnnounceOpt{})

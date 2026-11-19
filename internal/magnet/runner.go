@@ -99,7 +99,7 @@ func (r *Runner) release() {
 // and the torrent disconnected.
 func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	claimOwnership func(download.TorrentIdentity) error,
-	prepare func(info *metainfo.Info, metadata []byte) (StagedPayload, error),
+	prepare func(manifest Manifest, metadata []byte) (StagedPayload, error),
 	report func(download.Phase, download.Progress),
 	checkpoint func(metadata []byte) error,
 	publish func() error,
@@ -165,28 +165,27 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	if info.Private != nil && *info.Private {
 		return errors.New("private BitTorrent downloads are unsupported; use a public magnet link")
 	}
-	verified, err := VerifyIdentity(source.TorrentIdentity, info, tor.Metainfo())
+	meta := tor.Metainfo()
+	verified, err := VerifyIdentity(source.TorrentIdentity, info, meta)
 	if err != nil {
 		return err
 	}
-	files := info.UpvertedFiles()
-	if len(files) != 1 || files[0].Length < 0 {
-		return errors.New("this magnet requires a public single-file torrent")
+	if err := validateManifestEncoding(info, meta.InfoBytes); err != nil {
+		return err
 	}
-	if info.SymlinkPath != nil || info.Attr != "" && info.Attr != "x" ||
-		files[0].SymlinkPath != nil || files[0].Attr != "" && files[0].Attr != "x" {
-		return errors.New("torrent metadata does not describe a regular file")
+	manifest, err := readManifest(info)
+	if err != nil {
+		return err
 	}
 	if err := claimOwnership(verified); err != nil {
 		return err
 	}
 	unlockMetadata()
-	meta := tor.Metainfo()
 	encoded, err := encodeVerifiedMetainfo(meta)
 	if err != nil {
 		return err
 	}
-	staged, err := prepare(info, encoded)
+	staged, err := prepare(manifest, encoded)
 	if err != nil {
 		return err
 	}
@@ -195,7 +194,7 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	case ctx.Err() != nil:
 		transferErr = ctx.Err()
 	default:
-		transferErr = r.downloadPayload(ctx, tor, info, files[0].Length, staged, report)
+		transferErr = r.downloadPayload(ctx, tor, manifest, staged, report)
 	}
 	var finalMeta metainfo.MetaInfo
 	if info.HasV2() {
@@ -253,24 +252,24 @@ func loadMagnetMetadata(source download.Magnet, opts *torrent.AddTorrentOpts) er
 	return nil
 }
 
-func (r *Runner) downloadPayload(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, total int64, staged StagedPayload, report func(download.Phase, download.Progress)) error {
+func (r *Runner) downloadPayload(ctx context.Context, tor *torrent.Torrent, manifest Manifest, staged StagedPayload, report func(download.Phase, download.Progress)) error {
 	if err := tor.OpenStorage(ctx, staged); err != nil {
 		return errors.New("could not open the staged torrent payload")
 	}
 	tor.AllowDataDownload()
 	tor.AllowDataUpload()
 	tor.DownloadAll()
-	return r.transfer(ctx, tor, info, total, staged.WriteErrors(), report)
+	return r.transfer(ctx, tor, manifest, staged.WriteErrors(), report)
 }
 
-func (r *Runner) transfer(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, total int64, writeError <-chan error, report func(download.Phase, download.Progress)) error {
+func (r *Runner) transfer(ctx context.Context, tor *torrent.Torrent, manifest Manifest, writeError <-chan error, report func(download.Phase, download.Progress)) error {
 	ticker := time.NewTicker(progressInterval)
 	defer ticker.Stop()
 	watch := r.newStallWatch()
 	phase := download.PhaseWaitingPeers
 	var verifiedHigh int64
 	defer func() {
-		report(phase, download.Progress{Completed: verifiedBytes(tor, info), Total: total})
+		report(phase, download.Progress{Completed: verifiedBytes(tor, manifest), Total: manifest.Total})
 	}()
 	for {
 		select {
@@ -287,8 +286,8 @@ func (r *Runner) transfer(ctx context.Context, tor *torrent.Torrent, info *metai
 			if stats.ActivePeers > 0 && (stats.ConnectedSeeders > 0 || stats.BytesReadUsefulData.Int64() > 0) {
 				phase = download.PhaseTransferring
 			}
-			completed := verifiedBytes(tor, info)
-			report(phase, download.Progress{Completed: completed, Total: total})
+			completed := verifiedBytes(tor, manifest)
+			report(phase, download.Progress{Completed: completed, Total: manifest.Total})
 			if completed > verifiedHigh {
 				verifiedHigh, watch.lastProgress = completed, now
 			}
@@ -310,16 +309,12 @@ func (r *Runner) transfer(ctx context.Context, tor *torrent.Torrent, info *metai
 	}
 }
 
-func verifiedBytes(tor *torrent.Torrent, info *metainfo.Info) int64 {
+func verifiedBytes(tor *torrent.Torrent, manifest Manifest) int64 {
 	var completed, begin int64
 	for _, run := range tor.PieceStateRuns() {
 		end := begin + int64(run.Length)
 		if run.Ok && run.Complete {
-			endOffset := info.TotalLength()
-			if end < int64(info.NumPieces()) {
-				endOffset = end * info.PieceLength
-			}
-			completed += endOffset - begin*info.PieceLength
+			completed += manifest.payloadBefore(end*manifest.info.PieceLength) - manifest.payloadBefore(begin*manifest.info.PieceLength)
 		}
 		begin = end
 	}

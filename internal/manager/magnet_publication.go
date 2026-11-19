@@ -11,7 +11,6 @@ import (
 	"github.com/amemiya02/nimget/internal/magnet"
 	"github.com/amemiya02/nimget/internal/partialfile"
 	"github.com/amemiya02/nimget/internal/quarantine"
-	"github.com/anacrolix/torrent/metainfo"
 )
 
 type magnetOutputError struct {
@@ -30,8 +29,14 @@ func publicationError(err error) error {
 
 // publishMagnet seals the staged bytes before taking the manager lock. After
 // writing intent, only reconciliation may choose a final path or complete it.
-func (m *Manager) publishMagnet(ctx context.Context, j *job, root *os.Root, stage download.MagnetObject, name string, info *metainfo.Info, sourceURL string) error {
-	if err := sealMagnetFile(ctx, root, &stage, info, sourceURL); err != nil {
+func (m *Manager) publishMagnet(ctx context.Context, j *job, root *os.Root, stage download.MagnetObject, name string, manifest magnet.Manifest, sourceURL string) error {
+	var err error
+	if stage.Directory {
+		err = sealMagnetDirectory(ctx, root, &stage, manifest, sourceURL)
+	} else {
+		err = sealMagnetFile(ctx, root, &stage, manifest, sourceURL)
+	}
+	if err != nil {
 		return publicationError(err)
 	}
 	m.mu.Lock()
@@ -64,7 +69,7 @@ func (m *Manager) publishMagnet(ctx context.Context, j *job, root *os.Root, stag
 	return nil
 }
 
-func sealMagnetFile(ctx context.Context, root *os.Root, stage *download.MagnetObject, info *metainfo.Info, source string) error {
+func sealMagnetFile(ctx context.Context, root *os.Root, stage *download.MagnetObject, manifest magnet.Manifest, source string) error {
 	file, actual, err := partialfile.OpenRooted(root, stage.Name, true, false)
 	if err != nil {
 		return err
@@ -73,7 +78,7 @@ func sealMagnetFile(ctx context.Context, root *os.Root, stage *download.MagnetOb
 	if actual != stagedObject(stage) {
 		return errors.New("the staged file changed")
 	}
-	digest, err := magnet.VerifySingleFile(ctx, file, info)
+	digest, err := manifest.VerifySingleFile(ctx, file)
 	if err != nil {
 		return err
 	}
@@ -83,7 +88,7 @@ func sealMagnetFile(ctx context.Context, root *os.Root, stage *download.MagnetOb
 	if err := quarantine.MarkRooted(root, file, stage.Name, source); err != nil {
 		return err
 	}
-	stage.Size, stage.Digest = info.TotalLength(), digest
+	stage.Size, stage.Digest = manifest.Total, digest
 	return errors.Join(file.Sync(), partialfile.SyncRoot(root))
 }
 
@@ -199,6 +204,11 @@ func (m *Manager) reconcileMagnetPublication(ctx context.Context, item *download
 		if dest != expected {
 			return conflict
 		}
+		if stage.Directory {
+			if err := verifyMagnetDirectory(ctx, root, destName, stage); err != nil {
+				return err
+			}
+		}
 		return m.completeMagnetPublication(ctx, item, root, destName)
 	}
 	return errors.New("no free destination for the magnet")
@@ -213,6 +223,9 @@ func inspectPublicationLeaf(root *os.Root, name string) (partialfile.Object, boo
 }
 
 func verifyMagnetObject(ctx context.Context, root *os.Root, name string, expected *download.MagnetObject) error {
+	if expected.Directory {
+		return verifyMagnetDirectory(ctx, root, name, expected)
+	}
 	f, actual, err := partialfile.OpenRooted(root, name, false, false)
 	if err != nil {
 		return err
@@ -341,22 +354,29 @@ func (m *Manager) removeMagnetFiles(ctx context.Context, item download.Item) err
 		if err := m.checkMagnetRoot(item, root, object.RootID); err != nil {
 			return err
 		}
-		actual, missing, err := inspectPublicationLeaf(root, object.Name)
-		if err != nil || missing {
-			return err
-		}
-		if actual != stagedObject(object) {
-			return errors.New("the download file was replaced")
-		}
-		if object.Digest != "" {
-			if err := verifyMagnetObject(ctx, root, object.Name, object); err != nil {
-				return err
-			}
-		}
-		return root.Remove(object.Name)
+		return removeMagnetObject(ctx, root, object)
 	}
 	if err := remove(); err != nil {
 		return &fileCleanupError{context: "download deleted, but its files were kept", cause: err}
 	}
 	return nil
+}
+
+func removeMagnetObject(ctx context.Context, root *os.Root, object *download.MagnetObject) error {
+	actual, missing, err := inspectPublicationLeaf(root, object.Name)
+	if err != nil || missing {
+		return err
+	}
+	if actual != stagedObject(object) {
+		return errors.New("the download output was replaced")
+	}
+	if object.Directory {
+		return removeMagnetDirectory(ctx, root, object)
+	}
+	if object.Digest != "" {
+		if err := verifyMagnetObject(ctx, root, object.Name, object); err != nil {
+			return err
+		}
+	}
+	return root.Remove(object.Name)
 }

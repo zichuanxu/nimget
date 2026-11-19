@@ -50,8 +50,18 @@ func (id TorrentIdentity) PreferredHash() string {
 
 // MagnetObject records the rooted identity of one download output.
 type MagnetObject struct {
-	RootID    string `json:"rootId"`
-	Name      string `json:"name"`
+	RootID    string        `json:"rootId"`
+	Name      string        `json:"name"`
+	ID        string        `json:"id"`
+	Directory bool          `json:"directory,omitempty"`
+	Size      int64         `json:"size,omitempty"`
+	Digest    string        `json:"digest,omitempty"`
+	Entries   []MagnetEntry `json:"entries,omitempty"`
+}
+
+// MagnetEntry records ownership relative to the output directory.
+type MagnetEntry struct {
+	Path      string `json:"path"`
 	ID        string `json:"id"`
 	Directory bool   `json:"directory,omitempty"`
 	Size      int64  `json:"size,omitempty"`

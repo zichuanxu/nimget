@@ -1,9 +1,13 @@
 module github.com/amemiya02/nimget
 
-go 1.26.0
+go 1.27.0
+
+// Keep the fix for empty v2 torrent files until an upstream release includes it.
+replace github.com/anacrolix/torrent => github.com/mikluko-forks/torrent v1.61.1-0.20261118034023-1bd35449c90d
 
 require (
 	github.com/anacrolix/dht/v2 v2.23.1-0.20260525063928-ec3a9bd99456
+	github.com/anacrolix/generics v0.2.1-0.20261118011427-05a545e5bbda
 	github.com/anacrolix/torrent v1.63.0
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
@@ -19,7 +23,6 @@ require (
 	github.com/anacrolix/btree v0.1.1 // indirect
 	github.com/anacrolix/chansync v0.8.0 // indirect
 	github.com/anacrolix/envpprof v1.4.0 // indirect
-	github.com/anacrolix/generics v0.2.0 // indirect
 	github.com/anacrolix/go-libutp v1.5.2-0.20260908013213-836dd42cdde6 // indirect
 	github.com/anacrolix/go-utp v0.0.0-20260908033909-9f1664acf866 // indirect
 	github.com/anacrolix/log v0.17.1-0.20251118025802-918f1157b7bb // indirect
@@ -27,7 +30,7 @@ require (
 	github.com/anacrolix/missinggo/perf v1.0.0 // indirect
 	github.com/anacrolix/missinggo/v2 v2.12.0 // indirect
 	github.com/anacrolix/mmsg v1.0.1 // indirect
-	github.com/anacrolix/multiless v0.4.0 // indirect
+	github.com/anacrolix/multiless v0.4.1-0.20261117234141-fbc4e053da19 // indirect
 	github.com/anacrolix/stm v0.5.0 // indirect
 	github.com/anacrolix/sync v0.5.5-0.20251119100342-d78dd1f686f1 // indirect
 	github.com/anacrolix/upnp v0.1.4 // indirect

@@ -6,9 +6,9 @@ This product includes software developed by amemiya02
 
 Licensed under the Apache License, Version 2.0.
 
-This product includes the anacrolix/torrent BitTorrent engine, version 1.63.0,
-licensed under the Mozilla Public License, v. 2.0. The corresponding source
-is available at https://github.com/anacrolix/torrent/tree/v1.63.0.
+This product includes the anacrolix/torrent BitTorrent engine, licensed under
+the Mozilla Public License, v. 2.0. The corresponding source is available at
+https://github.com/mikluko-forks/torrent/tree/1bd35449c90d003b686d22ee21d5c9bbf6c33f0a.
 
 Mozilla Public License Version 2.0
 ==================================

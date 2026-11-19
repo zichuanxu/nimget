@@ -65,12 +65,19 @@ func confine(roots []string, destination string) (string, error) {
 	if !inside {
 		return "", fmt.Errorf("destination %s is outside the allowed download roots", destination)
 	}
-	for _, dir := range autostartDirs() {
-		if resolvedDir, err := resolveExisting(dir); err == nil && within(resolvedDir, real) {
-			return "", fmt.Errorf("destination %s is inside an autostart location", destination)
-		}
+	if inAutostart(real) {
+		return "", fmt.Errorf("destination %s is inside an autostart location", destination)
 	}
 	return destination, nil
+}
+
+func inAutostart(path string) bool {
+	for _, dir := range autostartDirs() {
+		if resolved, err := resolveExisting(dir); err == nil && (samePath(resolved, path) || within(resolved, path)) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveExisting follows symlinks in the longest existing prefix of path and

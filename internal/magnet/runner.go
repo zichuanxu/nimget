@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 
@@ -74,6 +75,7 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	claimOwnership func(download.TorrentIdentity) error,
 	prepare func(info *metainfo.Info, metadata []byte) (StagedPayload, error),
 	report func(download.Phase, download.Progress),
+	checkpoint func(metadata []byte) error,
 	publish func() error,
 ) error {
 	if len(source.Trackers) == 0 && len(source.Metadata) == 0 {
@@ -159,11 +161,11 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	}
 	unlockMetadata()
 	meta := tor.Metainfo()
-	var encoded bytes.Buffer
-	if err := (&metainfo.MetaInfo{InfoBytes: meta.InfoBytes, PieceLayers: meta.PieceLayers}).Write(&encoded); err != nil {
-		return errors.New("could not save verified torrent metadata")
+	encoded, err := encodeVerifiedMetainfo(meta)
+	if err != nil {
+		return err
 	}
-	staged, err := prepare(info, encoded.Bytes())
+	staged, err := prepare(info, encoded)
 	if err != nil {
 		return err
 	}
@@ -174,9 +176,22 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	default:
 		transferErr = downloadPayload(ctx, tor, info, files[0].Length, staged, report)
 	}
+	var finalMeta metainfo.MetaInfo
+	if info.HasV2() {
+		finalMeta = tor.Metainfo()
+	}
 	stop()
 	if err := errors.Join(staged.Checkpoint(), staged.Close()); err != nil {
 		return errors.Join(transferErr, err)
+	}
+	if !maps.Equal(meta.PieceLayers, finalMeta.PieceLayers) {
+		encoded, err := encodeVerifiedMetainfo(finalMeta)
+		if err == nil {
+			err = checkpoint(encoded)
+		}
+		if err != nil {
+			return errors.Join(transferErr, err)
+		}
 	}
 	if transferErr != nil {
 		return transferErr
@@ -185,6 +200,14 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 		return err
 	}
 	return publish()
+}
+
+func encodeVerifiedMetainfo(meta metainfo.MetaInfo) ([]byte, error) {
+	var encoded bytes.Buffer
+	if err := (&metainfo.MetaInfo{InfoBytes: meta.InfoBytes, PieceLayers: meta.PieceLayers}).Write(&encoded); err != nil {
+		return nil, errors.New("could not save verified torrent metadata")
+	}
+	return encoded.Bytes(), nil
 }
 
 func loadMagnetMetadata(source download.Magnet, opts *torrent.AddTorrentOpts) error {

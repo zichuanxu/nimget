@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amemiya02/nimget/internal/client"
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/netproxy"
 	"github.com/amemiya02/nimget/internal/service"
@@ -26,6 +25,7 @@ func TestMagnetResumesVerifiedPiecesAfterPauseAndRestart(t *testing.T) {
 	cfg := handoffServiceConfig(t)
 	svc := startHandoffService(t, cfg)
 	c := magnetClient(t, svc, cfg.TokenPath)
+	list := func() ([]download.Item, error) { return c.List(ctx) }
 	prefs, err := c.Settings(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestMagnetResumesVerifiedPiecesAfterPauseAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForMagnetState(t, ctx, c, queued.ID, func(item download.Item) bool {
+	waitForMagnetState(t, ctx, list, queued.ID, func(item download.Item) bool {
 		return item.Status == download.StatusRunning && item.Completed >= 4*pieceLength && item.Completed < int64(len(payload))
 	})
 	if err := c.Pause(ctx, queued.ID); err != nil {
@@ -94,7 +94,7 @@ func TestMagnetResumesVerifiedPiecesAfterPauseAndRestart(t *testing.T) {
 	trackerOnline.Store(false)
 	restarted := startHandoffService(t, cfg)
 	c = magnetClient(t, restarted, cfg.TokenPath)
-	paused := waitForMagnetState(t, ctx, c, queued.ID, func(item download.Item) bool {
+	paused := waitForMagnetState(t, ctx, list, queued.ID, func(item download.Item) bool {
 		return item.Status == download.StatusPaused
 	})
 	if paused.Completed < 4*pieceLength || paused.Total != int64(len(payload)) {
@@ -103,7 +103,7 @@ func TestMagnetResumesVerifiedPiecesAfterPauseAndRestart(t *testing.T) {
 	if err := c.Resume(ctx, queued.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitForMagnetState(t, ctx, c, queued.ID, func(item download.Item) bool {
+	waitForMagnetState(t, ctx, list, queued.ID, func(item download.Item) bool {
 		return item.Status == download.StatusRunning && item.Phase == download.PhaseWaitingPeers &&
 			item.Total == int64(len(payload)) && item.Completed >= 3*pieceLength
 	})
@@ -118,7 +118,7 @@ func TestMagnetResumesVerifiedPiecesAfterPauseAndRestart(t *testing.T) {
 	if err := c.Resume(ctx, queued.ID); err != nil {
 		t.Fatal(err)
 	}
-	done := waitForMagnetTask(t, ctx, func() ([]download.Item, error) { return c.List(ctx) }, queued.ID)
+	done := waitForMagnetTask(t, ctx, list, queued.ID)
 	got, err := os.ReadFile(done.Destination)
 	if done.Status != download.StatusCompleted || err != nil || !bytes.Equal(got, payload) {
 		t.Fatalf("resumed output mismatch: %+v, %d bytes, %v", done, len(got), err)
@@ -126,32 +126,6 @@ func TestMagnetResumesVerifiedPiecesAfterPauseAndRestart(t *testing.T) {
 	stats = seeder.Stats()
 	if received := stats.BytesWrittenData.Int64() - before; received >= int64(len(payload))-pieceLength {
 		t.Fatalf("download did not reuse good pieces: peer sent %d more bytes", received)
-	}
-}
-
-func waitForMagnetState(t *testing.T, ctx context.Context, c *client.Client, id string, accept func(download.Item) bool) download.Item {
-	t.Helper()
-	tick := time.NewTicker(40 * time.Millisecond)
-	defer tick.Stop()
-	var last download.Item
-	for {
-		items, err := c.List(ctx)
-		if err != nil {
-			t.Fatalf("list magnet tasks (last state %+v): %v", last, err)
-		}
-		for _, item := range items {
-			if item.ID == id {
-				last = item
-				if accept(item) {
-					return item
-				}
-			}
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("magnet did not reach its expected state: %+v", last)
-		case <-tick.C:
-		}
 	}
 }
 

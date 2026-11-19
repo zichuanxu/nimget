@@ -159,6 +159,9 @@ func (m *Manager) runMagnet(ctx context.Context, j *job, item download.Item) {
 			func(phase download.Phase, progress download.Progress) {
 				m.reportMagnet(ctx, j, phase, progress)
 			},
+			func(metadata []byte) error {
+				return m.checkpointMagnetMetadata(j, metadata)
+			},
 			func() error {
 				return m.publishMagnet(ctx, j, root, stage, name, manifest, item.URL)
 			})
@@ -256,6 +259,20 @@ func openMagnetStage(root *os.Root, stage *download.MagnetObject) (*os.File, *do
 		return nil, nil, false, err
 	}
 	return file, &download.MagnetObject{RootID: rootID, Name: name, ID: object.ID}, true, nil
+}
+
+func (m *Manager) checkpointMagnetMetadata(j *job, metadata []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ctx := context.Background()
+	item, err := m.repo.Get(ctx, j.item.ID)
+	if err != nil {
+		return err
+	}
+	source := *item.Magnet
+	source.Metadata = metadata
+	item.Magnet = &source
+	return m.saveMagnetCheckpoint(ctx, item)
 }
 
 func (m *Manager) saveMagnetCheckpoint(ctx context.Context, item download.Item) error {

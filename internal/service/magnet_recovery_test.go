@@ -180,7 +180,7 @@ func TestMagnetPublicationCrashHelper(t *testing.T) {
 }
 
 func TestMagnetPublicationRecovery(t *testing.T) {
-	for _, name := range []string{"before move with occupied name", "after move", "ambiguous destination"} {
+	for _, name := range []string{"before move with occupied name", "after move", "ambiguous destination", "forget ambiguous publication"} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 			defer cancel()
@@ -215,7 +215,7 @@ func TestMagnetPublicationRecovery(t *testing.T) {
 			wanted := filepath.Join(cfg.DownloadRoots[0], "publication.bin")
 			original := wanted
 			saved := filepath.Join(t.TempDir(), "owned.bin")
-			if name == "ambiguous destination" {
+			if name == "ambiguous destination" || name == "forget ambiguous publication" {
 				if err := os.Rename(wanted, saved); err != nil {
 					t.Fatal(err)
 				}
@@ -233,7 +233,7 @@ func TestMagnetPublicationRecovery(t *testing.T) {
 			restarted := startHandoffService(t, cfg)
 			c := magnetClient(t, restarted, cfg.TokenPath)
 			done := waitForMagnetTask(t, ctx, func() ([]download.Item, error) { return c.List(ctx) }, id)
-			if name == "ambiguous destination" {
+			if name == "ambiguous destination" || name == "forget ambiguous publication" {
 				if done.Status != download.StatusFailed || done.Completed != int64(len(payload)) ||
 					!strings.Contains(strings.ToLower(done.Error), "retry") {
 					t.Fatalf("ambiguous publication should retain verified progress with a retry action: %+v", done)
@@ -244,6 +244,20 @@ func TestMagnetPublicationRecovery(t *testing.T) {
 				}
 				if err := c.Delete(ctx, id, true); err == nil {
 					t.Fatal("deleting a pending publication discarded its recovery record")
+				}
+				if name == "forget ambiguous publication" {
+					if err := c.Delete(ctx, id, false); err != nil {
+						t.Fatalf("delete only the record: %v", err)
+					}
+					if items, err := c.List(ctx); err != nil || len(items) != 0 {
+						t.Fatalf("list after deleting only the record: %+v, %v", items, err)
+					}
+					for path, want := range map[string][]byte{original: foreign, saved: payload} {
+						if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, want) {
+							t.Fatalf("delete kept %q with %d bytes; want %d, %v", path, len(got), len(want), err)
+						}
+					}
+					return
 				}
 				if err := os.Rename(original, filepath.Join(t.TempDir(), "foreign.bin")); err != nil {
 					t.Fatal(err)

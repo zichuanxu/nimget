@@ -378,7 +378,10 @@ func (d *Desktop) Reveal(id string) error {
 	if exists, _ := downloadedOutputExists(item); exists {
 		return d.showDownloadPath(item.Destination, !directoryOutput(item))
 	}
-	folder := filepath.Dir(item.Destination)
+	folder := item.Directory
+	if item.Destination != "" || item.SourceKind != download.SourceMagnet {
+		folder = filepath.Dir(item.Destination)
+	}
 	if downloadFolderMissing(folder) {
 		return errors.New(d.tr("The download folder no longer exists."))
 	}

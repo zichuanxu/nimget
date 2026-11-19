@@ -650,7 +650,7 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 	if _, ok := m.active[id]; ok {
 		return ErrActive
 	}
-	if hasMagnetPublication(item) {
+	if removeFiles && hasMagnetPublication(item) {
 		if err := m.recoverMagnetPublication(ctx, &item); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidTransition, err)
 		}

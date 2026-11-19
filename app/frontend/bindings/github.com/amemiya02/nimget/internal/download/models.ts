@@ -77,6 +77,12 @@ export class Item {
     "duplicateOf"?: string;
 
     /**
+     * DirectConnectionAllowed is this magnet task's consent to use BitTorrent
+     * directly while the configured proxy is in effect.
+     */
+    "directConnectionAllowed"?: boolean;
+
+    /**
      * Connections overrides the site and default connection count when set.
      */
     "connections"?: number;
@@ -141,6 +147,11 @@ export class Patch {
     "speedLimit"?: number | null;
 
     /**
+     * DirectConnectionAllowed grants or revokes per-task BitTorrent consent.
+     */
+    "directConnectionAllowed"?: boolean | null;
+
+    /**
      * URL replaces the source of a stopped, failed or paused download and
      * queues it for recovery. Supply Headers with the new request context.
      * Omitted headers are cleared when replacing the source.
@@ -163,10 +174,10 @@ export class Patch {
      * Creates a new Patch instance from a string or object.
      */
     static createFrom($$source: any = {}): Patch {
-        const $$createField4_0 = $$createType2;
+        const $$createField5_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("headers" in $$parsedSource) {
-            $$parsedSource["headers"] = $$createField4_0($$parsedSource["headers"]);
+            $$parsedSource["headers"] = $$createField5_0($$parsedSource["headers"]);
         }
         return new Patch($$parsedSource as Partial<Patch>);
     }

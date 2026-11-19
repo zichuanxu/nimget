@@ -355,9 +355,10 @@ func newImportCommand(cfg *cliConfig) *cobra.Command {
 func newSetCommand(cfg *cliConfig) *cobra.Command {
 	var priority, speed string
 	var connections int
+	var allowDirect bool
 	cmd := &cobra.Command{
 		Use:   "set ID",
-		Short: "Change a download's priority, connections, or speed limit",
+		Short: "Change a download's options or direct BitTorrent consent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := cfg.client()
@@ -382,12 +383,16 @@ func newSetCommand(cfg *cliConfig) *cobra.Command {
 			if cmd.Flags().Changed("connections") {
 				patch.Connections = &connections
 			}
+			if cmd.Flags().Changed("allow-direct") {
+				patch.DirectConnectionAllowed = &allowDirect
+			}
 			return c.Update(cmd.Context(), args[0], patch)
 		},
 	}
 	cmd.Flags().StringVar(&priority, "priority", "", "low, normal, or high")
 	cmd.Flags().IntVar(&connections, "connections", 0, "connections, 1-32; 0 for the default")
 	cmd.Flags().StringVar(&speed, "speed-limit", "", "speed limit in bytes per second, with K, M, or G suffix; 0 for none")
+	cmd.Flags().BoolVar(&allowDirect, "allow-direct", false, "allow direct BitTorrent connections for this task while a proxy is active (use --allow-direct=false to revoke)")
 	return cmd
 }
 

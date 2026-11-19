@@ -85,6 +85,9 @@ type Item struct {
 	Directory   string     `json:"directory,omitempty"`
 	DuplicateOf string     `json:"duplicateOf,omitempty"`
 	Magnet      *Magnet    `json:"-"`
+	// DirectConnectionAllowed is this magnet task's consent to use BitTorrent
+	// directly while the configured proxy is in effect.
+	DirectConnectionAllowed bool `json:"directConnectionAllowed,omitempty"`
 	// Connections overrides the site and default connection count when set.
 	Connections int `json:"connections,omitempty"`
 	// SpeedLimit caps this download in bytes per second; 0 is none.
@@ -119,6 +122,8 @@ type Patch struct {
 	Priority    *int   `json:"priority,omitempty"`
 	Connections *int   `json:"connections,omitempty"`
 	SpeedLimit  *int64 `json:"speedLimit,omitempty"`
+	// DirectConnectionAllowed grants or revokes per-task BitTorrent consent.
+	DirectConnectionAllowed *bool `json:"directConnectionAllowed,omitempty"`
 	// URL replaces the source of a stopped, failed or paused download and
 	// queues it for recovery. Supply Headers with the new request context.
 	// Omitted headers are cleared when replacing the source.

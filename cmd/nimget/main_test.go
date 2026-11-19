@@ -172,6 +172,24 @@ func TestAddCommandQueuesMagnetInSelectedDirectory(t *testing.T) {
 	if err != nil || repeated.ID != item.ID {
 		t.Fatalf("service intake disagreed with CLI: %+v, %v", repeated, err)
 	}
+	if item.Phase != download.PhaseProxyBlocked {
+		t.Fatalf("nimget add did not surface the proxy block: %+v", item)
+	}
+	if err := svc.client.Pause(t.Context(), item.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []struct {
+		flag string
+		want bool
+	}{{"--allow-direct", true}, {"--allow-direct=false", false}} {
+		cmd := nimget("--address", svc.address, "--token-file", filepath.Join(dir, "token"), "set", item.ID, change.flag)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("nimget set %s: %v: %s", change.flag, err, output)
+		}
+		if got := svc.item(t).DirectConnectionAllowed; got != change.want {
+			t.Fatalf("nimget set %s saved consent %t, want %t", change.flag, got, change.want)
+		}
+	}
 }
 
 func TestServiceResumesAfterKill(t *testing.T) {

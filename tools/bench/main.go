@@ -1,4 +1,4 @@
-//go:build unix
+//go:build unix || windows
 
 // Command bench measures nimget against aria2c on a local server that caps
 // each connection's bandwidth, as CDNs do, and checks the M1 performance gate
@@ -22,10 +22,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -51,15 +49,19 @@ func main() {
 	sizeMiB := flag.Int("size", 256, "throttled file size in MiB")
 	rawMiB := flag.Int("raw-size", 512, "unthrottled file size in MiB")
 	rate := flag.Float64("rate", 4, "per-connection cap in MiB/s")
+	latency := flag.Duration("latency", 0, "response delay on the throttled server")
 	conns := flag.Int("connections", 16, "connections for both tools")
 	gate := flag.Bool("gate", false, "exit non-zero when the gate fails")
-	serveSize := flag.Int("serve", 0, "internal: serve this many MiB and print the URL")
+	serveSize := flag.Int("serve", 0, "serve this many MiB on loopback and print the URL and SHA-256")
 	flag.Parse()
 	if *serveSize > 0 {
-		src := serve(randomData(*serveSize<<20), *rate*(1<<20))
+		src := serve(randomData(*serveSize<<20), *rate*(1<<20), *latency)
 		fmt.Printf("%s %x\n", src.url, src.sum)
 		_, _ = io.Copy(io.Discard, os.Stdin) // exit with the parent, however it ends
 		return
+	}
+	if *gate && !hasPeakRSS {
+		check(fmt.Errorf("the performance gate requires peak RSS measurements, which are unavailable on this platform"))
 	}
 
 	dir, err := os.MkdirTemp("", "nimget-bench-")
@@ -68,8 +70,8 @@ func main() {
 
 	// Servers run in child processes: on Linux a child's max RSS includes the
 	// memory it shared with its parent before exec, so the parent stays small.
-	throttled := spawnServer(*sizeMiB, *rate)
-	unthrottled := spawnServer(*rawMiB, 0)
+	throttled := spawnServer(*sizeMiB, *rate, *latency)
+	unthrottled := spawnServer(*rawMiB, 0, 0)
 
 	// Each figure is the best of three runs, which keeps scheduler noise on
 	// shared CI runners out of the 95% comparison.
@@ -93,8 +95,12 @@ func main() {
 	fmt.Println("| run | MiB/s | wall | CPU | cores at 1 Gbps | max RSS | correct |")
 	fmt.Println("| --- | ---: | ---: | ---: | ---: | ---: | --- |")
 	for _, r := range rows {
-		fmt.Printf("| %s | %.1f | %.2fs | %.2fs | %.2f | %.1f MB | %v |\n",
-			r.name, r.mbps(), r.wall.Seconds(), r.cpu.Seconds(), r.coresAt1Gbps(), float64(r.maxRSS)/1e6, r.correct)
+		rss := "unavailable"
+		if hasPeakRSS {
+			rss = fmt.Sprintf("%.1f MB", float64(r.maxRSS)/1e6)
+		}
+		fmt.Printf("| %s | %.1f | %.2fs | %.2fs | %.2f | %s | %v |\n",
+			r.name, r.mbps(), r.wall.Seconds(), r.cpu.Seconds(), r.coresAt1Gbps(), rss, r.correct)
 	}
 
 	var failures []string
@@ -116,11 +122,15 @@ func main() {
 			fmt.Printf("\nnimget throughput is %.0f%% of aria2c\n", ratio*100)
 		}
 	}
+	label := "performance gate"
+	if !hasPeakRSS {
+		label = "available performance checks"
+	}
 	if len(failures) == 0 {
-		fmt.Println("\nperformance gate: PASS")
+		fmt.Printf("\n%s: PASS\n", label)
 		return
 	}
-	fmt.Println("\nperformance gate: FAIL")
+	fmt.Printf("\n%s: FAIL\n", label)
 	for _, f := range failures {
 		fmt.Println("-", f)
 	}
@@ -149,8 +159,8 @@ type source struct {
 // be finalized and the servers would exit early.
 var serverLifelines []io.WriteCloser
 
-func spawnServer(sizeMiB int, rate float64) source {
-	cmd := exec.Command(os.Args[0], "-serve", strconv.Itoa(sizeMiB), "-rate", strconv.FormatFloat(rate, 'f', -1, 64))
+func spawnServer(sizeMiB int, rate float64, latency time.Duration) source {
+	cmd := exec.Command(os.Args[0], "-serve", strconv.Itoa(sizeMiB), "-rate", strconv.FormatFloat(rate, 'f', -1, 64), "-latency", latency.String())
 	stdout, err := cmd.StdoutPipe()
 	check(err)
 	stdin, err := cmd.StdinPipe()
@@ -181,10 +191,11 @@ func randomData(size int) []byte {
 
 // serve exposes data with ranges and a strong ETag. A positive rate caps
 // every response at that many bytes per second.
-func serve(data []byte, rate float64) source {
+func serve(data []byte, rate float64, latency time.Duration) source {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	check(err)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(latency)
 		w.Header().Set("ETag", `"bench-v1"`)
 		w.Header().Set("Accept-Ranges", "bytes")
 		start, end := 0, len(data)-1
@@ -245,13 +256,10 @@ func measure(name string, src source, out string, cmd *exec.Cmd) result {
 		fmt.Fprintf(os.Stderr, "%s failed: %v\n%s", name, err, stderr.String())
 		os.Exit(1)
 	}
-	r := result{name: name, wall: time.Since(began), bytes: src.size}
-	if usage, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage); ok {
-		r.cpu = time.Duration(usage.Utime.Nano() + usage.Stime.Nano())
-		r.maxRSS = int64(usage.Maxrss)
-		if runtime.GOOS == "linux" {
-			r.maxRSS *= 1024 // kilobytes on Linux, bytes on macOS
-		}
+	r := result{
+		name: name, wall: time.Since(began), bytes: src.size,
+		cpu:    cmd.ProcessState.UserTime() + cmd.ProcessState.SystemTime(),
+		maxRSS: peakRSS(cmd.ProcessState),
 	}
 	r.correct = fileSum(out) == src.sum
 	_ = os.Remove(out)

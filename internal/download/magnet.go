@@ -18,13 +18,34 @@ const (
 // Magnet holds service-only state. Tracker hints may contain credentials and
 // are stored separately from the public URL.
 type Magnet struct {
-	Directory   string             `json:"directory"`
-	V1          string             `json:"v1"`
+	Directory string `json:"directory"`
+	TorrentIdentity
+	Verified    *TorrentIdentity   `json:"verified,omitempty"`
+	DuplicateOf string             `json:"duplicateOf,omitempty"`
 	Trackers    []string           `json:"-"`
 	Metadata    []byte             `json:"-"`
 	Stage       *MagnetObject      `json:"stage,omitempty"`
 	Publication *MagnetPublication `json:"publication,omitempty"`
 	Output      *MagnetObject      `json:"output,omitempty"`
+}
+
+// TorrentIdentity carries full, normalized v1 and v2 info hashes.
+type TorrentIdentity struct {
+	V1 string `json:"v1,omitempty"`
+	V2 string `json:"v2,omitempty"`
+}
+
+func (id TorrentIdentity) Contains(claim TorrentIdentity) bool {
+	return (claim.V1 != "" || claim.V2 != "") &&
+		(claim.V1 == "" || claim.V1 == id.V1) &&
+		(claim.V2 == "" || claim.V2 == id.V2)
+}
+
+func (id TorrentIdentity) PreferredHash() string {
+	if id.V1 != "" {
+		return id.V1
+	}
+	return id.V2
 }
 
 // MagnetObject records the rooted identity of one download output.

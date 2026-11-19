@@ -18,13 +18,12 @@ type fileStorage struct {
 	file       *os.File
 	writeError chan error
 	mu         sync.Mutex
-	completed  []bool
+	completed  []storage.Completion
 }
 
 // StagedPayload stays open until the torrent has stopped all payload access.
 type StagedPayload interface {
 	storage.ClientImpl
-	Recheck() bool
 	WriteErrors() <-chan error
 	Checkpoint() error
 	Close() error
@@ -34,7 +33,6 @@ func NewFileStorage(file *os.File, recheck bool) StagedPayload {
 	return &fileStorage{file: file, recheck: recheck, writeError: make(chan error, 1)}
 }
 
-func (s *fileStorage) Recheck() bool             { return s.recheck }
 func (s *fileStorage) WriteErrors() <-chan error { return s.writeError }
 func (s *fileStorage) Checkpoint() error         { return s.file.Sync() }
 func (s *fileStorage) Close() error              { return s.file.Close() }
@@ -43,7 +41,7 @@ func (s *fileStorage) OpenTorrent(_ context.Context, info *metainfo.Info, _ meta
 	if s.file == nil {
 		return storage.TorrentImpl{}, errors.New("torrent storage requires a validated manifest")
 	}
-	s.completed = make([]bool, info.NumPieces())
+	s.completed = make([]storage.Completion, info.NumPieces())
 	return storage.TorrentImpl{Piece: func(piece metainfo.Piece) storage.PieceImpl {
 		return filePiece{storage: s, piece: piece}
 	}}, nil
@@ -75,7 +73,7 @@ func (p filePiece) WriteAt(b []byte, off int64) (int, error) {
 func (p filePiece) setComplete(complete bool) error {
 	s := p.storage
 	s.mu.Lock()
-	s.completed[p.piece.Index()] = complete
+	s.completed[p.piece.Index()] = storage.Completion{Ok: true, Complete: complete}
 	s.mu.Unlock()
 	return nil
 }
@@ -87,5 +85,8 @@ func (p filePiece) Completion() storage.Completion {
 	s := p.storage
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return storage.Completion{Ok: true, Complete: s.completed[p.piece.Index()]}
+	if !s.recheck {
+		return storage.Completion{Ok: true, Complete: s.completed[p.piece.Index()].Complete}
+	}
+	return s.completed[p.piece.Index()]
 }

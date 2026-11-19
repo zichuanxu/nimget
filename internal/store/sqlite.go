@@ -298,6 +298,7 @@ func (s *SQLite) scanItem(row scanner) (download.Item, error) {
 	if item.Magnet != nil {
 		item.Directory = item.Magnet.Directory
 		item.Magnet.Metadata = metadata
+		item.DuplicateOf = item.Magnet.DuplicateOf
 	}
 	if item.Headers, err = s.decodeHeaders(headers); err != nil {
 		return download.Item{}, err

@@ -74,6 +74,7 @@ export class Item {
     "phase"?: Phase;
     "name"?: string;
     "directory"?: string;
+    "duplicateOf"?: string;
 
     /**
      * Connections overrides the site and default connection count when set.

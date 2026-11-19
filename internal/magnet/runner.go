@@ -3,7 +3,6 @@ package magnet
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"log/slog"
 	"sync"
@@ -21,10 +20,11 @@ type Runner struct {
 	active       int
 	limit        *rate.Limiter
 	loopbackOnly bool
+	metadata     chan struct{}
 }
 
 func NewRunner(limit *rate.Limiter, loopbackOnly bool) *Runner {
-	return &Runner{limit: limit, loopbackOnly: loopbackOnly}
+	return &Runner{limit: limit, loopbackOnly: loopbackOnly, metadata: make(chan struct{}, 1)}
 }
 
 func (r *Runner) acquire() (*torrent.Client, error) {
@@ -71,6 +71,7 @@ func (r *Runner) release() {
 // output before storage is opened. publish runs with payload handles closed
 // and the torrent disconnected.
 func (r *Runner) Run(ctx context.Context, source download.Magnet,
+	claimOwnership func(download.TorrentIdentity) error,
 	prepare func(info *metainfo.Info, metadata []byte) (StagedPayload, error),
 	report func(download.Phase, download.Progress),
 	publish func() error,
@@ -78,11 +79,26 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	if len(source.Trackers) == 0 && len(source.Metadata) == 0 {
 		return errors.New("tracker information is unavailable; remove this task and add the magnet again")
 	}
-	decoded, err := hex.DecodeString(source.V1)
-	if err != nil || len(decoded) != metainfo.HashSize {
-		return errors.New("saved torrent identity is invalid")
+	opts, announceHashes, err := identityOptions(source.TorrentIdentity)
+	if err != nil {
+		return err
 	}
-	hash := metainfo.Hash(decoded)
+	// The client's short-hash table can overwrite an existing torrent if two
+	// unresolved claims later turn out to be aliases. Hold this gate until
+	// the metadata and queue ownership are settled.
+	select {
+	case r.metadata <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	searching := true
+	unlockMetadata := func() {
+		if searching {
+			<-r.metadata
+			searching = false
+		}
+	}
+	defer unlockMetadata()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -94,20 +110,24 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	spec, err := resumeSpec(hash, source.Metadata)
-	if err != nil {
+	if err := loadMagnetMetadata(source, &opts); err != nil {
 		return err
 	}
-	tor, added, err := client.AddTorrentSpec(spec)
-	if err != nil {
-		return errors.New("could not start peer discovery for the magnet")
-	}
+	// On an existing stage, unknown completion triggers a hash check before
+	// data can be requested, including when a v2 piece hash becomes available.
+	opts.DisableInitialPieceCheck = source.Stage == nil
+	tor, added := client.AddTorrentOpt(opts)
 	if !added {
+		if existingInfo := tor.Info(); existingInfo != nil {
+			if _, err := VerifyIdentity(source.TorrentIdentity, existingInfo, tor.Metainfo()); err != nil {
+				return err
+			}
+		}
 		return download.ErrDestinationBusy
 	}
 	tor.DisallowDataDownload()
 	tor.DisallowDataUpload()
-	stopDiscovery := discover(ctx, client, tor, source.Trackers)
+	stopDiscovery := discover(ctx, client, tor, source.Trackers, announceHashes)
 	stop := sync.OnceFunc(func() {
 		stopDiscovery()
 		tor.Drop()
@@ -122,12 +142,22 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	if info.Private != nil && *info.Private {
 		return errors.New("private BitTorrent downloads are unsupported; use a public magnet link")
 	}
-	if !info.HasV1() || info.HasV2() || info.IsDir() || info.Length < 0 {
-		return errors.New("this magnet requires a public single-file BitTorrent v1 torrent")
+	verified, err := VerifyIdentity(source.TorrentIdentity, info, tor.Metainfo())
+	if err != nil {
+		return err
 	}
-	if info.SymlinkPath != nil || info.Attr != "" && info.Attr != "x" {
+	files := info.UpvertedFiles()
+	if len(files) != 1 || files[0].Length < 0 {
+		return errors.New("this magnet requires a public single-file torrent")
+	}
+	if info.SymlinkPath != nil || info.Attr != "" && info.Attr != "x" ||
+		files[0].SymlinkPath != nil || files[0].Attr != "" && files[0].Attr != "x" {
 		return errors.New("torrent metadata does not describe a regular file")
 	}
+	if err := claimOwnership(verified); err != nil {
+		return err
+	}
+	unlockMetadata()
 	meta := tor.Metainfo()
 	var encoded bytes.Buffer
 	if err := (&metainfo.MetaInfo{InfoBytes: meta.InfoBytes, PieceLayers: meta.PieceLayers}).Write(&encoded); err != nil {
@@ -142,7 +172,7 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	case ctx.Err() != nil:
 		transferErr = ctx.Err()
 	default:
-		transferErr = downloadPayload(ctx, tor, info, staged, report)
+		transferErr = downloadPayload(ctx, tor, info, files[0].Length, staged, report)
 	}
 	stop()
 	if err := errors.Join(staged.Checkpoint(), staged.Close()); err != nil {
@@ -157,46 +187,41 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	return publish()
 }
 
-func resumeSpec(hash metainfo.Hash, metadata []byte) (*torrent.TorrentSpec, error) {
-	spec := &torrent.TorrentSpec{}
-	if len(metadata) != 0 {
-		saved, err := metainfo.Load(bytes.NewReader(metadata))
-		if err != nil || saved.HashInfoBytes() != hash {
-			return nil, errors.New("saved torrent metadata does not match its identity")
-		}
-		if len(saved.PieceLayers) == 0 {
-			saved.PieceLayers = nil
-		}
-		spec, err = torrent.TorrentSpecFromMetaInfoErr(saved)
-		if err != nil {
-			return nil, errors.New("saved torrent metadata is invalid")
-		}
+func loadMagnetMetadata(source download.Magnet, opts *torrent.AddTorrentOpts) error {
+	if len(source.Metadata) == 0 {
+		return nil
 	}
-	spec.InfoHash = hash
-	spec.DeferStorageOpen = true
-	spec.DisableInitialPieceCheck = true
-	return spec, nil
+	saved, err := metainfo.Load(bytes.NewReader(source.Metadata))
+	if err != nil {
+		return errors.New("saved torrent metadata is invalid")
+	}
+	info, err := saved.UnmarshalInfo()
+	if err != nil {
+		return errors.New("saved torrent info is invalid")
+	}
+	if _, err := VerifyIdentity(source.TorrentIdentity, &info, *saved); err != nil {
+		return err
+	}
+	opts.InfoBytes = saved.InfoBytes
+	if len(saved.PieceLayers) != 0 {
+		opts.PieceLayers = saved.PieceLayers
+	}
+	return nil
 }
 
-func downloadPayload(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, staged StagedPayload, report func(download.Phase, download.Progress)) error {
+func downloadPayload(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, total int64, staged StagedPayload, report func(download.Phase, download.Progress)) error {
 	if err := tor.OpenStorage(ctx, staged); err != nil {
 		return errors.New("could not open the staged torrent payload")
 	}
 	defer func() {
-		report(download.PhaseTransferring, download.Progress{Completed: verifiedBytes(tor, info), Total: info.Length})
+		report(download.PhaseTransferring, download.Progress{Completed: verifiedBytes(tor, info), Total: total})
 	}()
-	if staged.Recheck() {
-		if err := tor.VerifyDataContext(ctx); err != nil {
-			return err
-		}
-		report(download.PhaseWaitingPeers, download.Progress{Completed: verifiedBytes(tor, info), Total: info.Length})
-	}
 	tor.AllowDataDownload()
 	tor.DownloadAll()
-	return transfer(ctx, tor, info, staged.WriteErrors(), report)
+	return transfer(ctx, tor, info, total, staged.WriteErrors(), report)
 }
 
-func transfer(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, writeError <-chan error, report func(download.Phase, download.Progress)) error {
+func transfer(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, total int64, writeError <-chan error, report func(download.Phase, download.Progress)) error {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -206,7 +231,7 @@ func transfer(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, wr
 		case err := <-writeError:
 			return err
 		case <-tor.Complete().On():
-			report(download.PhaseTransferring, download.Progress{Completed: info.Length, Total: info.Length})
+			report(download.PhaseTransferring, download.Progress{Completed: total, Total: total})
 			return nil
 		case <-ticker.C:
 			phase := download.PhaseWaitingPeers
@@ -214,7 +239,7 @@ func transfer(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, wr
 			if stats.ActivePeers > 0 && (stats.ConnectedSeeders > 0 || stats.BytesReadUsefulData.Int64() > 0) {
 				phase = download.PhaseTransferring
 			}
-			report(phase, download.Progress{Completed: verifiedBytes(tor, info), Total: info.Length})
+			report(phase, download.Progress{Completed: verifiedBytes(tor, info), Total: total})
 		}
 	}
 }
@@ -224,7 +249,7 @@ func verifiedBytes(tor *torrent.Torrent, info *metainfo.Info) int64 {
 	for _, run := range tor.PieceStateRuns() {
 		end := begin + int64(run.Length)
 		if run.Ok && run.Complete {
-			endOffset := info.Length
+			endOffset := info.TotalLength()
 			if end < int64(info.NumPieces()) {
 				endOffset = end * info.PieceLength
 			}

@@ -10,14 +10,19 @@ import (
 )
 
 func openObject(parent *os.File, name string, access, disposition, share, opts uint32) (windows.Handle, error) {
+	return openObjectWithSecurity(parent, name, access, disposition, share, opts, nil)
+}
+
+func openObjectWithSecurity(parent *os.File, name string, access, disposition, share, opts uint32, security *windows.SECURITY_DESCRIPTOR) (windows.Handle, error) {
 	u, err := windows.NewNTUnicodeString(name)
 	if err != nil {
 		return 0, err
 	}
 	attrs := windows.OBJECT_ATTRIBUTES{
-		RootDirectory: windows.Handle(parent.Fd()),
-		ObjectName:    u,
-		Attributes:    windows.OBJ_CASE_INSENSITIVE,
+		RootDirectory:      windows.Handle(parent.Fd()),
+		ObjectName:         u,
+		Attributes:         windows.OBJ_CASE_INSENSITIVE,
+		SecurityDescriptor: security,
 	}
 	attrs.Length = uint32(unsafe.Sizeof(attrs))
 	var handle windows.Handle
@@ -86,17 +91,23 @@ func objectIdentity(handle windows.Handle) (Object, error) {
 }
 
 func moveRooted(parent *os.File, src, dest string, expected Object) error {
+	return renameRooted(parent, src, parent, dest, expected)
+}
+
+func renameRooted(parent *os.File, src string, target *os.File, dest string, expected Object) error {
 	source, err := openObject(parent, src, windows.FILE_READ_ATTRIBUTES|windows.DELETE, windows.FILE_OPEN, deleteShare, 0)
 	if err != nil {
 		return err
 	}
 	defer windows.CloseHandle(source)
-	object, err := objectIdentity(source)
-	if err != nil {
-		return err
-	}
-	if object != expected {
-		return Collision("publication source has changed")
+	if expected.ID != "" {
+		object, err := objectIdentity(source)
+		if err != nil {
+			return err
+		}
+		if object != expected {
+			return Collision("publication source has changed")
+		}
 	}
 	utf16, err := windows.UTF16FromString(dest)
 	if err != nil {
@@ -111,7 +122,7 @@ func moveRooted(parent *os.File, src, dest string, expected Object) error {
 	start := int(unsafe.Offsetof(renameInfo{}.FileName))
 	buffer := make([]byte, max(start+2*len(utf16), int(unsafe.Sizeof(renameInfo{}))))
 	ren := (*renameInfo)(unsafe.Pointer(&buffer[0]))
-	ren.RootDirectory = windows.Handle(parent.Fd())
+	ren.RootDirectory = windows.Handle(target.Fd())
 	ren.FileNameLength = uint32(2 * (len(utf16) - 1))
 	copy(unsafe.Slice(&ren.FileName[0], len(utf16)), utf16)
 	err = windows.NtSetInformationFile(source, &windows.IO_STATUS_BLOCK{}, &buffer[0], uint32(len(buffer)), windows.FileRenameInformation)
@@ -119,6 +130,31 @@ func moveRooted(parent *os.File, src, dest string, expected Object) error {
 		return os.ErrExist
 	}
 	return err
+}
+
+func mkdirPrivate(root *os.Root, name string) error {
+	parent, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return err
+	}
+	// Use a protected DACL so a shared download directory cannot grant
+	// other users access to objects temporarily held for inspection.
+	sddl := "D:P(A;;FA;;;" + user.User.Sid.String() + ")(A;;FA;;;SY)"
+	security, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		return err
+	}
+	dir, err := openObjectWithSecurity(parent, name, windows.FILE_READ_ATTRIBUTES,
+		windows.FILE_CREATE, deleteShare, windows.FILE_DIRECTORY_FILE, security)
+	if err != nil {
+		return err
+	}
+	return windows.CloseHandle(dir)
 }
 
 // Windows does not expose an equivalent per-directory flush for the

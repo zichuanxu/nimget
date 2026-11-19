@@ -31,6 +31,6 @@ func statxIdentity(fd int, name string, flags int) (Object, error) {
 	}, nil
 }
 
-func exclusiveRename(fd int, src, dest string) error {
-	return unix.Renameat2(fd, src, fd, dest, unix.RENAME_NOREPLACE)
+func exclusiveRename(fd int, src string, target int, dest string) error {
+	return unix.Renameat2(fd, src, target, dest, unix.RENAME_NOREPLACE)
 }

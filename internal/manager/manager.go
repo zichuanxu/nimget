@@ -48,7 +48,8 @@ type Options struct {
 	Now                         func() time.Time
 	Logger                      *slog.Logger
 	// DownloadRoots lists the directories destinations must resolve inside.
-	DownloadRoots []string
+	DownloadRoots      []string
+	MagnetLoopbackOnly bool
 	// FlushInterval is how often in-memory progress is persisted, orphaned
 	// running rows are requeued, the schedule is applied, and the scheduler
 	// retries after a store error. It defaults to 5s.
@@ -141,7 +142,7 @@ func New(repo download.Repository, runner download.Runner, opts Options) (*Manag
 		global: rate.NewLimiter(rate.Inf, limiterBurst),
 		active: make(map[string]*job), retryAt: make(map[string]time.Time), hostConns: make(map[string]int),
 	}
-	m.magnets = magnet.NewRunner(m.global)
+	m.magnets = magnet.NewRunner(m.global, opts.MagnetLoopbackOnly)
 	stored, ok, err := repo.LoadSettings(context.Background())
 	if err != nil {
 		return nil, err

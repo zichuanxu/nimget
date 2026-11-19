@@ -176,7 +176,7 @@ func TestMagnetPublicationCrashHelper(t *testing.T) {
 	defer cancel()
 	cfg := service.Config{
 		Address: "127.0.0.1:0", DatabasePath: fixture.DB, TokenPath: fixture.Token,
-		DownloadRoots: []string{fixture.Root}, Runner: idleRunner{}, Sealer: testSealer(t),
+		DownloadRoots: []string{fixture.Root}, Runner: idleRunner{}, Sealer: testSealer(t), MagnetLoopbackOnly: true,
 		MagnetPublicationCheckpoint: func(step download.MagnetPublicationStep, item download.Item) {
 			if step == fixture.Step {
 				fmt.Printf("publication=%s\n", item.ID)

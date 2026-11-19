@@ -399,12 +399,13 @@ func handoffServiceConfig(t *testing.T) service.Config {
 	t.Helper()
 	dir := t.TempDir()
 	return service.Config{
-		Address:       "127.0.0.1:0",
-		DatabasePath:  filepath.Join(dir, "nimget.db"),
-		TokenPath:     filepath.Join(dir, "token"),
-		DownloadRoots: []string{filepath.Join(dir, "downloads")},
-		Runner:        idleRunner{},
-		Sealer:        testSealer(t),
+		Address:            "127.0.0.1:0",
+		DatabasePath:       filepath.Join(dir, "nimget.db"),
+		TokenPath:          filepath.Join(dir, "token"),
+		DownloadRoots:      []string{filepath.Join(dir, "downloads")},
+		Runner:             idleRunner{},
+		Sealer:             testSealer(t),
+		MagnetLoopbackOnly: true,
 	}
 }
 

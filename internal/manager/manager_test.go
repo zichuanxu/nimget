@@ -73,6 +73,19 @@ func (r *memoryRepository) UpdateWithHeaders(_ context.Context, item download.It
 	return r.update(item, true)
 }
 
+func (r *memoryRepository) UpdateMagnetOwnership(_ context.Context, owner download.Item, duplicates []download.Item) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.failUpdate {
+		return errors.New("disk full")
+	}
+	r.items[owner.ID] = owner
+	for _, item := range duplicates {
+		r.items[item.ID] = item
+	}
+	return nil
+}
+
 func (r *memoryRepository) update(item download.Item, withHeaders bool) error {
 	r.updates.Add(1)
 	r.mu.Lock()

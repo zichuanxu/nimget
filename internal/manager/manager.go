@@ -492,6 +492,9 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 
 func (m *Manager) requeue(ctx context.Context, id string, from download.Status) error {
 	err := m.transition(ctx, id, false, func(item *download.Item) error {
+		if item.DuplicateOf != "" {
+			return fmt.Errorf("%w: %s", ErrInvalidTransition, item.Error)
+		}
 		if item.Status != from {
 			return fmt.Errorf("%w: expected a %s download, got %s", ErrInvalidTransition, from, item.Status)
 		}
@@ -858,6 +861,9 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	if err != nil {
 		m.log.Error("load finished download", "id", id, "err", err)
 		return
+	}
+	if item.DuplicateOf != "" {
+		return // Alias reconciliation already recorded this task's terminal state.
 	}
 	item.Completed, item.Total = j.progress()
 	item.UpdatedAt = m.opts.Now().UTC()

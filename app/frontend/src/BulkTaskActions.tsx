@@ -21,7 +21,7 @@ function eligible(item: Item, action: TaskAction): boolean {
     case TaskActionResume:
       return item.status === Status.StatusPaused && item.recovery !== Recovery.RecoveryRestartRequired;
     case TaskActionRetry:
-      return item.status === Status.StatusFailed && item.recovery !== Recovery.RecoveryRestartRequired;
+      return item.status === Status.StatusFailed && !item.duplicateOf && item.recovery !== Recovery.RecoveryRestartRequired;
     case TaskActionRemoveRecords:
     case TaskActionRemoveFiles:
       return item.status !== Status.StatusRunning;

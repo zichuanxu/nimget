@@ -71,6 +71,7 @@ test("retries a verified magnet with a publication problem from Task Details", a
     Retry: (id) => { retries.push(id); },
   });
   await page.goto("/");
+  await page.getByText("publication.bin", { exact: true }).hover();
   await page.getByRole("button", { name: "Details for publication.bin" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText(/Could not publish the verified magnet output/)).toBeVisible();

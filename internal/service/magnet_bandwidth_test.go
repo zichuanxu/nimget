@@ -19,9 +19,11 @@ import (
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/netproxy"
 	"github.com/amemiya02/nimget/internal/settings"
+	"github.com/anacrolix/generics"
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
+	"github.com/anacrolix/torrent/storage"
 )
 
 func TestTorrentUploadLimitSurvivesServiceRestart(t *testing.T) {
@@ -179,14 +181,54 @@ func TestActiveMagnetsShareUploadBudgetAndDisconnect(t *testing.T) {
 		}
 		tasks = append(tasks, item)
 	}
-	for _, observer := range observers {
-		waitForBandwidth(t, ctx, "magnet upload to the controlled peer", func() bool {
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		check, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if items, err := c.List(check); err == nil {
+			t.Logf("task states: %+v", items)
+		}
+		for i, observer := range observers {
 			stats := observer.Stats()
-			return stats.BytesReadUsefulData.Int64() >= 48<<10
+			t.Logf("observer %d received %d payload bytes with %d active peers", i, stats.BytesReadUsefulData.Int64(), stats.ActivePeers)
+		}
+	})
+	const initialPerPeer = 64 << 10
+	for i, observer := range observers {
+		waitForBandwidth(t, ctx, fmt.Sprintf("magnet upload to peer %d", i), func() bool {
+			stats := observer.Stats()
+			return stats.BytesReadUsefulData.Int64() >= initialPerPeer
 		})
 	}
-	if elapsed := time.Since(start); elapsed < 2400*time.Millisecond {
-		t.Fatalf("three peers each received 48 KiB in %v with a shared 48 KiB/s cap", elapsed)
+	if elapsed := time.Since(start); elapsed < 3400*time.Millisecond {
+		t.Fatalf("three peers each received 64 KiB in %v with a shared 48 KiB/s cap", elapsed)
+	}
+
+	prefs.TorrentUploadLimit = 1
+	if _, err := c.PutSettings(ctx, prefs); err != nil {
+		t.Fatal(err)
+	}
+	for _, observer := range observers {
+		observer.DownloadAll()
+	}
+	// Each observer now has more to request. The previous rate would allow
+	// more than one burst in this interval, even with a fresh empty bucket.
+	lowRateSample := time.NewTimer(750 * time.Millisecond)
+	defer lowRateSample.Stop()
+	select {
+	case <-lowRateSample.C:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	var uploaded int64
+	for _, observer := range observers {
+		stats := observer.Stats()
+		uploaded += stats.BytesReadUsefulData.Int64()
+	}
+	if uploaded > 3*initialPerPeer+16<<10 {
+		t.Fatalf("peers received %d additional bytes at the new 1 B/s cap", uploaded-3*initialPerPeer)
 	}
 
 	pauseCtx, stopPause := context.WithTimeout(ctx, 2*time.Second)
@@ -207,10 +249,6 @@ func TestActiveMagnetsShareUploadBudgetAndDisconnect(t *testing.T) {
 		return observers[1].Stats().ActivePeers == 0
 	})
 
-	prefs.TorrentUploadLimit = 1
-	if _, err := c.PutSettings(ctx, prefs); err != nil {
-		t.Fatal(err)
-	}
 	if observers[2].Stats().ActivePeers != 1 {
 		t.Fatal("shutdown fixture lost its active peer")
 	}
@@ -270,6 +308,12 @@ func exchangeFixture(t *testing.T, ctx context.Context, name string) (string, *t
 		cfg.NoDHT, cfg.NoDefaultPortForwarding, cfg.DisableUTP, cfg.DisableIPv6 = true, true, true, true
 		cfg.DisableTrackers, cfg.DisablePEX = true, true
 		cfg.Slogger = slog.New(slog.DiscardHandler)
+		store := storage.NewFileOpts(storage.NewFileClientOpts{
+			ClientBaseDir: seedDir, PieceCompletion: storage.NewMapPieceCompletion(),
+			UsePartFiles: generics.Some(false), DisableMmap: true,
+		})
+		t.Cleanup(func() { _ = store.Close() })
+		cfg.DefaultStorage = store
 		peer, err := torrent.NewClient(cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -284,18 +328,18 @@ func exchangeFixture(t *testing.T, ctx context.Context, name string) (string, *t
 		if err != nil {
 			t.Fatal(err)
 		}
-		for i := first; i < end; i++ {
+		for i := range pieces {
 			if err := tor.Piece(i).VerifyDataContext(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if !tor.PieceState(i).Complete {
-				t.Fatalf("fixture %s piece %d did not verify", name, i)
+			if want := i >= first && i < end; tor.PieceState(i).Complete != want {
+				t.Fatalf("fixture %s piece %d completion differs from %t", name, i, want)
 			}
 		}
 		if lastPieceOnly {
 			observer = tor
 			observer.DisallowDataUpload()
-			observer.DownloadAll()
+			observer.DownloadPieces(0, 2)
 		}
 		address := peer.ListenAddrs()[0].(*net.TCPAddr)
 		compact = binary.BigEndian.AppendUint16(append(compact, address.IP.To4()...), uint16(address.Port))

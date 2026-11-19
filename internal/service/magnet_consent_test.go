@@ -160,6 +160,68 @@ func TestMagnetCheckpointsWhenDirectPermissionIsLost(t *testing.T) {
 	}
 }
 
+func TestQueuedMagnetRechecksProxyWithAllSlotsFilled(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	started := make(chan struct{}, 1)
+	var queuedTraffic atomic.Int32
+	tracker := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/queued" {
+			queuedTraffic.Add(1)
+			return
+		}
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(tracker.Close)
+	cfg := handoffServiceConfig(t)
+	c := magnetClient(t, startHandoffService(t, cfg), cfg.TokenPath)
+	prefs, err := c.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefs.MaxConcurrent = 1
+	prefs.Proxy = netproxy.Config{Mode: netproxy.ModeNone}
+	if _, err := c.PutSettings(ctx, prefs); err != nil {
+		t.Fatal(err)
+	}
+	active, err := c.Add(ctx, download.Request{URL: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&tr=" + url.QueryEscape(tracker.URL+"/running")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := true
+	if err := c.Update(ctx, active.ID, download.Patch{DirectConnectionAllowed: &allow}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("first magnet never started")
+	}
+	queued, err := c.Add(ctx, download.Request{URL: "magnet:?xt=urn:btih:1123456789abcdef0123456789abcdef01234567&tr=" + url.QueryEscape(tracker.URL+"/queued")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefs.Proxy = netproxy.Config{Mode: netproxy.ModeManual, URL: "http://127.0.0.1:1"}
+	if _, err := c.PutSettings(ctx, prefs); err != nil {
+		t.Fatal(err)
+	}
+	waitForConsentTask(t, ctx, c, queued.ID, download.StatusQueued, download.PhaseProxyBlocked)
+	waitForConsentTask(t, ctx, c, active.ID, download.StatusRunning, download.PhaseMetadata)
+
+	prefs.Proxy = netproxy.Config{Mode: netproxy.ModeNone}
+	if _, err := c.PutSettings(ctx, prefs); err != nil {
+		t.Fatal(err)
+	}
+	waitForConsentTask(t, ctx, c, queued.ID, download.StatusQueued, "")
+	if n := queuedTraffic.Load(); n != 0 {
+		t.Fatalf("queued magnet made %d tracker requests", n)
+	}
+}
+
 func waitForConsentTask(t *testing.T, ctx context.Context, c *client.Client, id string, status download.Status, phase download.Phase) download.Item {
 	t.Helper()
 	return waitForMagnetState(t, ctx, func() ([]download.Item, error) { return c.List(ctx) }, id, func(item download.Item) bool {

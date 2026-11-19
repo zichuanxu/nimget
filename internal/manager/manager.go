@@ -476,9 +476,7 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 				return fmt.Errorf("%w: direct-connection consent applies only to magnet downloads", download.ErrInvalidDownload)
 			}
 			item.DirectConnectionAllowed = *p.DirectConnectionAllowed
-			if item.Status == download.StatusQueued && item.Phase == download.PhaseProxyBlocked && item.DirectConnectionAllowed {
-				item.Phase = ""
-			}
+			item.Phase = queuedMagnetPhase(*item, netproxy.Effective(m.Settings().Proxy))
 		}
 		if p.URL != nil {
 			if _, active := m.active[id]; active {
@@ -546,6 +544,7 @@ func (m *Manager) requeue(ctx context.Context, id string, from download.Status) 
 			return ErrActive
 		}
 		item.Status = download.StatusQueued
+		item.Phase = queuedMagnetPhase(*item, netproxy.Effective(m.Settings().Proxy))
 		item.Error, item.Failure = "", ""
 		return nil
 	})
@@ -735,7 +734,7 @@ func (m *Manager) requeueOrphans(ctx context.Context) {
 			continue
 		}
 		item.Status = download.StatusQueued
-		item.Phase = ""
+		item.Phase = queuedMagnetPhase(item, netproxy.Effective(m.Settings().Proxy))
 		item.UpdatedAt = m.opts.Now().UTC()
 		if err := m.repo.Update(ctx, item); err != nil {
 			m.log.Error("requeue interrupted download", "id", item.ID, "err", err)
@@ -777,6 +776,8 @@ func (m *Manager) schedule(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	items, err := m.repo.List(ctx) // ordered by creation
 	if err != nil {
 		m.log.Error("list downloads for scheduling", "err", err)
@@ -790,21 +791,33 @@ func (m *Manager) schedule(ctx context.Context) {
 	}
 	sort.SliceStable(queued, func(a, b int) bool { return queued[a].Priority > queued[b].Priority })
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	s, now := m.Settings(), m.opts.Now()
-	for _, item := range queued {
-		if !hasMagnetPublication(item) {
+	proxy := netproxy.Effective(s.Proxy)
+	for i, item := range queued {
+		if hasMagnetPublication(item) {
+			if err := m.recoverQueuedMagnetPublication(ctx, item.ID); err != nil {
+				m.log.Error("recover queued magnet publication", "id", item.ID, "err", err)
+			}
 			continue
 		}
-		if err := m.recoverQueuedMagnetPublication(ctx, item.ID); err != nil {
-			m.log.Error("recover queued magnet publication", "id", item.ID, "err", err)
+		if phase := queuedMagnetPhase(item, proxy); phase != item.Phase {
+			item.Phase = phase
+			item.UpdatedAt = now.UTC()
+			queued[i] = item
+			if err := m.repo.Update(ctx, item); err != nil {
+				m.log.Error("record magnet proxy phase", "id", item.ID, "err", err)
+				continue
+			}
+			m.publish(download.EventUpdated, item)
 		}
 	}
 	if !s.QueueOpen(now) {
 		return
 	}
 	for _, item := range queued {
+		if item.Phase == download.PhaseProxyBlocked {
+			continue
+		}
 		if len(m.active) >= s.MaxConcurrent {
 			return
 		}
@@ -962,9 +975,6 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	case canceled:
 		// Service shutdown or a closing queue window: resume later.
 		item.Status = download.StatusQueued
-		if magnetProxyBlocked(item, netproxy.Effective(m.Settings().Proxy)) {
-			item.Phase = download.PhaseProxyBlocked
-		}
 	default:
 		item.Status = download.StatusFailed
 		item.Error = taskDiagnostic(runErr)
@@ -979,6 +989,9 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 		if errors.Is(runErr, download.ErrRestartRequired) {
 			item.Recovery = download.RecoveryRestartRequired
 		}
+	}
+	if item.Status == download.StatusQueued && item.SourceKind == download.SourceMagnet {
+		item.Phase = queuedMagnetPhase(item, netproxy.Effective(m.Settings().Proxy))
 	}
 	if err := m.repo.Update(context.Background(), item); err != nil {
 		// The row stays "running"; requeueOrphans recovers it on the next tick.

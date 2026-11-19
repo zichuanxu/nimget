@@ -74,9 +74,7 @@ func (m *Manager) addMagnet(ctx context.Context, req download.Request) (download
 		ID: id, URL: publicURL, Name: name, Directory: dir, SourceKind: download.SourceMagnet, Magnet: &source,
 		Status: download.StatusQueued, Priority: req.Priority, Total: -1, CreatedAt: now, UpdatedAt: now,
 	}
-	if netproxy.Effective(m.Settings().Proxy) {
-		item.Phase = download.PhaseProxyBlocked
-	}
+	item.Phase = queuedMagnetPhase(item, netproxy.Effective(m.Settings().Proxy))
 	if err := m.repo.Create(ctx, item); err != nil {
 		return download.Item{}, err
 	}

@@ -24,10 +24,11 @@ type Runner struct {
 	active        int
 	downloadLimit *rate.Limiter
 	uploadLimit   *rate.Limiter
+	loopbackOnly  bool
 }
 
-func NewRunner(downloadLimit, uploadLimit *rate.Limiter) *Runner {
-	return &Runner{downloadLimit: downloadLimit, uploadLimit: uploadLimit}
+func NewRunner(downloadLimit, uploadLimit *rate.Limiter, loopbackOnly bool) *Runner {
+	return &Runner{downloadLimit: downloadLimit, uploadLimit: uploadLimit, loopbackOnly: loopbackOnly}
 }
 
 func (r *Runner) acquire() (*torrent.Client, error) {
@@ -36,6 +37,10 @@ func (r *Runner) acquire() (*torrent.Client, error) {
 	if r.client == nil {
 		cfg := torrent.NewDefaultClientConfig()
 		cfg.ListenPort = 0
+		if r.loopbackOnly {
+			cfg.SetListenAddr("127.0.0.1:0")
+			cfg.DisableIPv6 = true
+		}
 		cfg.NoDHT = true
 		cfg.DisableTrackers = true
 		cfg.NoDefaultPortForwarding = true

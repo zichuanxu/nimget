@@ -69,8 +69,8 @@ func TestTrackerlessMagnetUsesDHTAfterNetworkGateOpens(t *testing.T) {
 	if requests.Load() != 0 || seeder.Stats().ActivePeers != 0 {
 		t.Fatal("proxy-blocked task sent discovery or peer traffic")
 	}
-	prefs.Proxy = netproxy.Config{Mode: netproxy.ModeNone}
-	if _, err := c.PutSettings(ctx, prefs); err != nil {
+	allow := true
+	if err := c.Update(ctx, item.ID, download.Patch{DirectConnectionAllowed: &allow}); err != nil {
 		t.Fatal(err)
 	}
 	done := waitForMagnetTask(t, ctx, list, item.ID)

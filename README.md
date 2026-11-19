@@ -23,7 +23,7 @@ The app is signed ad hoc, not with a paid Developer ID, so macOS blocks the firs
 
 ## Update NimGet
 
-Published desktop builds check GitHub for stable updates daily by default. Use **Settings → General → Updates → Check now** to check at any time. **Download update** adds the compatible Windows installer or macOS disk image to the queue. NimGet checks its SHA-256 digest before marking the download complete. Quit NimGet and install the downloaded package using the steps for your platform.
+Published desktop builds check GitHub for stable updates daily by default. Select **Check for updates** in the sidebar to check at any time, even when automatic checks are off. **Download update** adds the compatible Windows installer or macOS disk image to the queue. NimGet checks its SHA-256 digest before marking the download complete. Quit NimGet and install the downloaded package using the steps for your platform.
 
 ## Run from source
 

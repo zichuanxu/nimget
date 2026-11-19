@@ -314,6 +314,7 @@ html.mac .sidebar { background: var(--sidebar-glass); padding-top: 12px; }
 .release-summary small { color: var(--text-2); }
 .release-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .settings-release { display: grid; gap: 8px; justify-items: start; }
+.update-check[aria-disabled="true"] { opacity: 0.45; background: var(--raised); }
 
 /* ---------- download board ---------- */
 

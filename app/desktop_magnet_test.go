@@ -42,13 +42,38 @@ func TestDesktopAddsV2AndHybridMagnets(t *testing.T) {
 	}
 }
 
+func TestDesktopLocalizesInvalidMagnetLinks(t *testing.T) {
+	d, _ := desktopWithBulkTasks(t, nil)
+	for lang, want := range map[string]string{
+		"en":    "Enter a magnet link with a complete BitTorrent v1 or v2 info hash.",
+		"zh-CN": "请输入包含完整 BitTorrent v1 或 v2 信息哈希的磁力链接。",
+	} {
+		d.SetLocale(lang)
+		_, err := d.Add(download.Request{URL: "magnet:?xt=urn:btmh:1220abcd"})
+		if err == nil || err.Error() != want {
+			t.Errorf("%s invalid link = %v, want %q", lang, err, want)
+		}
+	}
+}
+
 func TestDesktopAddCompletesMagnetDownload(t *testing.T) {
+	t.Run("v1", func(t *testing.T) { testDesktopAddCompletesMagnetDownload(t, false) })
+	t.Run("hybrid", func(t *testing.T) { testDesktopAddCompletesMagnetDownload(t, true) })
+}
+
+func testDesktopAddCompletesMagnetDownload(t *testing.T, hybrid bool) {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	root := t.TempDir()
 	saveTo := filepath.Join(root, "chosen")
 	payload := bytes.Repeat([]byte("controlled desktop download\n"), 3000)
-	link := testfixture.TrackedV1Magnet(t, "desktop.txt", payload)
+	var link string
+	if hybrid {
+		fixture := testfixture.ServeV2Magnet(t, "desktop.txt", payload, true, nil)
+		link = fixture.Link(fixture.V1 + "&xt=" + fixture.V2)
+	} else {
+		link = testfixture.TrackedV1Magnet(t, "desktop.txt", payload)
+	}
 	sealer, err := secrets.New(make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)

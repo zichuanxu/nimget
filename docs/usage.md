@@ -110,7 +110,7 @@ nimget add 'MAGNET_LINK' --dir "$HOME/Downloads/torrents"
 nimget list
 ```
 
-NimGet supports v1 links with hexadecimal or base32 hashes, v2 links, and hybrid links. Its built-in BitTorrent client finds peers through trackers and the distributed hash table (DHT), so a public magnet can work without a tracker. Private torrents are rejected when NimGet verifies the file list. Browser capture, `.torrent` import, and the standalone `nimget download` command are outside the magnet workflow.
+NimGet supports v1 links with hexadecimal or base32 hashes, v2 links, and hybrid links. Its built-in BitTorrent client finds peers through trackers and the distributed hash table (DHT), so a public magnet can work without a tracker. Private torrents are rejected when NimGet verifies the file list. Use New Download or `nimget add` for magnet links. Queue-file imports accept web downloads.
 
 NimGet queues the task before contacting the swarm. **Retrieving file list** means it is looking for torrent metadata. **Waiting for peers** means the file list is verified and the task is waiting for payload progress. The size and percentage use verified metadata and pieces. Magnet downloads share the queue's priority, schedule, concurrency and total download limit with HTTP-based downloads. Active magnets share a separate **BitTorrent upload limit** and disconnect when paused, completed, or stopped by service shutdown.
 
@@ -118,7 +118,7 @@ When a manual or system proxy is effective, a magnet task waits for your permiss
 
 NimGet downloads the entire torrent and publishes the verified output in your chosen folder. A single-file torrent produces a file. A multi-file torrent produces a folder with the torrent's file layout. If the output name is taken, NimGet chooses a numbered suffix. **Open** and **Show in folder** let you reach either output kind on the desktop. When deleting a task with its files, NimGet removes only verified task output and preserves added, replaced, or edited files.
 
-Use **Pause** and **Resume** to continue the same task. If peers stop making progress, NimGet releases the download slot and lets you **Retry** when the swarm is available. If NimGet cannot publish verified files, check the save folder and use **Retry** after restoring access or resolving the reported conflict. After a restart, NimGet reuses verified metadata and pieces and checks whether an interrupted publication already moved the verified output. Adding the same unfinished torrent returns its original task. Adding it after completion starts a fresh download to a free destination.
+Use **Pause** and **Resume** to continue the same task. If peers stop making progress, NimGet releases the download slot and lets you **Retry** when the swarm is available. If NimGet cannot publish verified files, check the save folder and use **Retry** after restoring access or resolving the reported conflict. After a restart, NimGet reuses verified metadata and pieces and checks whether an interrupted publication already moved the verified output. Adding the same unfinished torrent returns its original task and refreshes any tracker hints supplied in the link. If tracker hints became unavailable after a restart without an OS keyring, add the original link again, then retry. Adding it after completion starts a fresh download to a free destination.
 
 ### Settings
 

@@ -46,6 +46,35 @@ func InspectRooted(root *os.Root, name string) (Object, error) {
 	return inspectRooted(parent, name)
 }
 
+// OpenRootedDirectory opens a real child directory and checks that its handle
+// matches both no-follow inspections of the leaf.
+func OpenRootedDirectory(root *os.Root, name string) (*os.Root, Object, error) {
+	object, err := InspectRooted(root, name)
+	if err != nil {
+		return nil, Object{}, err
+	}
+	if !object.Directory || object.ID == "" {
+		return nil, Object{}, Collision("download directory was replaced")
+	}
+	child, err := root.OpenRoot(name)
+	if err != nil {
+		return nil, Object{}, err
+	}
+	id, err := RootIdentity(child)
+	if err == nil {
+		var current Object
+		current, err = InspectRooted(root, name)
+		if err == nil && (id != object.ID || current != object) {
+			err = Collision("download directory was replaced")
+		}
+	}
+	if err != nil {
+		child.Close()
+		return nil, Object{}, err
+	}
+	return child, object, nil
+}
+
 // OpenRooted opens a regular partial file without following links under the
 // opened directory. The handle pins writes to the same object that was checked.
 func OpenRooted(root *os.Root, name string, writable, create bool) (*os.File, Object, error) {

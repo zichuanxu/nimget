@@ -322,7 +322,7 @@ func (m *Manager) add(ctx context.Context, req download.Request, inspectTimeout 
 	}
 	owner := func(path string) string {
 		for _, existing := range items {
-			if clashes(existing.Destination, path) {
+			if reservationsClash(existing.Destination, path) {
 				return existing.ID
 			}
 		}

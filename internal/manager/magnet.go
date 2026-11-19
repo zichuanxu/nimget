@@ -16,7 +16,6 @@ import (
 	"github.com/amemiya02/nimget/internal/partialfile"
 
 	"github.com/amemiya02/nimget/internal/settings"
-	"github.com/anacrolix/torrent/metainfo"
 )
 
 func (m *Manager) addMagnet(ctx context.Context, req download.Request) (download.Item, error) {
@@ -135,25 +134,32 @@ func (m *Manager) runMagnet(ctx context.Context, j *job, item download.Item) {
 		runErr = errors.New("saved magnet download is missing its source")
 	} else {
 		var root *os.Root
-		var manifest *metainfo.Info
+		var manifest magnet.Manifest
 		var stage download.MagnetObject
 		runErr = m.magnets.Run(ctx, *item.Magnet,
 			func(verified download.TorrentIdentity) error {
 				return m.reconcileMagnetIdentity(ctx, j, verified)
 			},
-			func(info *metainfo.Info, metadata []byte) (magnet.StagedPayload, error) {
-				metadataName := info.BestName()
-				if path := info.UpvertedFiles()[0].BestPath(); len(path) != 0 {
-					metadataName = path[len(path)-1]
-				}
-				name = sanitizeFilename(metadataName)
+			func(verified magnet.Manifest, metadata []byte) (magnet.StagedPayload, error) {
+				name = sanitizeFilename(verified.Name)
 				if name == "" {
 					name = item.Magnet.PreferredHash()
 				}
+				var entries []download.MagnetEntry
+				if verified.Directory {
+					if verified.Name != "" && !validMagnetComponent(verified.Name) {
+						return nil, errors.New("torrent metadata contains an unsafe output directory name")
+					}
+					var err error
+					entries, err = magnetDirectoryEntries(verified)
+					if err != nil {
+						return nil, err
+					}
+				}
 				var payload magnet.StagedPayload
 				var err error
-				root, payload, stage, err = m.prepareMagnet(ctx, j, name, info.TotalLength(), metadata)
-				manifest = info
+				root, payload, stage, err = m.prepareMagnet(ctx, j, name, verified, entries, metadata)
+				manifest = verified
 				return payload, err
 			},
 			func(phase download.Phase, progress download.Progress) {
@@ -174,7 +180,7 @@ func (m *Manager) runMagnet(ctx context.Context, j *job, item download.Item) {
 	m.finish(j, runErr, canceled)
 }
 
-func (m *Manager) prepareMagnet(ctx context.Context, j *job, name string, total int64, metadata []byte) (*os.Root, magnet.StagedPayload, download.MagnetObject, error) {
+func (m *Manager) prepareMagnet(ctx context.Context, j *job, name string, manifest magnet.Manifest, entries []download.MagnetEntry, metadata []byte) (*os.Root, magnet.StagedPayload, download.MagnetObject, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -187,6 +193,15 @@ func (m *Manager) prepareMagnet(ctx context.Context, j *job, name string, total 
 	if err != nil {
 		return nil, nil, download.MagnetObject{}, err
 	}
+	if item.Destination == "" {
+		item.Destination, err = m.reserveMagnetDestination(ctx, item.ID, dir, name)
+		if err != nil {
+			return nil, nil, download.MagnetObject{}, err
+		}
+	}
+	if err := confineMagnetEntries(item.Destination, entries); err != nil {
+		return nil, nil, download.MagnetObject{}, err
+	}
 	if source.Stage == nil {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, nil, download.MagnetObject{}, err
@@ -196,35 +211,40 @@ func (m *Manager) prepareMagnet(ctx context.Context, j *job, name string, total 
 	if err != nil {
 		return nil, nil, download.MagnetObject{}, err
 	}
-	file, stage, fresh, err := openMagnetStage(root, source.Stage)
+	var payload magnet.StagedPayload
+	var stage *download.MagnetObject
+	var fresh bool
+	if manifest.Directory {
+		payload, stage, fresh, err = openMagnetDirectoryStage(root, source.Stage, manifest, entries)
+	} else {
+		var file *os.File
+		file, stage, fresh, err = openMagnetStage(root, source.Stage)
+		if err == nil {
+			payload = magnet.NewFileStorage(file, !fresh)
+		}
+	}
 	if err != nil {
 		root.Close()
 		return nil, nil, download.MagnetObject{}, err
 	}
 	source.Stage, source.Metadata = stage, metadata
-	if item.Destination == "" {
-		item.Destination, err = m.reserveMagnetDestination(ctx, item.ID, dir, name)
-	}
-	if err == nil {
-		item.Name = filepath.Base(item.Destination)
-		item.Total = total
-		item.Phase = download.PhaseWaitingPeers
-		item.UpdatedAt = m.opts.Now().UTC()
-		err = m.saveMagnetCheckpoint(ctx, item)
-	}
-	if err != nil {
-		file.Close()
+	item.Name = filepath.Base(item.Destination)
+	item.Total = manifest.Total
+	item.Phase = download.PhaseWaitingPeers
+	item.UpdatedAt = m.opts.Now().UTC()
+	if err := m.saveMagnetCheckpoint(ctx, item); err != nil {
+		payload.Close()
 		if fresh {
-			_ = root.Remove(stage.Name)
+			_ = removeMagnetObject(context.WithoutCancel(ctx), root, stage)
 		}
 		root.Close()
 		return nil, nil, download.MagnetObject{}, err
 	}
 	source.Metadata = nil
 	j.item = item
-	j.total.Store(total)
+	j.total.Store(manifest.Total)
 	m.publish(download.EventUpdated, item)
-	return root, magnet.NewFileStorage(file, !fresh), *stage, nil
+	return root, payload, *stage, nil
 }
 
 func openMagnetStage(root *os.Root, stage *download.MagnetObject) (*os.File, *download.MagnetObject, bool, error) {
@@ -291,9 +311,18 @@ func (m *Manager) reserveMagnetDestination(ctx context.Context, id, dir, name st
 	if err != nil {
 		return "", err
 	}
+	for _, item := range items {
+		if item.ID == id || item.Destination == "" {
+			continue
+		}
+		reserved := reservationPath(item.Destination)
+		if samePath(reserved, dir) || within(reserved, dir) {
+			return "", download.ErrDestinationBusy
+		}
+	}
 	dest, err := freeName(dir, name, func(path string) bool {
 		for _, item := range items {
-			if item.ID != id && item.Destination != "" && clashes(item.Destination, path) {
+			if item.ID != id && reservationsClash(item.Destination, path) {
 				return true
 			}
 		}

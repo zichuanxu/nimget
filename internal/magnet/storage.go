@@ -11,14 +11,19 @@ import (
 	"github.com/anacrolix/torrent/storage"
 )
 
-// The verified single-file manifest always maps to this one task-owned file.
-// Metadata never supplies a storage path.
 type fileStorage struct {
 	recheck    bool
-	file       *os.File
+	file       payloadIO
 	writeError chan error
 	mu         sync.Mutex
 	completed  []storage.Completion
+}
+
+type payloadIO interface {
+	io.ReaderAt
+	io.WriterAt
+	Sync() error
+	Close() error
 }
 
 // StagedPayload stays open until the torrent has stopped all payload access.
@@ -30,6 +35,10 @@ type StagedPayload interface {
 }
 
 func NewFileStorage(file *os.File, recheck bool) StagedPayload {
+	return newPieceStorage(file, recheck)
+}
+
+func newPieceStorage(file payloadIO, recheck bool) StagedPayload {
 	return &fileStorage{file: file, recheck: recheck, writeError: make(chan error, 1)}
 }
 

@@ -94,6 +94,8 @@ type Manager struct {
 
 	// global caps all downloads together; its limit follows the schedule.
 	global *rate.Limiter
+	// torrentUpload caps payload uploads across all active magnets.
+	torrentUpload *rate.Limiter
 	// settings is replaced under mu and read without it.
 	settings atomic.Pointer[settings.Settings]
 
@@ -142,7 +144,6 @@ func New(repo download.Repository, runner download.Runner, opts Options) (*Manag
 		global: rate.NewLimiter(rate.Inf, limiterBurst),
 		active: make(map[string]*job), retryAt: make(map[string]time.Time), hostConns: make(map[string]int),
 	}
-	m.magnets = magnet.NewRunner(m.global, opts.MagnetLoopbackOnly)
 	stored, ok, err := repo.LoadSettings(context.Background())
 	if err != nil {
 		return nil, err
@@ -155,6 +156,11 @@ func New(repo download.Repository, runner download.Runner, opts Options) (*Manag
 		m.log.Error("stored settings are invalid; using defaults", "err", err)
 		stored = opts.Defaults
 	}
+	if stored.TorrentUploadLimit == 0 {
+		stored.TorrentUploadLimit = settings.DefaultTorrentUploadLimit
+	}
+	m.torrentUpload = rate.NewLimiter(rate.Limit(stored.TorrentUploadLimit), magnet.UploadBurst)
+	m.magnets = magnet.NewRunner(m.global, m.torrentUpload, opts.MagnetLoopbackOnly)
 	m.settings.Store(&stored)
 	m.applySchedule(opts.Now())
 	return m, nil
@@ -190,6 +196,10 @@ func (m *Manager) UpdateSettings(ctx context.Context, s settings.Settings) error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	current := m.Settings()
+	// Settings documents from older clients omit the upload cap.
+	if s.TorrentUploadLimit == 0 {
+		s.TorrentUploadLimit = current.TorrentUploadLimit
+	}
 	s, err := s.Unmask(current)
 	if err != nil {
 		return fmt.Errorf("%w: %w", download.ErrInvalidSettings, err)
@@ -228,6 +238,7 @@ func (m *Manager) saveSettings(ctx context.Context, s settings.Settings) error {
 	if err := m.repo.SaveSettings(ctx, s); err != nil {
 		return err
 	}
+	m.torrentUpload.SetLimit(rate.Limit(s.TorrentUploadLimit))
 	m.settings.Store(&s)
 	m.applySchedule(m.opts.Now())
 	m.log.Info("settings updated")

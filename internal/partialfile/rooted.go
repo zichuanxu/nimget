@@ -143,6 +143,20 @@ func MkdirPrivate(root *os.Root, name string) error {
 	return mkdirPrivate(root, name)
 }
 
+// RemovePrivateDirectory removes an empty cleanup directory and preserves an
+// occupied slot when an entry could not be restored to its original name.
+func RemovePrivateDirectory(root *os.Root, name string, expected Object) error {
+	if !leafOK(name) || !expected.Directory || expected.ID == "" {
+		return Collision("invalid private directory")
+	}
+	parent, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	return removePrivateDirectory(parent, name, expected)
+}
+
 func SyncRoot(root *os.Root) error {
 	parent, err := root.Open(".")
 	if err != nil {

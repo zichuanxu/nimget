@@ -157,6 +157,24 @@ func mkdirPrivate(root *os.Root, name string) error {
 	return windows.CloseHandle(dir)
 }
 
+func removePrivateDirectory(parent *os.File, name string, expected Object) error {
+	dir, err := openObject(parent, name, windows.FILE_READ_ATTRIBUTES|windows.DELETE,
+		windows.FILE_OPEN, deleteShare, windows.FILE_DIRECTORY_FILE)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(dir)
+	actual, err := objectIdentity(dir)
+	if err != nil {
+		return err
+	}
+	if actual != expected {
+		return Collision("private directory was replaced")
+	}
+	remove := byte(1)
+	return windows.NtSetInformationFile(dir, &windows.IO_STATUS_BLOCK{}, &remove, 1, windows.FileDispositionInformation)
+}
+
 // Windows does not expose an equivalent per-directory flush for the
 // handle-relative rename. Recovery still covers service/process crashes.
 func syncRoot(*os.File) error { return nil }

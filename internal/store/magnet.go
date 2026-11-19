@@ -1,11 +1,29 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
 	"github.com/amemiya02/nimget/internal/download"
 )
+
+func (s *SQLite) UpdateMagnetOwnership(ctx context.Context, owner download.Item, duplicates []download.Item) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.update(ctx, tx, owner, nil, nil); err != nil {
+		return err
+	}
+	for _, item := range duplicates {
+		if err := s.update(ctx, tx, item, nil, nil); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
 
 func encodeMagnetState(source *download.Magnet) (string, error) {
 	if source == nil {

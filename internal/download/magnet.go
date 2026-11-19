@@ -20,7 +20,9 @@ const (
 type Magnet struct {
 	Directory string `json:"directory"`
 	TorrentIdentity
-	Trackers []string `json:"-"`
+	Verified    *TorrentIdentity `json:"verified,omitempty"`
+	DuplicateOf string           `json:"duplicateOf,omitempty"`
+	Trackers    []string         `json:"-"`
 }
 
 // TorrentIdentity carries full, normalized v1 and v2 info hashes.

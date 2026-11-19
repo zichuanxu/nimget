@@ -51,7 +51,10 @@ func (m *Manager) addMagnet(ctx context.Context, req download.Request) (download
 		return download.Item{}, err
 	}
 	for _, item := range items {
-		if item.Magnet != nil && item.Magnet.TorrentIdentity == source.TorrentIdentity && item.Status != download.StatusCompleted {
+		if matchesMagnetClaim(item, source.TorrentIdentity) {
+			if running := m.active[item.ID]; running != nil {
+				item.Completed, item.Total = running.progress()
+			}
 			return item, nil
 		}
 	}
@@ -128,6 +131,9 @@ func (m *Manager) runMagnet(ctx context.Context, j *job, item download.Item) {
 		runErr = errors.New("saved magnet download is missing its source")
 	} else {
 		runErr = m.magnets.Run(ctx, *item.Magnet,
+			func(verified download.TorrentIdentity) error {
+				return m.reconcileMagnetIdentity(ctx, j, verified)
+			},
 			func(metadataName string, total int64) (*os.Root, error) {
 				name = sanitizeFilename(metadataName)
 				if name == "" {

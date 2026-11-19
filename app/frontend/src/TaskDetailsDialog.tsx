@@ -119,7 +119,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
             {failure === Failure.FailureAuthorization && (
               <button type="button" disabled={busy} onClick={onRecover}>{t("row.reauth")}</button>
             )}
-            <button type="button" disabled={busy} onClick={() => void retry()}>{t("row.retry")}</button>
+            {!item.duplicateOf && <button type="button" disabled={busy} onClick={() => void retry()}>{t("row.retry")}</button>}
           </div>
         </div>
       ) : item.recovery === Recovery.RecoveryValidateSource ? (

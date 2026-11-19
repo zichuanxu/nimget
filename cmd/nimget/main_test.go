@@ -145,7 +145,10 @@ func TestAddCommandQueuesMagnetInSelectedDirectory(t *testing.T) {
 	if _, err := svc.client.PutSettings(t.Context(), prefs); err != nil {
 		t.Fatal(err)
 	}
-	link := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&tr=http%3A%2F%2F127.0.0.1%3A1%2Fannounce"
+	const v1 = "urn:btih:0123456789abcdef0123456789abcdef01234567"
+	const v2 = "urn:btmh:1220a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+	const tracker = "&tr=http%3A%2F%2F127.0.0.1%3A1%2Fannounce"
+	link := "magnet:?xt=" + v2 + "&xt=" + v1 + tracker
 	cmd := nimget("--address", svc.address, "--token-file", filepath.Join(dir, "token"), "add", link, "--dir", filepath.Join("downloads", "magnets"))
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
@@ -158,6 +161,10 @@ func TestAddCommandQueuesMagnetInSelectedDirectory(t *testing.T) {
 	}
 	if item.SourceKind != download.SourceMagnet || item.Status != download.StatusQueued || item.Directory != filepath.Join(root, "magnets") || svc.item(t).ID != item.ID {
 		t.Fatalf("unexpected magnet submission: %+v", item)
+	}
+	repeated, err := svc.client.Add(t.Context(), download.Request{URL: "magnet:?xt=" + v1 + "&xt=" + v2 + tracker})
+	if err != nil || repeated.ID != item.ID {
+		t.Fatalf("service intake disagreed with CLI: %+v, %v", repeated, err)
 	}
 }
 

@@ -66,6 +66,7 @@ func (r *Runner) release() {
 // output before storage is opened. publish runs with payload handles closed
 // and the torrent disconnected.
 func (r *Runner) Run(ctx context.Context, source download.Magnet,
+	claimOwnership func(download.TorrentIdentity) error,
 	prepare func(name string, total int64) (*os.Root, error),
 	report func(download.Phase, download.Progress),
 	publish func(root *os.Root, staged string) error,
@@ -138,7 +139,8 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	if info.Private != nil && *info.Private {
 		return errors.New("private BitTorrent downloads are unsupported; use a public magnet link")
 	}
-	if _, err := VerifyIdentity(source.TorrentIdentity, info, tor.Metainfo()); err != nil {
+	verified, err := VerifyIdentity(source.TorrentIdentity, info, tor.Metainfo())
+	if err != nil {
 		return err
 	}
 	files := info.UpvertedFiles()
@@ -148,6 +150,10 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	if info.SymlinkPath != nil || info.Attr != "" && info.Attr != "x" {
 		return errors.New("torrent metadata does not describe a regular file")
 	}
+	if err := claimOwnership(verified); err != nil {
+		return err
+	}
+	unlockMetadata()
 	name := info.BestName()
 	if path := files[0].BestPath(); len(path) != 0 {
 		name = path[len(path)-1]
@@ -157,7 +163,6 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	if err != nil {
 		return err
 	}
-	unlockMetadata()
 	staged, err = newStagedFile(root)
 	if err != nil {
 		return err

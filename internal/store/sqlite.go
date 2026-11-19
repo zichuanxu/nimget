@@ -210,7 +210,7 @@ func (s *SQLite) Update(ctx context.Context, item download.Item) error {
 		empty := ""
 		websiteSession = &empty
 	}
-	return s.update(ctx, item, nil, websiteSession)
+	return s.update(ctx, s.db, item, nil, websiteSession)
 }
 
 func (s *SQLite) UpdateWithHeaders(ctx context.Context, item download.Item) error {
@@ -220,10 +220,10 @@ func (s *SQLite) UpdateWithHeaders(ctx context.Context, item download.Item) erro
 	}
 	// Replacing user-supplied request context clears the previous browser session.
 	empty := ""
-	return s.update(ctx, item, &headers, &empty)
+	return s.update(ctx, s.db, item, &headers, &empty)
 }
 
-func (s *SQLite) update(ctx context.Context, item download.Item, headers, websiteSession *string) error {
+func (s *SQLite) update(ctx context.Context, db executor, item download.Item, headers, websiteSession *string) error {
 	magnetState, err := encodeMagnetState(item.Magnet)
 	if err != nil {
 		return err
@@ -232,7 +232,7 @@ func (s *SQLite) update(ctx context.Context, item download.Item, headers, websit
 priority = ?, connections = ?, speed_limit = ?, checksum = ?, updated_at = ?, recovery = ?, failure = ?,
 headers = COALESCE(?, headers), website_session = COALESCE(?, website_session),
 source_kind = ?, phase = ?, name = ?, magnet_state = ? WHERE id = ?`
-	result, err := s.db.ExecContext(ctx, query, item.URL, item.Destination, item.Status, item.Completed,
+	result, err := db.ExecContext(ctx, query, item.URL, item.Destination, item.Status, item.Completed,
 		item.Total, item.Error, item.Priority, item.Connections, item.SpeedLimit, item.Checksum,
 		item.UpdatedAt.Format(time.RFC3339Nano), item.Recovery, item.Failure, headers, websiteSession,
 		item.SourceKind, item.Phase, item.Name, magnetState, item.ID)
@@ -295,6 +295,7 @@ func (s *SQLite) scanItem(row scanner) (download.Item, error) {
 	}
 	if item.Magnet != nil {
 		item.Directory = item.Magnet.Directory
+		item.DuplicateOf = item.Magnet.DuplicateOf
 	}
 	if item.Headers, err = s.decodeHeaders(headers); err != nil {
 		return download.Item{}, err

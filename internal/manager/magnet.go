@@ -157,7 +157,7 @@ func (m *Manager) runMagnet(ctx context.Context, j *job, item download.Item) {
 				var entries []download.MagnetEntry
 				if verified.Directory {
 					if verified.Name != "" && !validMagnetComponent(verified.Name) {
-						return nil, errors.New("torrent metadata contains an unsafe output directory name")
+						return nil, &download.MagnetError{Reason: download.FailureMagnetMetadataInvalid, Err: errors.New("torrent metadata contains an unsafe output directory name")}
 					}
 					var err error
 					entries, err = magnetDirectoryEntries(verified)
@@ -171,7 +171,7 @@ func (m *Manager) runMagnet(ctx context.Context, j *job, item download.Item) {
 						}
 						for _, component := range file.Path {
 							if !validMagnetComponent(component) {
-								return nil, errors.New("torrent metadata contains unsafe output paths")
+								return nil, &download.MagnetError{Reason: download.FailureMagnetMetadataInvalid, Err: errors.New("torrent metadata contains unsafe output paths")}
 							}
 						}
 					}

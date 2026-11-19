@@ -99,7 +99,7 @@ func TestPrivateMagnetFailsWithoutOpeningPayloadStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := waitForMagnetTask(t, ctx, func() ([]download.Item, error) { return c.List(ctx) }, item.ID)
-	if done.Status != download.StatusFailed || !strings.Contains(done.Error, "public magnet") || done.Completed != 0 {
+	if done.Status != download.StatusFailed || done.Failure != download.FailureMagnetPrivate || !strings.Contains(done.Error, "public magnet") || done.Completed != 0 {
 		t.Fatalf("private torrent was not rejected with actionable feedback: %+v", done)
 	}
 	if _, err := os.Lstat(dir); !os.IsNotExist(err) {

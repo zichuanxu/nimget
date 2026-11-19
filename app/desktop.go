@@ -15,6 +15,7 @@ import (
 	"github.com/amemiya02/nimget/internal/curlimport"
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/logging"
+	"github.com/amemiya02/nimget/internal/magnet"
 	"github.com/amemiya02/nimget/internal/manager"
 	"github.com/amemiya02/nimget/internal/service"
 	"github.com/amemiya02/nimget/internal/settings"
@@ -189,7 +190,23 @@ func (d *Desktop) Add(req download.Request) (download.Item, error) {
 	if err != nil {
 		return download.Item{}, err
 	}
-	return m.Add(context.Background(), req)
+	item, err := m.Add(context.Background(), req)
+	if err != nil && magnet.IsLink(strings.TrimSpace(req.URL)) {
+		switch {
+		case errors.Is(err, magnet.ErrInvalidLink):
+			err = errors.New(d.tr("Enter a magnet link with a complete BitTorrent v1 or v2 info hash."))
+		case errors.Is(err, magnet.ErrInvalidTracker):
+			err = errors.New(d.tr("Use a magnet link with valid HTTP, HTTPS, or UDP tracker addresses."))
+		case errors.Is(err, download.ErrInvalidDownload):
+			err = errors.New(d.tr("Choose a save folder NimGet can use for this magnet download."))
+		default:
+			if d.log != nil {
+				d.log.Warn("add magnet download", "err", err)
+			}
+			err = errors.New(d.tr("Could not queue the magnet download. Try again."))
+		}
+	}
+	return item, err
 }
 
 func (d *Desktop) Pause(id string) error {

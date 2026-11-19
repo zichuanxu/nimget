@@ -129,7 +129,12 @@ func TestMagnetPayloadStallRetainsVerifiedPiecesAndCanRetry(t *testing.T) {
 
 func assertMagnetStall(t *testing.T, item download.Item, reason string) {
 	t.Helper()
-	if item.Status != download.StatusFailed || item.Failure != download.FailureNetwork ||
+	wantFailure := map[string]download.Failure{
+		"metadata": download.FailureMagnetMetadataStalled,
+		"peers":    download.FailureMagnetPeersStalled,
+		"transfer": download.FailureMagnetTransferStalled,
+	}[reason]
+	if item.Status != download.StatusFailed || item.Failure != wantFailure ||
 		!strings.Contains(strings.ToLower(item.Error), reason) || !strings.Contains(strings.ToLower(item.Error), "retry") {
 		t.Fatalf("expected retryable magnet failure mentioning %s: %+v", reason, item)
 	}

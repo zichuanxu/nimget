@@ -61,11 +61,17 @@ const (
 type Failure string
 
 const (
-	FailureAuthorization        Failure = "authorization"
-	FailureDiskSpace            Failure = "disk-space"
-	FailureFilesystemPermission Failure = "filesystem-permission"
-	FailureNetwork              Failure = "network"
-	FailureUnsupportedMedia     Failure = "unsupported-media"
+	FailureAuthorization         Failure = "authorization"
+	FailureDiskSpace             Failure = "disk-space"
+	FailureFilesystemPermission  Failure = "filesystem-permission"
+	FailureNetwork               Failure = "network"
+	FailureUnsupportedMedia      Failure = "unsupported-media"
+	FailureMagnetMetadataStalled Failure = "magnet-metadata-stalled"
+	FailureMagnetPeersStalled    Failure = "magnet-peers-stalled"
+	FailureMagnetTransferStalled Failure = "magnet-transfer-stalled"
+	FailureMagnetPrivate         Failure = "magnet-private"
+	FailureMagnetMetadataInvalid Failure = "magnet-metadata-invalid"
+	FailureMagnetPublication     Failure = "magnet-publication"
 )
 
 type Item struct {

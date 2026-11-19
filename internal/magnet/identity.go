@@ -48,7 +48,7 @@ func VerifyIdentity(claim download.TorrentIdentity, info *metainfo.Info, meta me
 		verified.V2 = hash.HexString()
 	}
 	if !verified.Contains(claim) {
-		return download.TorrentIdentity{}, errIdentityMismatch
+		return download.TorrentIdentity{}, &download.MagnetError{Reason: download.FailureMagnetMetadataInvalid, Err: errIdentityMismatch}
 	}
 	return verified, nil
 }

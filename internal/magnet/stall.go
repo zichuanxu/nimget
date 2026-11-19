@@ -43,7 +43,7 @@ func (r *Runner) waitForMetadata(ctx context.Context, tor *torrent.Torrent) erro
 				case <-tor.GotInfo():
 					return nil
 				default:
-					return magnetStall("while fetching torrent metadata")
+					return magnetStall(download.FailureMagnetMetadataStalled, "while fetching torrent metadata")
 				}
 			}
 		}
@@ -83,6 +83,6 @@ func (w *stallWatch) expired(now time.Time, progress, wireBytes int64) bool {
 	return now.Sub(w.lastProgress) >= w.timeout && now.Sub(w.budgetUntil) >= w.timeout
 }
 
-func magnetStall(reason string) error {
-	return fmt.Errorf("%w %s. Retry when peers are available", download.ErrStalled, reason)
+func magnetStall(reason download.Failure, diagnostic string) error {
+	return &download.MagnetError{Reason: reason, Err: fmt.Errorf("%w %s. Retry when peers are available", download.ErrStalled, diagnostic)}
 }

@@ -57,6 +57,12 @@ export enum Failure {
     FailureFilesystemPermission = "filesystem-permission",
     FailureNetwork = "network",
     FailureUnsupportedMedia = "unsupported-media",
+    FailureMagnetMetadataStalled = "magnet-metadata-stalled",
+    FailureMagnetPeersStalled = "magnet-peers-stalled",
+    FailureMagnetTransferStalled = "magnet-transfer-stalled",
+    FailureMagnetPrivate = "magnet-private",
+    FailureMagnetMetadataInvalid = "magnet-metadata-invalid",
+    FailureMagnetPublication = "magnet-publication",
 };
 
 export class Item {

@@ -62,7 +62,8 @@ test("retries a verified magnet with a publication problem from Task Details", a
       sourceKind: "magnet",
       destination: "C:\\Downloads\\publication.bin",
       status: "failed",
-      error: "Could not publish the verified magnet output. Retry after checking the save folder.",
+      failure: "magnet-publication",
+      error: "raw publication diagnostic",
       completed: 4096,
       total: 4096,
       createdAt: "2026-11-18T20:00:00Z",
@@ -74,7 +75,8 @@ test("retries a verified magnet with a publication problem from Task Details", a
   await page.getByText("publication.bin", { exact: true }).hover();
   await page.getByRole("button", { name: "Details for publication.bin" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText(/Could not publish the verified magnet output/)).toBeVisible();
+  await expect(dialog.getByText("Could not publish the verified magnet output")).toBeVisible();
+  await expect(dialog.getByText(/Check the save folder/)).toBeVisible();
   await dialog.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(retries).toEqual(["recoverable-output"]);
@@ -127,4 +129,31 @@ test("grants and revokes direct BitTorrent permission in Task Details", async ({
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(dialog).toHaveCount(0);
   expect(updates[1]).toEqual([task.id, { directConnectionAllowed: false }]);
+});
+
+test("shows localized guidance for a duplicate magnet", async ({ page }) => {
+  await mockDesktop(page, {
+    Settings: () => ({ desktop: { language: "zh-CN" } }),
+    List: () => [{
+      id: "duplicate",
+      duplicateOf: "existing-owner",
+      name: "duplicate.bin",
+      url: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+      sourceKind: "magnet",
+      destination: "",
+      status: "failed",
+      error: "raw duplicate diagnostic",
+      completed: 0,
+      total: -1,
+      createdAt: "2026-11-18T20:00:00Z",
+      updatedAt: "2026-11-18T20:00:00Z",
+    }],
+  });
+  await page.goto("/");
+  await page.getByText("duplicate.bin", { exact: true }).hover();
+  await page.getByRole("button", { name: "duplicate.bin 的详情" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("此种子已有下载任务")).toBeVisible();
+  await expect(dialog.getByText("请继续现有任务。你可以从队列中移除这条重复记录。")).toBeVisible();
+  await expect(dialog.getByText("raw duplicate diagnostic")).toHaveCount(0);
 });

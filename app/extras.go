@@ -10,6 +10,7 @@ import (
 
 	"github.com/amemiya02/nimget/internal/batch"
 	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/magnet"
 	"github.com/amemiya02/nimget/internal/power"
 	"github.com/amemiya02/nimget/internal/queuefile"
 	"github.com/amemiya02/nimget/internal/remux"
@@ -164,6 +165,10 @@ func (d *Desktop) FinishLegacyImport(id string, confirm bool) (ImportResult, err
 func addImported(ctx context.Context, reqs []download.Request, add func(context.Context, download.Request) (download.Item, error)) ImportResult {
 	res := ImportResult{Failed: []int{}}
 	for i, req := range reqs {
+		if magnet.IsLink(strings.TrimSpace(req.URL)) {
+			res.Failed = append(res.Failed, i+1)
+			continue
+		}
 		if _, err := add(ctx, req); err != nil {
 			res.Failed = append(res.Failed, i+1)
 			continue

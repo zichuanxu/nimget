@@ -65,6 +65,32 @@ Run on macOS and Windows after changes to `app/`, using the startup steps in
 - [ ] Pause and resume an HLS download: it continues from the finished segments.
 - [ ] With ffmpeg installed, "Convert to MP4" creates a playable `.mp4` next to the `.ts`; without ffmpeg the button is hidden.
 
+## Magnet downloads
+
+- [ ] Paste a public magnet in **New Download**, choose **Save to**, and verify that its final output appears in the chosen directory after completion.
+- [ ] With an effective proxy, verify that the task waits for direct connection permission. Save the permission in **Download details**, revoke it during transfer, and verify that the task keeps its progress. Grant it again, restart NimGet, and check that the same task continues.
+- [ ] Use **Open** and **Show in folder** for a completed single-file magnet and for a completed multi-file magnet. Check the selected file or open folder in Finder or Explorer.
+- [ ] Edit one file and add a new file to a completed multi-file magnet directory, then use **Also delete the file**. Verify that NimGet preserves both changes and removes the unedited download files.
+
+### Repeatable magnet acceptance checks
+
+These checks use local fixture peers, a tracker, DHT nodes, and an HTTP server. They require no public swarm. Start from the repository root with the Go and Node versions listed in the [source guide](source.md).
+
+```sh
+go test -race ./cmd/nimget ./internal/service -run 'Magnet|MixedQueue|UploadLimit' -count=1
+(cd app/frontend && npm ci && npm run build && npx playwright install chromium && npm test -- magnet.spec.ts download-files.spec.ts)
+(cd app && go test -tags production ./...)
+```
+
+| Acceptance | Evidence |
+| --- | --- |
+| Desktop entry | `magnet.spec.ts` verifies the New Download interaction through generated bindings at the Wails transport. `TestDesktopAddCompletesMagnetDownload` calls the desktop binding against the running service and checks the downloaded bytes. |
+| CLI and queue upgrade | `TestCLICompletesMagnetAlongsideUpgradedHTTPTask` submits through `nimget add` to the authenticated service backed by a pre-magnet SQLite queue. It checks proxy blocking, CLI consent, and completion of both outputs byte for byte. |
+| Protocol and networking | The service tests transfer tracked v1, v2, and hybrid fixtures, including nested directories and empty files. They also cover trackerless DHT, shared download and upload limits, per-task proxy consent across restart, and disconnect on revocation. |
+| Recovery and filesystem | The service tests resume verified pieces, interrupt publication immediately before and after the exclusive move, preserve occupied destinations, and protect edited, replaced, and added files during deletion. `TestDesktopOpensAndRevealsFileAndDirectoryOutputs` checks which filesystem path the desktop binding sends to the native shell. |
+
+The [CI workflow](../.github/workflows/ci.yml) runs native filesystem and service tests on macOS and Windows, builds both desktop targets and runs their desktop binding tests. It also cross-builds the CLI for macOS amd64 and arm64, Windows amd64, and Linux amd64 and arm64. Use the manual steps above to check actual Finder and Explorer behavior in the installed desktop app.
+
 ## Source startup
 
 - [ ] From a fresh checkout, `npm ci` and `npm run build` succeed in `app/frontend`, then `go run .` starts the desktop app from `app/`.

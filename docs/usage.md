@@ -103,11 +103,22 @@ Relative paths are resolved against the client's working directory. On restart, 
 
 ### Magnet downloads
 
-Paste a public, tracked single-file BitTorrent v1 magnet in **New Download** or pass the quoted link to `nimget add`. Use **Save to** or `--dir` to pick the parent directory. The verified torrent metadata supplies the file name.
+Paste a public BitTorrent magnet link into **New Download**, choose a parent folder with **Save to**, and select **Download**. For a running headless service or desktop app, run the command below. Replace `MAGNET_LINK` with the full link and keep the quotes.
 
-The task enters the queue before peer discovery. Once NimGet retrieves the file list, progress counts verified pieces. NimGet adds the final file after verification and uses a numbered suffix if that name is already taken.
+```bash
+nimget add 'MAGNET_LINK' --dir "$HOME/Downloads/torrents"
+nimget list
+```
 
-When a proxy is active, a magnet waits in the queue until you allow that task to make direct BitTorrent connections. In **Download details**, select **Allow direct BitTorrent connections** and save, or run `nimget set <id> --allow-direct`. Consent survives restart. Clear the checkbox and save, or run `nimget set <id> --allow-direct=false`, to revoke consent. When the proxy is active, revoking consent stops the transfer and keeps its saved progress.
+NimGet supports v1 links with hexadecimal or base32 hashes, v2 links, and hybrid links. Its built-in BitTorrent client finds peers through trackers and the distributed hash table (DHT), so a public magnet can work without a tracker. Private torrents are rejected when NimGet verifies the file list. Browser capture, `.torrent` import, and the standalone `nimget download` command are outside the magnet workflow.
+
+NimGet queues the task before contacting the swarm. **Retrieving file list** means it is looking for torrent metadata. **Waiting for peers** means the file list is verified and the task is waiting for payload progress. The size and percentage use verified metadata and pieces. Magnet downloads share the queue's priority, schedule, concurrency and total download limit with HTTP-based downloads. Active magnets share a separate **BitTorrent upload limit** and disconnect when paused, completed, or stopped by service shutdown.
+
+When a manual or system proxy is effective, a magnet task waits for your permission to connect directly, leaving its download slot free. To grant permission to that task, select **Allow direct BitTorrent connections** in **Download details** and save, or run `nimget set ID --allow-direct`. Permission survives restart. To revoke it, clear the checkbox and save, or run `nimget set ID --allow-direct=false`. With an effective proxy, revocation stops the transfer and keeps its verified progress. Trackers and peers use direct connections whenever the task is permitted to run.
+
+NimGet downloads the entire torrent and publishes the verified output in your chosen folder. A single-file torrent produces a file. A multi-file torrent produces a folder with the torrent's file layout. If the output name is taken, NimGet chooses a numbered suffix. **Open** and **Show in folder** let you reach either output kind on the desktop. When deleting a task with its files, NimGet removes only verified task output and preserves added, replaced, or edited files.
+
+Use **Pause** and **Resume** to continue the same task. If peers stop making progress, NimGet releases the download slot and lets you **Retry** when the swarm is available. If NimGet cannot publish verified files, check the save folder and use **Retry** after restoring access or resolving the reported conflict. After a restart, NimGet reuses verified metadata and pieces and checks whether an interrupted publication already moved the verified output. Adding the same unfinished torrent returns its original task. Adding it after completion starts a fresh download to a free destination.
 
 ### Settings
 
@@ -163,13 +174,13 @@ Every endpoint except `/v1/ping` requires `Authorization: Bearer <token>`. Comma
 | --- | --- | --- |
 | `GET` | `/v1/ping` | `{"status":"ok"}` |
 | `GET` | `/v1/downloads` | Lists downloads with live progress. |
-| `POST` | `/v1/downloads` | Body `{"url":"...","destination":"/absolute/path"}`, or `"directory"` or neither for a server-named file; optional `priority` (`-1`, `0`, `1`), `connections`, `speedLimit`, `checksum`, `headers`. Returns `202` with the queued item. |
+| `POST` | `/v1/downloads` | Body `{"url":"...","destination":"/absolute/path"}`, or `"directory"` or neither for a server-named file; optional `priority` (`-1`, `0`, `1`), `connections`, `speedLimit`, `checksum`, `headers`. For a magnet URL, send only `url` and optionally `directory` and `priority`. Returns `202` with the queued item. |
 | `POST` | `/v1/downloads/{id}:pause` | Pauses a queued or running download. `204` |
 | `POST` | `/v1/downloads/{id}:resume` | Requeues a paused download. `204` |
 | `POST` | `/v1/downloads/{id}:retry` | Requeues a failed download. `204` |
 | `POST` | `/v1/downloads/{id}:restart` | Discards partial data and requeues a failed download with `recovery: "restart-required"`. `204` |
-| `PATCH` | `/v1/downloads/{id}` | Updates `priority`, `connections`, `speedLimit`, or `headers`. Supplying `url` refreshes the source and requeues a stopped failed or paused download. `204` |
-| `DELETE` | `/v1/downloads/{id}` | Deletes a stopped download; `?files=true` also removes partial data and, for completed downloads, the file. `204` |
+| `PATCH` | `/v1/downloads/{id}` | Updates `priority`, `connections`, `speedLimit`, `headers`, or the magnet task's `directConnectionAllowed`. Supplying `url` refreshes the source and requeues a stopped failed or paused download. `204` |
+| `DELETE` | `/v1/downloads/{id}` | Deletes a stopped download; `?files=true` also removes partial data and the verified output of completed downloads. Magnet cleanup preserves files that were added, replaced or edited. `204` |
 | `GET` | `/v1/settings` | The settings document. |
 | `PUT` | `/v1/settings` | Replaces the settings; returns them, or `422` with every validation error. |
 | `GET` | `/v1/events` | `text/event-stream`; also accepts `?token=` because `EventSource` cannot send headers. |

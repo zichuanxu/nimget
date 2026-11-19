@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -19,9 +18,9 @@ import (
 
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/netproxy"
+	"github.com/amemiya02/nimget/internal/testfixture"
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/bencode"
-	"github.com/anacrolix/torrent/metainfo"
 	"golang.org/x/time/rate"
 )
 
@@ -124,7 +123,7 @@ func trackedMagnetFixture(t *testing.T, name string, payload []byte, private boo
 
 func trackedMagnetPeer(t *testing.T, name string, payload []byte, private bool, limit *rate.Limiter) (string, *torrent.Torrent, *atomic.Bool) {
 	t.Helper()
-	hash, seeder, address := seedMagnetPeer(t, name, payload, private, limit)
+	hash, seeder, address := testfixture.SeedV1Magnet(t, name, payload, private, limit)
 	compact := binary.BigEndian.AppendUint16(append([]byte(nil), address.IP.To4()...), uint16(address.Port))
 	announce, err := bencode.Marshal(map[string]any{"interval": 30, "peers": string(compact)})
 	if err != nil {
@@ -148,48 +147,6 @@ func trackedMagnetPeer(t *testing.T, name string, payload []byte, private bool, 
 	}))
 	t.Cleanup(tracker.Close)
 	return fmt.Sprintf("magnet:?xt=urn:btih:%s&dn=fallback&tr=%s", hash.HexString(), url.QueryEscape(tracker.URL+"/announce/secret-path?passkey=test-only")), seeder, trackerOnline
-}
-
-func seedMagnetPeer(t *testing.T, name string, payload []byte, private bool, limit *rate.Limiter) (metainfo.Hash, *torrent.Torrent, *net.TCPAddr) {
-	t.Helper()
-	seedDir := t.TempDir()
-	source := filepath.Join(seedDir, name)
-	if err := os.WriteFile(source, payload, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info := metainfo.Info{PieceLength: 32 << 10, Private: &private}
-	if err := info.BuildFromFilePath(source); err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := bencode.Marshal(info)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ti := &metainfo.MetaInfo{InfoBytes: encoded}
-	seedConfig := torrent.NewDefaultClientConfig().SetListenAddr("127.0.0.1:0")
-	seedConfig.DataDir = seedDir
-	seedConfig.NoDHT, seedConfig.NoDefaultPortForwarding, seedConfig.DisableUTP, seedConfig.DisableIPv6 = true, true, true, true
-	seedConfig.DisableTrackers = true
-	seedConfig.Seed = true
-	if limit != nil {
-		seedConfig.UploadRateLimiter = limit
-	}
-	seedConfig.Slogger = slog.New(slog.DiscardHandler)
-	seed, err := torrent.NewClient(seedConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { seed.Close() })
-	seeder, err := seed.AddTorrent(ti)
-	if err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-seeder.Complete().On():
-	case <-time.After(8 * time.Second):
-		t.Fatal("fixture peer did not verify its seed file")
-	}
-	return ti.HashInfoBytes(), seeder, seed.ListenAddrs()[0].(*net.TCPAddr)
 }
 
 func waitForMagnetTask(t *testing.T, ctx context.Context, list func() ([]download.Item, error), id string) download.Item {

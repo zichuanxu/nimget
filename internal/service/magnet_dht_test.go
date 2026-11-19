@@ -12,6 +12,7 @@ import (
 
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/netproxy"
+	"github.com/amemiya02/nimget/internal/testfixture"
 	"github.com/anacrolix/dht/v2"
 	"github.com/anacrolix/dht/v2/krpc"
 	peerstore "github.com/anacrolix/dht/v2/peer-store"
@@ -21,7 +22,7 @@ func TestTrackerlessMagnetUsesDHTAfterNetworkGateOpens(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 12*time.Second)
 	defer cancel()
 	payload := bytes.Repeat([]byte("trackerless fixture"), 8000)
-	hash, seeder, address := seedMagnetPeer(t, "trackerless.bin", payload, false, nil)
+	hash, seeder, address := testfixture.SeedV1Magnet(t, "trackerless.bin", payload, false, nil)
 	var requests atomic.Int32
 	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {

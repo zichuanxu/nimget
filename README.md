@@ -26,7 +26,7 @@ Published desktop builds check GitHub for stable updates daily by default. Use *
 
 ## Run from source
 
-Building from source requires Git and Go 1.26+. The desktop app also needs Node.js 22.12+ and, on macOS, the Xcode command line tools. On Windows it needs the WebView2 Runtime.
+Building from source requires Git and Go 1.27+. The desktop app also needs Node.js 22.12+ and, on macOS, the Xcode command line tools. On Windows it needs the WebView2 Runtime.
 
 ```bash
 git clone https://github.com/amemiya02/nimget.git

@@ -1,6 +1,6 @@
 # nimget — Design Contract
 
-**`github.com/amemiya02/nimget`** · Apache-2.0 · Go 1.25 · open source, free
+**`github.com/amemiya02/nimget`** · Apache-2.0 · Go 1.27 · open source, free
 
 A cross-platform download manager with a desktop GUI and CLI. A paired Chrome or Edge
 extension can send downloads to the desktop app.
@@ -283,11 +283,9 @@ queue can run its normal completion actions.
 - Route by source kind before HTTP inspection. Keep the manager as the owner of
   queue policy, task IDs, and status transitions. An in-process runner uses one
   BitTorrent client, opened on demand and closed when the last active magnet attempt
-  exits. The first engine candidate is a patched `anacrolix/torrent` release.
-  Validate the dependency and cross-platform builds before pinning it. The
-  `v1.63.0` module declares Go 1.26. Raise the project's minimum toolchain to meet
-  the selected dependency's requirements. See
-  [ADR 0004](docs/adr/0004-bit-torrent-engine-in-service.md).
+  exits. The engine is based on `anacrolix/torrent` v1.63.0 with the upstream
+  pull request fix for empty files in v2 torrents. Its pinned revision
+  requires Go 1.27. See [ADR 0004](docs/adr/0004-bit-torrent-engine-in-service.md).
 - Persist magnet-specific state in SQLite under the existing task ID, including the
   requested directory, hash claims and verified aliases, verified metadata, direct
   consent, and output manifest. Use the HTTP-based source kind as the migration

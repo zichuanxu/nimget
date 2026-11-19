@@ -4,7 +4,7 @@ The desktop app runs on macOS and Windows. The CLI and headless service also run
 
 ## Prerequisites
 
-- Git and Go 1.26+ for the CLI and service.
+- Git and Go 1.27+ for the CLI and service.
 - Node.js 22.12+ and npm for the desktop frontend.
 - macOS desktop: Xcode Command Line Tools (`xcode-select --install`).
 - Windows desktop: Microsoft Edge WebView2 Runtime. See the [Wails platform requirements](https://v3.wails.io/quick-start/installation/) for setup details.

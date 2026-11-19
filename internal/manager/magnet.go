@@ -51,7 +51,7 @@ func (m *Manager) addMagnet(ctx context.Context, req download.Request) (download
 		return download.Item{}, err
 	}
 	for _, item := range items {
-		if item.Magnet != nil && item.Magnet.V1 == source.V1 && item.Status != download.StatusCompleted {
+		if item.Magnet != nil && item.Magnet.TorrentIdentity == source.TorrentIdentity && item.Status != download.StatusCompleted {
 			return item, nil
 		}
 	}
@@ -61,7 +61,7 @@ func (m *Manager) addMagnet(ctx context.Context, req download.Request) (download
 	}
 	source.Directory = dir
 	if name = sanitizeFilename(name); name == "" {
-		name = source.V1
+		name = source.PreferredHash()
 	}
 	now := m.opts.Now().UTC()
 	item := download.Item{
@@ -131,7 +131,7 @@ func (m *Manager) runMagnet(ctx context.Context, j *job, item download.Item) {
 			func(metadataName string, total int64) (*os.Root, error) {
 				name = sanitizeFilename(metadataName)
 				if name == "" {
-					name = item.Magnet.V1
+					name = item.Magnet.PreferredHash()
 				}
 				return m.prepareMagnet(ctx, j, name, total)
 			},

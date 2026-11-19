@@ -69,6 +69,26 @@ type scheduler struct {
 // newScheduler pre-splits the remaining intervals so that up to connections
 // requests can start without stealing from each other.
 func newScheduler(remaining []interval, minSplit int64, connections int) *scheduler {
+	if len(remaining) == 1 {
+		// Recursive halving leaves ranges twice as large as others when the
+		// worker count is between powers of two. Start them all with equal
+		// work so faster workers do not need to reconnect just to catch up.
+		span := remaining[0]
+		pieces := min(int64(connections), max(1, span.size()/minSplit))
+		size, extra := span.size()/pieces, span.size()%pieces
+		pending := make([]interval, 0, pieces)
+		start := span.Start
+		for i := range pieces {
+			end := start + size
+			if i < extra {
+				end++
+			}
+			pending = append(pending, interval{start, end})
+			start = end
+		}
+		return &scheduler{pending: pending, active: make(map[*segment]struct{}), minSplit: minSplit}
+	}
+
 	s := &scheduler{pending: append([]interval(nil), remaining...), active: make(map[*segment]struct{}), minSplit: minSplit}
 	for len(s.pending) < connections {
 		i := s.largestPending()

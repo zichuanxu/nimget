@@ -144,6 +144,33 @@ func TestDestinationRulesAndLock(t *testing.T) {
 	}
 }
 
+func TestSchedulerStartsWithEvenlySizedRanges(t *testing.T) {
+	const minSplit = 1 << 20
+	const start = 123
+	for _, tc := range []struct {
+		size, pieces int64
+	}{
+		{17*minSplit + 5, 6},
+		{3*minSplit + 5, 3},
+		{minSplit - 1, 1},
+	} {
+		s := newScheduler([]interval{{start, start + tc.size}}, minSplit, 6)
+		if len(s.pending) != int(tc.pieces) {
+			t.Fatalf("size %d: got %d ranges; want %d", tc.size, len(s.pending), tc.pieces)
+		}
+		cursor := int64(start)
+		for _, iv := range s.pending {
+			if iv.Start != cursor || iv.size() < tc.size/tc.pieces || iv.size() > (tc.size+tc.pieces-1)/tc.pieces {
+				t.Fatalf("size %d: unexpected initial ranges %+v", tc.size, s.pending)
+			}
+			cursor = iv.End
+		}
+		if cursor != start+tc.size {
+			t.Fatalf("last range ends at %d; want %d", cursor, start+tc.size)
+		}
+	}
+}
+
 func TestSchedulerPreSplitsStealsAndAccounts(t *testing.T) {
 	const size, minSplit = 16 << 20, 1 << 20
 	s := newScheduler([]interval{{0, size}}, minSplit, 4)

@@ -9,16 +9,19 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/tracker"
 )
 
 // Own tracker request contexts per attempt. The torrent client's built-in
 // announcer can keep an in-flight request alive after the torrent is dropped.
-func discover(ctx context.Context, client *torrent.Client, tor *torrent.Torrent, hints []string) func() {
+func discover(ctx context.Context, client *torrent.Client, tor *torrent.Torrent, hints []string, hashes []metainfo.Hash) func() {
 	ctx, cancel := context.WithCancel(ctx)
 	var workers sync.WaitGroup
 	for _, hint := range hints {
-		workers.Go(func() { announce(ctx, client, tor, hint) })
+		for _, hash := range hashes {
+			workers.Go(func() { announce(ctx, client, tor, hint, hash) })
+		}
 	}
 	return func() {
 		cancel()
@@ -26,20 +29,20 @@ func discover(ctx context.Context, client *torrent.Client, tor *torrent.Torrent,
 	}
 }
 
-func announce(ctx context.Context, client *torrent.Client, tor *torrent.Torrent, hint string) {
+func announce(ctx context.Context, client *torrent.Client, tor *torrent.Torrent, hint string, hash metainfo.Hash) {
 	peerTracker, err := tracker.NewClient(hint, tracker.NewClientOpts{Slogger: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		return
 	}
 	defer peerTracker.Close()
 	req := tracker.AnnounceRequest{
-		InfoHash: tor.InfoHash(), PeerId: client.PeerID(), Port: uint16(client.LocalPort()),
+		InfoHash: hash, PeerId: client.PeerID(), Port: uint16(client.LocalPort()),
 		NumWant: 100, Left: -1, Event: tracker.Started,
 	}
 	for ctx.Err() == nil {
 		if info := tor.Info(); info != nil {
 			req.Downloaded = verifiedBytes(tor, info)
-			req.Left = info.Length - req.Downloaded
+			req.Left = info.TotalLength() - req.Downloaded
 		}
 		attempt, cancel := context.WithTimeout(ctx, tracker.DefaultTrackerAnnounceTimeout)
 		reply, err := peerTracker.Announce(attempt, req, tracker.AnnounceOpt{})

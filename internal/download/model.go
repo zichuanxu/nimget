@@ -83,6 +83,7 @@ type Item struct {
 	Phase       Phase      `json:"phase,omitempty"`
 	Name        string     `json:"name,omitempty"`
 	Directory   string     `json:"directory,omitempty"`
+	DuplicateOf string     `json:"duplicateOf,omitempty"`
 	Magnet      *Magnet    `json:"-"`
 	// Connections overrides the site and default connection count when set.
 	Connections int `json:"connections,omitempty"`
@@ -157,6 +158,8 @@ type Repository interface {
 	Delete(context.Context, string) error
 	// UpdateWithHeaders stores the item and its replacement request headers atomically.
 	UpdateWithHeaders(context.Context, Item) error
+	// UpdateMagnetOwnership stores verified aliases and their duplicate rows atomically.
+	UpdateMagnetOwnership(ctx context.Context, owner Item, duplicates []Item) error
 	// LoadSettings returns the stored settings, or ok=false when none are.
 	LoadSettings(context.Context) (s settings.Settings, ok bool, err error)
 	SaveSettings(context.Context, settings.Settings) error

@@ -338,7 +338,7 @@ function Shell() {
     const missing = missingFile(item);
     if (item.status === Status.StatusRunning || item.status === Status.StatusQueued) list.push({ icon: Pause, label: t("row.pause"), onSelect: run(() => Desktop.Pause(item.id)) });
     if (item.status === Status.StatusPaused) list.push({ icon: Play, label: t("row.resume"), onSelect: run(() => Desktop.Resume(item.id)) });
-    if (item.status === Status.StatusFailed && item.recovery !== Recovery.RecoveryRestartRequired)
+    if (item.status === Status.StatusFailed && !item.duplicateOf && item.recovery !== Recovery.RecoveryRestartRequired)
       list.push({ icon: RotateCw, label: t("row.retry"), onSelect: run(() => Desktop.Retry(item.id)) });
     if (item.sourceKind !== SourceKind.SourceMagnet && (item.status === Status.StatusFailed || item.status === Status.StatusPaused))
       list.push({

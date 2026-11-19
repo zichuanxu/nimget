@@ -138,12 +138,12 @@ export class Settings {
     "maxConcurrent": number;
 
     /**
-     * Connections is the default per download, 1 to 32.
+     * Connections is the default per HTTP-based download, 1 to 32.
      */
     "connections": number;
 
     /**
-     * HostConnections caps connections to one host across all downloads.
+     * HostConnections caps HTTP-based connections to one host.
      */
     "hostConnections": number;
 
@@ -151,6 +151,11 @@ export class Settings {
      * SpeedLimit caps all downloads together in bytes per second; 0 is none.
      */
     "speedLimit": number;
+
+    /**
+     * TorrentUploadLimit caps all active magnet uploads together in bytes per second.
+     */
+    "torrentUploadLimit"?: number;
     "schedule": Schedule;
     "proxy": netproxy$0.Config;
     "sites": Site[];
@@ -203,30 +208,30 @@ export class Settings {
      * Creates a new Settings instance from a string or object.
      */
     static createFrom($$source: any = {}): Settings {
-        const $$createField4_0 = $$createType2;
-        const $$createField5_0 = $$createType3;
-        const $$createField6_0 = $$createType5;
-        const $$createField7_0 = $$createType6;
-        const $$createField8_0 = $$createType7;
-        const $$createField9_0 = $$createType8;
+        const $$createField5_0 = $$createType2;
+        const $$createField6_0 = $$createType3;
+        const $$createField7_0 = $$createType5;
+        const $$createField8_0 = $$createType6;
+        const $$createField9_0 = $$createType7;
+        const $$createField10_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("schedule" in $$parsedSource) {
-            $$parsedSource["schedule"] = $$createField4_0($$parsedSource["schedule"]);
+            $$parsedSource["schedule"] = $$createField5_0($$parsedSource["schedule"]);
         }
         if ("proxy" in $$parsedSource) {
-            $$parsedSource["proxy"] = $$createField5_0($$parsedSource["proxy"]);
+            $$parsedSource["proxy"] = $$createField6_0($$parsedSource["proxy"]);
         }
         if ("sites" in $$parsedSource) {
-            $$parsedSource["sites"] = $$createField6_0($$parsedSource["sites"]);
+            $$parsedSource["sites"] = $$createField7_0($$parsedSource["sites"]);
         }
         if ("extraRoots" in $$parsedSource) {
-            $$parsedSource["extraRoots"] = $$createField7_0($$parsedSource["extraRoots"]);
+            $$parsedSource["extraRoots"] = $$createField8_0($$parsedSource["extraRoots"]);
         }
         if ("desktop" in $$parsedSource) {
-            $$parsedSource["desktop"] = $$createField8_0($$parsedSource["desktop"]);
+            $$parsedSource["desktop"] = $$createField9_0($$parsedSource["desktop"]);
         }
         if ("extensions" in $$parsedSource) {
-            $$parsedSource["extensions"] = $$createField9_0($$parsedSource["extensions"]);
+            $$parsedSource["extensions"] = $$createField10_0($$parsedSource["extensions"]);
         }
         return new Settings($$parsedSource as Partial<Settings>);
     }

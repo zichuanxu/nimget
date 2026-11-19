@@ -164,6 +164,17 @@ func (m *Manager) runMagnet(ctx context.Context, j *job, item download.Item) {
 					if err != nil {
 						return nil, err
 					}
+				} else {
+					for _, file := range verified.Files {
+						if file.Pad {
+							continue
+						}
+						for _, component := range file.Path {
+							if !validMagnetComponent(component) {
+								return nil, errors.New("torrent metadata contains unsafe output paths")
+							}
+						}
+					}
 				}
 				var payload magnet.StagedPayload
 				var err error
@@ -229,7 +240,7 @@ func (m *Manager) prepareMagnet(ctx context.Context, j *job, name string, manife
 		var file *os.File
 		file, stage, fresh, err = openMagnetStage(root, source.Stage)
 		if err == nil {
-			payload = magnet.NewFileStorage(file, !fresh)
+			payload = magnet.NewFileStorage(manifest, file, !fresh)
 		}
 	}
 	if err != nil {

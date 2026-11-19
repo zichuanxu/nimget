@@ -39,6 +39,7 @@ func readManifest(info *metainfo.Info) (Manifest, error) {
 		return Manifest{}, invalid
 	}
 	var payloads int
+	var lastPayload PayloadFile
 	var end int64
 	for file := range info.UpvertedFilesIter() {
 		pad := strings.ContainsRune(file.Attr, 'p')
@@ -46,16 +47,14 @@ func readManifest(info *metainfo.Info) (Manifest, error) {
 			file.TorrentOffset < end || file.TorrentOffset > math.MaxInt64-file.Length {
 			return Manifest{}, invalid
 		}
-		if !pad {
-			payloads++
-		}
 		if file.Length > 0 {
 			m.extents = append(m.extents, len(m.Files))
 		}
-		m.Files = append(m.Files, PayloadFile{
-			Path: file.BestPath(), Size: file.Length, Offset: file.TorrentOffset, Pad: pad, meta: file, before: m.Total,
-		})
+		entry := PayloadFile{Path: file.BestPath(), Size: file.Length, Offset: file.TorrentOffset, Pad: pad, meta: file, before: m.Total}
+		m.Files = append(m.Files, entry)
 		if !pad {
+			payloads++
+			lastPayload = entry
 			m.Total += file.Length
 		}
 		end = file.TorrentOffset + file.Length
@@ -78,9 +77,9 @@ func readManifest(info *metainfo.Info) (Manifest, error) {
 			return Manifest{}, invalid
 		}
 	}
-	m.Directory = len(m.Files) > 1
-	if !m.Directory && len(m.Files[0].Path) != 0 {
-		m.Name = m.Files[0].Path[len(m.Files[0].Path)-1]
+	m.Directory = payloads > 1
+	if !m.Directory && len(lastPayload.Path) != 0 {
+		m.Name = lastPayload.Path[len(lastPayload.Path)-1]
 	}
 	return m, nil
 }

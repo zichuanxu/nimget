@@ -6,6 +6,8 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -25,17 +27,31 @@ type Runner struct {
 	downloadLimit *rate.Limiter
 	uploadLimit   *rate.Limiter
 	loopbackOnly  bool
+	dhtBootstrap  []netip.AddrPort
+	dhtReady      <-chan struct{}
+	cancelDHT     context.CancelFunc
 	metadata      chan struct{}
+	stallTimeout  time.Duration
 }
 
-func NewRunner(downloadLimit, uploadLimit *rate.Limiter, loopbackOnly bool) *Runner {
+type Options struct {
+	LoopbackOnly bool
+	DHTBootstrap []netip.AddrPort
+	StallTimeout time.Duration
+}
+
+func NewRunner(downloadLimit, uploadLimit *rate.Limiter, opts Options) *Runner {
+	if opts.StallTimeout <= 0 {
+		opts.StallTimeout = 2 * time.Minute
+	}
 	return &Runner{
 		downloadLimit: downloadLimit, uploadLimit: uploadLimit,
-		loopbackOnly: loopbackOnly, metadata: make(chan struct{}, 1),
+		loopbackOnly: opts.LoopbackOnly, dhtBootstrap: slices.Clone(opts.DHTBootstrap),
+		metadata: make(chan struct{}, 1), stallTimeout: opts.StallTimeout,
 	}
 }
 
-func (r *Runner) acquire() (*torrent.Client, error) {
+func (r *Runner) acquire() (*torrent.Client, <-chan struct{}, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.client == nil {
@@ -45,7 +61,7 @@ func (r *Runner) acquire() (*torrent.Client, error) {
 			cfg.SetListenAddr("127.0.0.1:0")
 			cfg.DisableIPv6 = true
 		}
-		cfg.NoDHT = true
+		ready, cancel := configureDHT(cfg, r.loopbackOnly, r.dhtBootstrap)
 		cfg.DisableTrackers = true
 		cfg.NoDefaultPortForwarding = true
 		cfg.DisableWebtorrent = true
@@ -58,12 +74,13 @@ func (r *Runner) acquire() (*torrent.Client, error) {
 		cfg.Slogger = slog.New(slog.DiscardHandler)
 		client, err := torrent.NewClient(cfg)
 		if err != nil {
-			return nil, errors.New("could not start BitTorrent networking")
+			cancel()
+			return nil, nil, errors.New("could not start BitTorrent networking")
 		}
-		r.client = client
+		r.client, r.dhtReady, r.cancelDHT = client, ready, cancel
 	}
 	r.active++
-	return r.client, nil
+	return r.client, r.dhtReady, nil
 }
 
 func (r *Runner) release() {
@@ -71,6 +88,7 @@ func (r *Runner) release() {
 	defer r.mu.Unlock()
 	r.active--
 	if r.active == 0 {
+		r.cancelDHT()
 		r.client.Close()
 		r.client = nil
 	}
@@ -86,9 +104,6 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	checkpoint func(metadata []byte) error,
 	publish func() error,
 ) error {
-	if len(source.Trackers) == 0 && len(source.Metadata) == 0 {
-		return errors.New("tracker information is unavailable; remove this task and add the magnet again")
-	}
 	opts, announceHashes, err := identityOptions(source.TorrentIdentity)
 	if err != nil {
 		return err
@@ -112,7 +127,7 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	client, err := r.acquire()
+	client, dhtReady, err := r.acquire()
 	if err != nil {
 		return err
 	}
@@ -137,16 +152,14 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	}
 	tor.DisallowDataDownload()
 	tor.DisallowDataUpload()
-	stopDiscovery := discover(ctx, client, tor, source.Trackers, announceHashes)
+	stopDiscovery := discover(ctx, client, tor, source.Trackers, announceHashes, dhtReady)
 	stop := sync.OnceFunc(func() {
 		stopDiscovery()
 		tor.Drop()
 	})
 	defer stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-tor.GotInfo():
+	if err := r.waitForMetadata(ctx, tor); err != nil {
+		return err
 	}
 	info := tor.Info()
 	if info.Private != nil && *info.Private {
@@ -182,7 +195,7 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	case ctx.Err() != nil:
 		transferErr = ctx.Err()
 	default:
-		transferErr = downloadPayload(ctx, tor, info, files[0].Length, staged, report)
+		transferErr = r.downloadPayload(ctx, tor, info, files[0].Length, staged, report)
 	}
 	var finalMeta metainfo.MetaInfo
 	if info.HasV2() {
@@ -240,22 +253,25 @@ func loadMagnetMetadata(source download.Magnet, opts *torrent.AddTorrentOpts) er
 	return nil
 }
 
-func downloadPayload(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, total int64, staged StagedPayload, report func(download.Phase, download.Progress)) error {
+func (r *Runner) downloadPayload(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, total int64, staged StagedPayload, report func(download.Phase, download.Progress)) error {
 	if err := tor.OpenStorage(ctx, staged); err != nil {
 		return errors.New("could not open the staged torrent payload")
 	}
-	defer func() {
-		report(download.PhaseTransferring, download.Progress{Completed: verifiedBytes(tor, info), Total: total})
-	}()
 	tor.AllowDataDownload()
 	tor.AllowDataUpload()
 	tor.DownloadAll()
-	return transfer(ctx, tor, info, total, staged.WriteErrors(), report)
+	return r.transfer(ctx, tor, info, total, staged.WriteErrors(), report)
 }
 
-func transfer(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, total int64, writeError <-chan error, report func(download.Phase, download.Progress)) error {
-	ticker := time.NewTicker(250 * time.Millisecond)
+func (r *Runner) transfer(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, total int64, writeError <-chan error, report func(download.Phase, download.Progress)) error {
+	ticker := time.NewTicker(progressInterval)
 	defer ticker.Stop()
+	watch := r.newStallWatch()
+	phase := download.PhaseWaitingPeers
+	var verifiedHigh int64
+	defer func() {
+		report(phase, download.Progress{Completed: verifiedBytes(tor, info), Total: total})
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -263,15 +279,33 @@ func transfer(ctx context.Context, tor *torrent.Torrent, info *metainfo.Info, to
 		case err := <-writeError:
 			return err
 		case <-tor.Complete().On():
-			report(download.PhaseTransferring, download.Progress{Completed: total, Total: total})
+			phase = download.PhaseTransferring
 			return nil
-		case <-ticker.C:
-			phase := download.PhaseWaitingPeers
+		case now := <-ticker.C:
 			stats := tor.Stats()
+			phase = download.PhaseWaitingPeers
 			if stats.ActivePeers > 0 && (stats.ConnectedSeeders > 0 || stats.BytesReadUsefulData.Int64() > 0) {
 				phase = download.PhaseTransferring
 			}
-			report(phase, download.Progress{Completed: verifiedBytes(tor, info), Total: total})
+			completed := verifiedBytes(tor, info)
+			report(phase, download.Progress{Completed: completed, Total: total})
+			if completed > verifiedHigh {
+				verifiedHigh, watch.lastProgress = completed, now
+			}
+			// Chunks advance even before a whole piece can be verified. Use a
+			// high-water mark so re-reading corrupt chunks does not defer retry.
+			if watch.expired(now, tor.BytesCompleted(), stats.BytesRead.Int64()) {
+				select {
+				case <-tor.Complete().On():
+					phase = download.PhaseTransferring
+					return nil
+				default:
+				}
+				if phase == download.PhaseWaitingPeers {
+					return magnetStall("while waiting for peers")
+				}
+				return magnetStall("during payload transfer")
+			}
 		}
 	}
 }

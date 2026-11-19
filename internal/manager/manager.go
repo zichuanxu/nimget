@@ -43,8 +43,10 @@ const (
 
 type Options struct {
 	Publish func(download.Event)
-	Now     func() time.Time
-	Logger  *slog.Logger
+	// MagnetPublicationCheckpoint observes the two durable publication boundaries.
+	MagnetPublicationCheckpoint func(download.MagnetPublicationStep, download.Item)
+	Now                         func() time.Time
+	Logger                      *slog.Logger
 	// DownloadRoots lists the directories destinations must resolve inside.
 	DownloadRoots      []string
 	MagnetLoopbackOnly bool
@@ -63,10 +65,11 @@ type Options struct {
 // without taking any manager lock, so a slow SQLite write can never stall the
 // engine; the Run loop copies it into item and publishes it.
 type job struct {
-	cancel    context.CancelFunc
-	item      download.Item
-	completed atomic.Int64
-	total     atomic.Int64
+	cancel         context.CancelFunc
+	checkpointDone chan struct{}
+	item           download.Item
+	completed      atomic.Int64
+	total          atomic.Int64
 	// host and conns are this job's share of the per-host connection cap.
 	host    string
 	conns   int
@@ -394,12 +397,14 @@ func (m *Manager) listLocked(ctx context.Context) ([]download.Item, error) {
 }
 
 func (m *Manager) Pause(ctx context.Context, id string) error {
-	return m.transition(ctx, id, false, func(item *download.Item) error {
+	var checkpointDone <-chan struct{}
+	err := m.transition(ctx, id, false, func(item *download.Item) error {
 		if item.Status != download.StatusQueued && item.Status != download.StatusRunning {
 			return fmt.Errorf("%w: cannot pause a %s download", ErrInvalidTransition, item.Status)
 		}
 		if j, ok := m.active[item.ID]; ok {
 			j.cancel()
+			checkpointDone = j.checkpointDone
 			j.item.Status = download.StatusPaused
 			item.Completed, item.Total = j.progress()
 		}
@@ -408,8 +413,16 @@ func (m *Manager) Pause(ctx context.Context, id string) error {
 		item.Error, item.Failure = "", ""
 		return nil
 	})
+	if err != nil || checkpointDone == nil {
+		return err
+	}
+	select {
+	case <-checkpointDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
-
 func (m *Manager) Resume(ctx context.Context, id string) error {
 	return m.requeue(ctx, id, download.StatusPaused)
 }
@@ -600,6 +613,11 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 	if _, ok := m.active[id]; ok {
 		return ErrActive
 	}
+	if hasMagnetPublication(item) {
+		if err := m.recoverMagnetPublication(ctx, &item); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidTransition, err)
+		}
+	}
 	if err := m.repo.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -609,8 +627,8 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 	if !removeFiles {
 		return nil
 	}
-	if item.SourceKind == download.SourceMagnet && item.Status != download.StatusCompleted {
-		return nil
+	if item.SourceKind == download.SourceMagnet {
+		return m.removeMagnetFiles(ctx, item)
 	}
 	// Re-check confinement: a symlinked ancestor may have changed since Add.
 	if _, err := confine(m.allowedRoots(), item.Destination); err != nil {
@@ -679,6 +697,12 @@ func (m *Manager) requeueOrphans(ctx context.Context) {
 		if _, ok := m.active[item.ID]; ok || item.Status != download.StatusRunning {
 			continue
 		}
+		if hasMagnetPublication(item) {
+			if err := m.retryMagnetPublication(ctx, item); err != nil {
+				m.log.Error("recover magnet publication", "id", item.ID, "err", err)
+			}
+			continue
+		}
 		item.Status = download.StatusQueued
 		item.Phase = ""
 		item.UpdatedAt = m.opts.Now().UTC()
@@ -735,6 +759,14 @@ func (m *Manager) schedule(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, now := m.Settings(), m.opts.Now()
+	for _, item := range queued {
+		if !hasMagnetPublication(item) {
+			continue
+		}
+		if err := m.recoverQueuedMagnetPublication(ctx, item.ID); err != nil {
+			m.log.Error("recover queued magnet publication", "id", item.ID, "err", err)
+		}
+	}
 	if !s.QueueOpen(now) {
 		return
 	}
@@ -768,6 +800,9 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	}
 	if item.Status != download.StatusQueued {
 		return nil
+	}
+	if hasMagnetPublication(item) {
+		return nil // The local move is handled ahead of network scheduling.
 	}
 	if item.SourceKind == download.SourceMagnet {
 		return m.startMagnet(ctx, item, s, now)
@@ -862,16 +897,15 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 		m.log.Error("load finished download", "id", id, "err", err)
 		return
 	}
+	if item.SourceKind == download.SourceMagnet && item.Status == download.StatusCompleted {
+		return // Publication already committed and emitted completion.
+	}
 	if item.DuplicateOf != "" {
 		return // Alias reconciliation already recorded this task's terminal state.
 	}
 	item.Completed, item.Total = j.progress()
 	item.UpdatedAt = m.opts.Now().UTC()
 	item.Phase = ""
-	if item.SourceKind == download.SourceMagnet && runErr != nil {
-		// This attempt no longer owns a staging file.
-		item.Completed = 0
-	}
 	switch {
 	case runErr == nil:
 		// Checked first: a Pause that raced the final rename must not hide a
@@ -900,6 +934,10 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	default:
 		item.Status = download.StatusFailed
 		item.Error = taskDiagnostic(runErr)
+		var outputErr *magnetOutputError
+		if errors.As(runErr, &outputErr) {
+			item.Error = outputErr.Error()
+		}
 		item.Failure = classifyFailure(runErr)
 		if j.item.WebsiteSession != nil && item.Failure == download.FailureAuthorization {
 			item.Error += ". The website session may have expired. " + websiteSessionRecovery

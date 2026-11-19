@@ -79,3 +79,52 @@ test("retries a verified magnet with a publication problem from Task Details", a
   await expect(dialog).toHaveCount(0);
   expect(retries).toEqual(["recoverable-output"]);
 });
+
+test("grants and revokes direct BitTorrent permission in Task Details", async ({ page }) => {
+  const stamp = "2026-11-18T20:00:00Z";
+  const task = {
+    id: "magnet-consent",
+    name: "direct.bin",
+    url: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+    sourceKind: "magnet",
+    status: "queued",
+    destination: "",
+    directory: "C:\\Downloads",
+    completed: 0,
+    total: -1,
+    priority: 0,
+    createdAt: stamp,
+    updatedAt: stamp,
+  };
+  let permission = false;
+  const updates: unknown[][] = [];
+  await mockDesktop(page, {
+    List: () => [{ ...task, directConnectionAllowed: permission, phase: permission ? "" : "proxy-blocked" }],
+    Update: (id, patch) => {
+      updates.push([id, patch]);
+      permission = (patch as { directConnectionAllowed: boolean }).directConnectionAllowed;
+    },
+  });
+  const openDetails = async () => {
+    await page.goto("/");
+    await page.getByText("direct.bin", { exact: true }).hover();
+    await page.getByRole("button", { name: "Details for direct.bin" }).click();
+  };
+  await openDetails();
+  const dialog = page.getByRole("dialog");
+  const consent = dialog.getByRole("checkbox", { name: "Allow direct BitTorrent connections" });
+  await expect(dialog.getByText(/A proxy is active/)).toBeVisible();
+  await expect(consent).not.toBeChecked();
+  await consent.check();
+  expect(updates).toEqual([]);
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(updates).toEqual([[task.id, { directConnectionAllowed: true }]]);
+
+  await openDetails();
+  await expect(consent).toBeChecked();
+  await consent.uncheck();
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(updates[1]).toEqual([task.id, { directConnectionAllowed: false }]);
+});

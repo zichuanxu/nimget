@@ -42,3 +42,11 @@ type MagnetObject struct {
 type MagnetPublication struct {
 	BaseName string `json:"baseName"`
 }
+
+// MagnetPublicationStep is a checkpoint reached around the exclusive move.
+type MagnetPublicationStep string
+
+const (
+	MagnetPublicationRecorded MagnetPublicationStep = "recorded"
+	MagnetPublicationMoved    MagnetPublicationStep = "moved"
+)

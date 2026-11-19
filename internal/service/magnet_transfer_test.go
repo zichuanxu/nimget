@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -116,11 +117,11 @@ func TestPrivateMagnetFailsWithoutOpeningPayloadStorage(t *testing.T) {
 
 func trackedMagnetFixture(t *testing.T, name string, payload []byte, private bool) string {
 	t.Helper()
-	link, _ := trackedMagnetPeer(t, name, payload, private, nil)
+	link, _, _ := trackedMagnetPeer(t, name, payload, private, nil)
 	return link
 }
 
-func trackedMagnetPeer(t *testing.T, name string, payload []byte, private bool, limit *rate.Limiter) (string, *torrent.Torrent) {
+func trackedMagnetPeer(t *testing.T, name string, payload []byte, private bool, limit *rate.Limiter) (string, *torrent.Torrent, *atomic.Bool) {
 	t.Helper()
 	seedDir := t.TempDir()
 	source := filepath.Join(seedDir, name)
@@ -165,14 +166,24 @@ func trackedMagnetPeer(t *testing.T, name string, payload []byte, private bool, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	trackerOnline := new(atomic.Bool)
+	trackerOnline.Store(true)
+	noPeers, err := bencode.Marshal(map[string]any{"interval": 30, "peers": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tracker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/announce/secret-path" {
 			t.Errorf("unexpected tracker request path")
 		}
-		_, _ = w.Write(announce)
+		if trackerOnline.Load() {
+			_, _ = w.Write(announce)
+		} else {
+			_, _ = w.Write(noPeers)
+		}
 	}))
 	t.Cleanup(tracker.Close)
-	return fmt.Sprintf("magnet:?xt=urn:btih:%s&dn=fallback&tr=%s", ti.HashInfoBytes().HexString(), url.QueryEscape(tracker.URL+"/announce/secret-path?passkey=test-only")), seeder
+	return fmt.Sprintf("magnet:?xt=urn:btih:%s&dn=fallback&tr=%s", ti.HashInfoBytes().HexString(), url.QueryEscape(tracker.URL+"/announce/secret-path?passkey=test-only")), seeder, trackerOnline
 }
 
 func waitForMagnetTask(t *testing.T, ctx context.Context, list func() ([]download.Item, error), id string) download.Item {

@@ -124,3 +124,21 @@ func moveRooted(parent *os.File, src, dest string, expected Object) error {
 // Windows does not expose an equivalent per-directory flush for the
 // handle-relative rename. Recovery still covers service/process crashes.
 func syncRoot(*os.File) error { return nil }
+
+// OpenRootedStream opens an alternate stream belonging to a file whose
+// writable handle is held open by the caller.
+func OpenRootedStream(root *os.Root, name, stream string) (*os.File, error) {
+	if !leafOK(name) || !leafOK(stream) {
+		return nil, Collision("invalid stream name")
+	}
+	parent, err := root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	handle, err := openObject(parent, name+":"+stream, windows.GENERIC_WRITE, windows.FILE_OVERWRITE_IF, readWriteShare, windows.FILE_NON_DIRECTORY_FILE)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(handle), name), nil
+}

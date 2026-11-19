@@ -51,3 +51,30 @@ test("shows distinct magnet phases and progress after metadata is ready", async 
   await expect(page.getByRole("listitem").filter({ hasText: "Waiting.mp4" }).getByText("Waiting for peers")).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: "Transfer.txt" }).getByRole("progressbar")).toHaveAttribute("value", "50");
 });
+
+test("retries a verified magnet with a publication problem from Task Details", async ({ page }) => {
+  const retries: unknown[] = [];
+  await mockDesktop(page, {
+    List: () => [{
+      id: "recoverable-output",
+      name: "publication.bin",
+      url: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+      sourceKind: "magnet",
+      destination: "C:\\Downloads\\publication.bin",
+      status: "failed",
+      error: "Could not publish the verified magnet output. Retry after checking the save folder.",
+      completed: 4096,
+      total: 4096,
+      createdAt: "2026-11-18T20:00:00Z",
+      updatedAt: "2026-11-18T20:00:00Z",
+    }],
+    Retry: (id) => { retries.push(id); },
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Details for publication.bin" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(/Could not publish the verified magnet output/)).toBeVisible();
+  await dialog.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(retries).toEqual(["recoverable-output"]);
+});

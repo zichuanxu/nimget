@@ -70,7 +70,7 @@ func (r *Runner) Run(ctx context.Context, source download.Magnet,
 	report func(download.Phase, download.Progress),
 	publish func() error,
 ) error {
-	if len(source.Trackers) == 0 {
+	if len(source.Trackers) == 0 && len(source.Metadata) == 0 {
 		return errors.New("tracker information is unavailable; remove this task and add the magnet again")
 	}
 	decoded, err := hex.DecodeString(source.V1)

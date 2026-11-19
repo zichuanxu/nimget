@@ -32,6 +32,8 @@ type Config struct {
 	Logger *slog.Logger
 	// Publish also receives every manager event; it must not block.
 	Publish func(download.Event)
+	// MagnetPublicationCheckpoint observes the publication boundaries.
+	MagnetPublicationCheckpoint func(download.MagnetPublicationStep, download.Item)
 	// Sealer encrypts stored secrets; it defaults to a key in the OS keyring.
 	Sealer *secrets.Sealer
 }
@@ -123,9 +125,10 @@ func New(cfg Config) (*Service, error) {
 		}
 	}
 	mgr, err = manager.New(db, cfg.Runner, manager.Options{
-		Publish:       publish,
-		Logger:        cfg.Logger,
-		DownloadRoots: cfg.DownloadRoots,
+		Publish:                     publish,
+		MagnetPublicationCheckpoint: cfg.MagnetPublicationCheckpoint,
+		Logger:                      cfg.Logger,
+		DownloadRoots:               cfg.DownloadRoots,
 	})
 	if err != nil {
 		_ = db.Close()

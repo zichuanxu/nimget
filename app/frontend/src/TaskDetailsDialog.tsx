@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent } from "react";
 import { Info } from "lucide-react";
-import { Desktop, Failure, Item, Patch, Recovery, Status } from "./api";
-import { bytes, parseSpeed, speedText } from "./format";
+import { Desktop, Failure, Item, Patch, Recovery, SourceKind, Status } from "./api";
+import { bytes, parseSpeed, speedText, taskStatus } from "./format";
 import { useI18n } from "./i18n";
 import { taskFailure } from "./taskFailure";
 import { Modal } from "./ui";
@@ -25,6 +25,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
   const failure = taskFailure(item);
   const restartRequired = item.recovery === Recovery.RecoveryRestartRequired;
   const failed = item.status === Status.StatusFailed;
+  const magnet = item.sourceKind === SourceKind.SourceMagnet;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -99,9 +100,9 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
     >
       <dl className="task-facts">
         <dt>{t("details.destination")}</dt>
-        <dd>{item.destination}{fileNotice && <div className="file-warning">{fileNotice}</div>}</dd>
+        <dd>{item.destination || item.directory}{fileNotice && <div className="file-warning">{fileNotice}</div>}</dd>
         <dt>{t("details.status")}</dt>
-        <dd>{t(`status.${item.status}` as "status.queued")}</dd>
+        <dd>{taskStatus(item, t)}</dd>
         <dt>{t("details.progress")}</dt>
         <dd>{item.total > 0 ? t("row.of", { done, total: bytes(item.total) }) : done}</dd>
       </dl>
@@ -113,7 +114,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
       ) : failed ? (
         <div className="task-recovery">
           <strong className="error-text">{t(`failure.title.${failure || "unknown"}`)}</strong>
-          <p>{t(`failure.help.${failure || "unknown"}`)}</p>
+          <p>{magnet && item.error ? item.error : t(`failure.help.${failure || "unknown"}`)}</p>
           <div className="task-recovery-actions">
             {failure === Failure.FailureAuthorization && (
               <button type="button" disabled={busy} onClick={onRecover}>{t("row.reauth")}</button>
@@ -137,7 +138,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
           </select>
           <span className="hint" id={`${id}-priority-hint`}>{t("details.priorityHint")}</span>
         </div>
-        <div className="field">
+        {!magnet && <><div className="field">
           <label className="field-label" htmlFor={`${id}-connections`}>{t("add.connections")}</label>
           <input id={`${id}-connections`} name="connections" inputMode="numeric" placeholder={t("add.default")} value={connections} disabled={busy} aria-describedby={describe("connections")} aria-invalid={invalid === "connections"} onChange={(event) => {
             setConnections(event.target.value);
@@ -161,6 +162,7 @@ export default function TaskDetailsDialog({ item, fileNotice, onClose, onRecover
           }} />
           <span className="hint" id={`${id}-speedLimit-hint`}>{t("details.speedHint")}</span>
         </div>
+        </>}
         {error && <p className="error-text" id={`${id}-error`} role="alert">{error}</p>}
       </form>
     </Modal>

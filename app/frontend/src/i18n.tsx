@@ -45,6 +45,9 @@ const en = {
 
   "status.queued": "Queued",
   "status.running": "Downloading",
+  "status.retrievingMetadata": "Retrieving file list",
+  "status.waitingPeers": "Waiting for peers",
+  "status.proxyBlocked": "Waiting for direct connection",
   "status.paused": "Paused",
   "status.completed": "Completed",
   "status.failed": "Failed",
@@ -200,7 +203,7 @@ const en = {
 
   "add.title": "New download",
   "add.urls": "Links",
-  "add.urlsHint": "One URL per line, a batch pattern such as img[001-120].jpg, or a “Copy as cURL” command.",
+  "add.urlsHint": "One web or magnet link per line, a web batch pattern such as img[001-120].jpg, or a “Copy as cURL” command.",
   "add.batch": "Batch pattern: {n} URLs, {first} … {last}",
   "add.batchError": "Batch pattern: {error}",
   "add.headers": "{n} request headers from cURL for {origin}",
@@ -362,6 +365,9 @@ const zh: Record<Key, string> = {
 
   "status.queued": "排队中",
   "status.running": "下载中",
+  "status.retrievingMetadata": "正在获取文件列表",
+  "status.waitingPeers": "正在等待对等节点",
+  "status.proxyBlocked": "正在等待直接连接",
   "status.paused": "已暂停",
   "status.completed": "已完成",
   "status.failed": "失败",
@@ -517,7 +523,7 @@ const zh: Record<Key, string> = {
 
   "add.title": "新建下载",
   "add.urls": "链接",
-  "add.urlsHint": "每行一个网址，也可以是 img[001-120].jpg 这样的批量模式，或“复制为 cURL”命令。",
+  "add.urlsHint": "每行一个网页或磁力链接，也可以使用 img[001-120].jpg 这样的网页批量模式，或“复制为 cURL”命令。",
   "add.batch": "批量模式：共 {n} 个网址，{first} … {last}",
   "add.batchError": "批量模式：{error}",
   "add.headers": "已从 cURL 导入 {origin} 的 {n} 个请求头",

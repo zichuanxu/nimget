@@ -36,7 +36,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { Desktop, Item, Recovery, State, Status, message } from "./api";
+import { Desktop, Item, Recovery, SourceKind, State, Status, message } from "./api";
 import AddDialog, { type AddPrefill } from "./AddDialog";
 import BulkTaskActions, { type BulkActionReport } from "./BulkTaskActions";
 import BulkRemovalResult from "./BulkRemovalResult";
@@ -45,7 +45,7 @@ import SettingsDialog from "./SettingsDialog";
 import TaskDetailsDialog from "./TaskDetailsDialog";
 import { CountdownDialog, DeleteDialog, ReauthDialog } from "./dialogs";
 import Sparkline from "./Sparkline";
-import { baseName, bytes, eta, fileKind, looksLikeCurl, looksLikeURL, speed, type FileKind } from "./format";
+import { baseName, bytes, eta, fileKind, looksLikeCurl, looksLikeURL, speed, taskName, taskStatus, type FileKind } from "./format";
 import { I18n, resolveLang, translator, useI18n, type T } from "./i18n";
 import { useQueue } from "./useQueue";
 import { useDownloadFiles } from "./useDownloadFiles";
@@ -258,7 +258,7 @@ function Shell() {
   const counts = useMemo(() => Object.fromEntries(filters.map((f) => [f.id, all.filter((i) => matches(i, f.id)).length])) as Record<Filter, number>, [all]);
   const q = query.trim().toLowerCase();
   const rows = useMemo(
-    () => all.filter((i) => matches(i, filter) && (!q || baseName(i.destination).toLowerCase().includes(q) || i.url.toLowerCase().includes(q))),
+    () => all.filter((i) => matches(i, filter) && (!q || taskName(i).toLowerCase().includes(q) || i.url.toLowerCase().includes(q))),
     [all, filter, q],
   );
   const lastPage = Math.max(0, Math.ceil(rows.length / tasksPerPage) - 1);
@@ -340,7 +340,7 @@ function Shell() {
     if (item.status === Status.StatusPaused) list.push({ icon: Play, label: t("row.resume"), onSelect: run(() => Desktop.Resume(item.id)) });
     if (item.status === Status.StatusFailed && item.recovery !== Recovery.RecoveryRestartRequired)
       list.push({ icon: RotateCw, label: t("row.retry"), onSelect: run(() => Desktop.Retry(item.id)) });
-    if (item.status === Status.StatusFailed || item.status === Status.StatusPaused)
+    if (item.sourceKind !== SourceKind.SourceMagnet && (item.status === Status.StatusFailed || item.status === Status.StatusPaused))
       list.push({
         icon: KeyRound,
         label: t(item.recovery === Recovery.RecoveryRestartRequired ? "row.recover" : "row.reauth"),
@@ -351,7 +351,7 @@ function Shell() {
       if (canConvert && /\.ts$/i.test(item.destination) && converting !== item.id)
         list.push({ icon: Film, label: t("row.convert"), onSelect: () => convert(item) });
     }
-    if (!missing?.folderMissing) list.push({ icon: FolderOpen, label: t("row.reveal"), onSelect: run(() => Desktop.Reveal(item.id)) });
+    if (item.destination && !missing?.folderMissing) list.push({ icon: FolderOpen, label: t("row.reveal"), onSelect: run(() => Desktop.Reveal(item.id)) });
     list.push({ icon: Trash2, label: t("row.delete"), onSelect: () => setDeleting(item), danger: true });
     return list;
   }, [canConvert, converting, convert, missingFile, run, t]);
@@ -627,7 +627,7 @@ function Shell() {
       {context && contextItem && (
         <ContextMenu
           id={contextMenuId}
-          label={t("row.actionsFor", { name: baseName(contextItem.destination) })}
+          label={t("row.actionsFor", { name: taskName(contextItem) })}
           x={context.x}
           y={context.y}
           trigger={context.trigger}
@@ -833,7 +833,7 @@ const Row = memo(function Row({
 }) {
   const { t, lang } = useI18n();
   const { ref } = useFocusFallbackOnRemove<HTMLLIElement>(onRemovedFocus);
-  const name = baseName(item.destination);
+  const name = taskName(item);
   const kind = fileKind(name);
   const Icon = kindIcon[kind];
   const known = item.total > 0;
@@ -886,9 +886,9 @@ const Row = memo(function Row({
         )}
       </div>
       <div className="row-facts">
-        <span className={`status ${item.status}`}>
+        <span className={`status ${item.status}${item.phase ? " has-phase" : ""}`}>
           <span className="dot" />
-          {converting ? t("row.converting") : t(`status.${item.status}` as "status.queued")}
+          {converting ? t("row.converting") : taskStatus(item, t)}
         </span>
         <span className="speed">{running && bps > 0 ? speed(bps) : ""}</span>
         <span className="arrival">{arrival(item, bps, t, lang)}</span>
@@ -974,6 +974,7 @@ function SpeedCard({ running, queued, rate, bps, history }: { running: Item[]; q
 /** Note is the line under a file name: what went wrong, or how much has arrived. */
 function Note({ item, t }: { item: Item; t: T }) {
   if (item.recovery === Recovery.RecoveryRestartRequired) return <span className="row-note error-text">{t("reauth.restartRequired")}</span>;
+  if (item.sourceKind === SourceKind.SourceMagnet && item.status === Status.StatusFailed && item.error) return <span className="row-note error-text">{item.error}</span>;
   if (item.status === Status.StatusFailed) return <span className="row-note error-text">{t(`failure.title.${taskFailure(item) || "unknown"}`)}</span>;
   if (item.status === Status.StatusCompleted) return null;
   if (item.total > 0) return <span className="row-note">{t("row.of", { done: bytes(item.completed), total: bytes(item.total) })}</span>;

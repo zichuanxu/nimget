@@ -101,6 +101,12 @@ Without `OUTPUT`, the file name comes from `Content-Disposition` (including RFC 
 
 Relative paths are resolved against the client's working directory. On restart, the service resumes downloads that were running when it stopped, including after a crash.
 
+### Magnet downloads
+
+Paste a public, tracked single-file BitTorrent v1 magnet in **New Download** or pass the quoted link to `nimget add`. Use **Save to** or `--dir` to pick the parent directory. The verified torrent metadata supplies the file name.
+
+The task enters the queue before peer discovery. Once NimGet retrieves the file list, progress counts verified pieces. NimGet adds the final file after verification and uses a numbered suffix if that name is already taken. A magnet stays queued while a proxy is active.
+
 ### Settings
 
 `nimget settings set` replaces the whole document, so edit the output of `settings get`:

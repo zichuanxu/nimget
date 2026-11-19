@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/amemiya02/nimget/internal/client"
 	"github.com/amemiya02/nimget/internal/download"
+	"github.com/amemiya02/nimget/internal/netproxy"
 	"github.com/amemiya02/nimget/internal/service"
 	"github.com/amemiya02/nimget/internal/settings"
 )
@@ -129,6 +131,34 @@ func (p *serviceProcess) item(t *testing.T) download.Item {
 		t.Fatalf("items = %+v; want exactly one", items)
 	}
 	return items[0]
+}
+
+func TestAddCommandQueuesMagnetInSelectedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "downloads")
+	svc := startServiceProcess(t, dir, root)
+	prefs, err := svc.client.Settings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefs.Proxy = netproxy.Config{Mode: netproxy.ModeManual, URL: "http://127.0.0.1:1"}
+	if _, err := svc.client.PutSettings(t.Context(), prefs); err != nil {
+		t.Fatal(err)
+	}
+	link := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&tr=http%3A%2F%2F127.0.0.1%3A1%2Fannounce"
+	cmd := nimget("--address", svc.address, "--token-file", filepath.Join(dir, "token"), "add", link, "--dir", filepath.Join("downloads", "magnets"))
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("nimget add magnet: %v: %s", err, output)
+	}
+	var item download.Item
+	if err := json.Unmarshal(output, &item); err != nil {
+		t.Fatal(err)
+	}
+	if item.SourceKind != download.SourceMagnet || item.Status != download.StatusQueued || item.Directory != filepath.Join(root, "magnets") || svc.item(t).ID != item.ID {
+		t.Fatalf("unexpected magnet submission: %+v", item)
+	}
 }
 
 func TestServiceResumesAfterKill(t *testing.T) {

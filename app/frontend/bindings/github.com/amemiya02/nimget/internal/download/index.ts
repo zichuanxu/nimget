@@ -7,8 +7,10 @@ export {
     Failure,
     Item,
     Patch,
+    Phase,
     Recovery,
     Request,
+    SourceKind,
     Status,
     TaskAction,
     TaskActionResult

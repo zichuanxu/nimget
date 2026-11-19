@@ -25,11 +25,16 @@ func (s *SQLite) UpdateMagnetOwnership(ctx context.Context, owner download.Item,
 	return tx.Commit()
 }
 
-func encodeMagnetState(source *download.Magnet) (string, error) {
-	if source == nil {
+type magnetState struct {
+	*download.Magnet
+	DirectConnectionAllowed bool `json:"directConnectionAllowed,omitempty"`
+}
+
+func encodeMagnetState(item download.Item) (string, error) {
+	if item.Magnet == nil {
 		return "", nil
 	}
-	state, err := json.Marshal(source)
+	state, err := json.Marshal(magnetState{Magnet: item.Magnet, DirectConnectionAllowed: item.DirectConnectionAllowed})
 	return string(state), err
 }
 
@@ -44,24 +49,24 @@ func (s *SQLite) encodeMagnetTrackers(source *download.Magnet) (string, error) {
 	return s.seal(string(trackers))
 }
 
-func (s *SQLite) decodeMagnet(state, trackers string) (*download.Magnet, error) {
+func (s *SQLite) decodeMagnet(state, trackers string) (magnetState, error) {
 	if state == "" {
-		return nil, nil
+		return magnetState{}, nil
 	}
-	var source download.Magnet
+	source := magnetState{Magnet: &download.Magnet{}}
 	if err := json.Unmarshal([]byte(state), &source); err != nil {
-		return nil, fmt.Errorf("read magnet state: %w", err)
+		return magnetState{}, fmt.Errorf("read magnet state: %w", err)
 	}
 	plain, err := s.open(trackers)
 	if err != nil {
-		return nil, err
+		return magnetState{}, err
 	}
 	if plain != "" {
 		if err := json.Unmarshal([]byte(plain), &source.Trackers); err != nil {
-			return nil, fmt.Errorf("read magnet tracker hints: %w", err)
+			return magnetState{}, fmt.Errorf("read magnet tracker hints: %w", err)
 		}
 	}
-	return &source, nil
+	return source, nil
 }
 
 // UpdateMagnetCheckpoint flushes the WAL before allowing a staged payload to

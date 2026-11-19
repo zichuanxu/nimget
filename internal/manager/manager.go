@@ -464,7 +464,16 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 	}
 	err := m.transition(ctx, id, p.URL != nil || p.Headers != nil, func(item *download.Item) error {
 		if item.SourceKind == download.SourceMagnet && (p.URL != nil || p.Headers != nil || p.Connections != nil || p.SpeedLimit != nil) {
-			return fmt.Errorf("%w: only priority can be changed on a magnet download", download.ErrInvalidDownload)
+			return fmt.Errorf("%w: only priority and direct-connection consent can be changed on a magnet download", download.ErrInvalidDownload)
+		}
+		if p.DirectConnectionAllowed != nil {
+			if item.SourceKind != download.SourceMagnet {
+				return fmt.Errorf("%w: direct-connection consent applies only to magnet downloads", download.ErrInvalidDownload)
+			}
+			item.DirectConnectionAllowed = *p.DirectConnectionAllowed
+			if item.Status == download.StatusQueued && item.Phase == download.PhaseProxyBlocked && item.DirectConnectionAllowed {
+				item.Phase = ""
+			}
 		}
 		if p.URL != nil {
 			if _, active := m.active[id]; active {
@@ -592,6 +601,7 @@ func (m *Manager) transition(ctx context.Context, id string, withHeaders bool, c
 			j.limiter.SetLimit(limitOf(item.SpeedLimit))
 		}
 		j.item.Priority, j.item.Connections, j.item.SpeedLimit = item.Priority, item.Connections, item.SpeedLimit
+		j.item.DirectConnectionAllowed = item.DirectConnectionAllowed
 	}
 	m.publish(download.EventUpdated, item)
 	return nil
@@ -730,7 +740,7 @@ func (m *Manager) applySchedule(now time.Time) {
 		if !queueOpen {
 			m.log.Info("queue window closed; stopping download", "id", id)
 			j.cancel()
-		} else if proxy && j.item.SourceKind == download.SourceMagnet {
+		} else if magnetProxyBlocked(j.item, proxy) {
 			j.cancel()
 		}
 	}
@@ -928,7 +938,7 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	case canceled:
 		// Service shutdown or a closing queue window: resume later.
 		item.Status = download.StatusQueued
-		if item.SourceKind == download.SourceMagnet && netproxy.Effective(m.Settings().Proxy) {
+		if magnetProxyBlocked(item, netproxy.Effective(m.Settings().Proxy)) {
 			item.Phase = download.PhaseProxyBlocked
 		}
 	default:

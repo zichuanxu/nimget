@@ -95,7 +95,7 @@ func (m *Manager) confineMagnetDirectory(dir string) (string, error) {
 }
 
 func (m *Manager) startMagnet(ctx context.Context, item download.Item, s settings.Settings, now time.Time) error {
-	if netproxy.Effective(s.Proxy) {
+	if magnetProxyBlocked(item, netproxy.Effective(s.Proxy)) {
 		if item.Phase == download.PhaseProxyBlocked {
 			return nil
 		}

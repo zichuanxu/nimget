@@ -281,7 +281,7 @@ func (m *Manager) completeMagnetPublication(ctx context.Context, item *download.
 		return err
 	}
 	*item = completed
-	m.publish(download.EventUpdated, completed)
+	m.publishEvent(download.Event{Type: download.EventUpdated, Item: completed, CompletedMagnetPublication: true})
 	return nil
 }
 

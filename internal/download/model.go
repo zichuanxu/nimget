@@ -150,6 +150,8 @@ type Event struct {
 	Sequence int64     `json:"sequence,omitempty"`
 	Type     EventType `json:"type"`
 	Item     Item      `json:"item"`
+	// CompletedMagnetPublication also signals completion during startup recovery.
+	CompletedMagnetPublication bool `json:"-"`
 }
 
 type Repository interface {
@@ -165,6 +167,8 @@ type Repository interface {
 	UpdateWithHeaders(context.Context, Item) error
 	// UpdateMagnetOwnership stores verified aliases and their duplicate rows atomically.
 	UpdateMagnetOwnership(ctx context.Context, owner Item, duplicates []Item) error
+	// UpdateMagnetTrackers replaces the sealed discovery hints without changing task state.
+	UpdateMagnetTrackers(context.Context, string, []string) error
 	// LoadSettings returns the stored settings, or ok=false when none are.
 	LoadSettings(context.Context) (s settings.Settings, ok bool, err error)
 	SaveSettings(context.Context, settings.Settings) error

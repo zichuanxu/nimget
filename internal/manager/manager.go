@@ -1066,8 +1066,13 @@ func (m *Manager) signal() {
 
 // The caller holds m.mu, so snapshots and events share one order.
 func (m *Manager) publish(eventType download.EventType, item download.Item) {
+	m.publishEvent(download.Event{Type: eventType, Item: item})
+}
+
+func (m *Manager) publishEvent(event download.Event) {
 	m.sequence++
-	m.opts.Publish(download.Event{Sequence: m.sequence, Type: eventType, Item: item})
+	event.Sequence = m.sequence
+	m.opts.Publish(event)
 }
 
 func validateURL(rawURL string) error {

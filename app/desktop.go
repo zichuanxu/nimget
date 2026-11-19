@@ -428,7 +428,7 @@ func (d *Desktop) forward() {
 			delete(running, item.ID)
 		case item.Status == download.StatusRunning:
 			running[item.ID] = true
-		case running[item.ID] && e.Type == download.EventUpdated:
+		case (running[item.ID] || e.CompletedMagnetPublication) && e.Type == download.EventUpdated:
 			delete(running, item.ID)
 			select {
 			case d.notifications <- item:

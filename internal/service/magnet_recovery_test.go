@@ -230,6 +230,12 @@ func TestMagnetPublicationRecovery(t *testing.T) {
 				wanted = filepath.Join(cfg.DownloadRoots[0], "publication (1).bin")
 			}
 
+			completions := make(chan download.Event, 4)
+			cfg.Publish = func(event download.Event) {
+				if event.Item.ID == id && event.Item.Status == download.StatusCompleted {
+					completions <- event
+				}
+			}
 			restarted := startHandoffService(t, cfg)
 			c := magnetClient(t, restarted, cfg.TokenPath)
 			done := waitForMagnetTask(t, ctx, func() ([]download.Item, error) { return c.List(ctx) }, id)
@@ -302,6 +308,19 @@ func TestMagnetPublicationRecovery(t *testing.T) {
 					t.Fatalf("deleting the download changed the foreign file: %q, %v", got, err)
 				}
 			case "after move":
+				select {
+				case event := <-completions:
+					if !event.CompletedMagnetPublication {
+						t.Fatalf("completed publication did not signal desktop completion: %+v", event)
+					}
+				case <-ctx.Done():
+					t.Fatal("startup did not publish recovered completion")
+				}
+				select {
+				case event := <-completions:
+					t.Fatalf("duplicate publication completion: %+v", event)
+				default:
+				}
 				if err := c.Delete(ctx, id, false); err != nil {
 					t.Fatal(err)
 				}

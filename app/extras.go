@@ -222,10 +222,12 @@ func (d *Desktop) afterStop(item download.Item) {
 	}
 	if item.Status == download.StatusCompleted && d.mgr.Settings().Desktop.OpenWhenDone {
 		// The server picks the name; only passive files open on their own.
-		if passive(item.Destination) {
-			err = d.app.Browser.OpenFile(item.Destination)
+		if directoryOutput(item) {
+			err = d.showDownloadPath(item.Destination, false)
+		} else if passive(item.Destination) {
+			err = d.launchDownloadFile(item.Destination)
 		} else {
-			err = d.app.Env.OpenFileManager(item.Destination, true)
+			err = d.showDownloadPath(item.Destination, true)
 		}
 		if err != nil {
 			d.log.Warn("open completed download", "err", err)

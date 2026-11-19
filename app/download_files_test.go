@@ -5,10 +5,57 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/amemiya02/nimget/internal/download"
 )
+
+func TestDesktopOpensAndRevealsFileAndDirectoryOutputs(t *testing.T) {
+	d, root := desktopWithBulkTasks(t, map[string]download.Item{
+		"report.txt": {Status: download.StatusCompleted},
+		"field-notes": {
+			Status: download.StatusCompleted, SourceKind: download.SourceMagnet,
+			Magnet: &download.Magnet{Output: &download.MagnetObject{Directory: true}},
+		},
+	})
+	file, dir := filepath.Join(root, "report.txt"), filepath.Join(root, "field-notes")
+	if err := os.WriteFile(file, []byte("verified report"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	type call struct {
+		kind, path string
+		selectFile bool
+	}
+	var calls []call
+	d.launchDownloadFile = func(path string) error {
+		calls = append(calls, call{kind: "file", path: path})
+		return nil
+	}
+	d.showDownloadPath = func(path string, selectFile bool) error {
+		calls = append(calls, call{kind: "manager", path: path, selectFile: selectFile})
+		return nil
+	}
+	ids := []string{"report.txt", "field-notes"}
+	if missing, err := d.MissingDownloadFiles(context.Background(), ids); err != nil || len(missing) != 0 {
+		t.Fatalf("both outputs exist: missing %+v, %v", missing, err)
+	}
+	for _, id := range ids {
+		if err := d.Open(id); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.Reveal(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []call{{"file", file, false}, {"manager", file, true}, {"manager", dir, false}, {"manager", dir, false}}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("output actions = %+v; want %+v", calls, want)
+	}
+}
 
 func TestMissingDownloadFilesTracksMovesAndRestoration(t *testing.T) {
 	folderTask := filepath.Join("category", "report.zip")

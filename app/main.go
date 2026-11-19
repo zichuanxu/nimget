@@ -41,6 +41,8 @@ func main() {
 		},
 	})
 	desk.app = app
+	desk.launchDownloadFile = app.Browser.OpenFile
+	desk.showDownloadPath = app.Env.OpenFileManager
 
 	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "main", Title: "NimGet", Width: 1120, Height: 720, MinWidth: 820, MinHeight: 500, URL: "/",

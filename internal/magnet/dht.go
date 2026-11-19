@@ -188,14 +188,11 @@ func consumeDHTPeers(ctx context.Context, tor *torrent.Torrent, lookup *dht.Anno
 			}
 			peers := make([]torrent.PeerInfo, 0, min(len(result.Peers), 200))
 			for _, peer := range result.Peers {
-				ip, ok := netip.AddrFromSlice(peer.IP)
-				ip = ip.Unmap()
-				if !ok || ip.IsUnspecified() || ip.IsMulticast() || peer.Port < 1 || peer.Port > 65535 {
+				addr := validPeerAddress(peer.IP, peer.Port)
+				if addr == nil {
 					continue
 				}
-				peers = append(peers, torrent.PeerInfo{
-					Addr: &net.TCPAddr{IP: ip.AsSlice(), Port: peer.Port}, Source: torrent.PeerSourceDhtGetPeers,
-				})
+				peers = append(peers, torrent.PeerInfo{Addr: addr, Source: torrent.PeerSourceDhtGetPeers})
 				if len(peers) == cap(peers) {
 					break
 				}

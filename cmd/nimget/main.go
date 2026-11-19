@@ -176,7 +176,7 @@ func newAddCommand(cfg *cliConfig) *cobra.Command {
 		Short: "Queue a download in the service",
 		Long: "Queue a download in the service. Without OUTPUT the file name comes from the server\n" +
 			"and the file goes to --dir, or to a category folder under the download root.\n" +
-			"For a magnet link, use --dir to choose the save directory. The torrent names the file.",
+			"For a magnet link, use --dir to choose the save directory. The torrent names the output.",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := cfg.client()

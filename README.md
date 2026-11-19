@@ -6,6 +6,7 @@ NimGet is a lightweight, open-source download manager built in Go for macOS and 
 
 - Up to 32 connections per download, rebalanced as they finish; byte-level resume, even after a crash.
 - Queue with priorities, per-host connection caps, speed limits, and a schedule.
+- [Public BitTorrent v1, v2, and hybrid magnet downloads](docs/usage.md#magnet-downloads) in the desktop app and headless queue.
 - HLS (`.m3u8`, AES-128) to one `.ts` file, optional MP4 conversion with ffmpeg.
 - Desktop app: tray icon, notifications, drag and drop, cURL import, clipboard monitor, batch URLs, sleep or shut down when done; English and Simplified Chinese, light and dark themes.
 - Chrome and Edge extension with [automatic download capture, manual handoff, and website sessions](docs/browser-handoff.md).

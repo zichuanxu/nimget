@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -54,6 +55,16 @@ func (m *Manager) addMagnet(ctx context.Context, req download.Request) (download
 	}
 	for _, item := range items {
 		if matchesMagnetClaim(item, source.TorrentIdentity) {
+			// Stored hints may have become unreadable after a keyring-less restart.
+			// A fresh link restores discovery for subsequent attempts on this task.
+			if len(source.Trackers) != 0 && !slices.Equal(item.Magnet.Trackers, source.Trackers) {
+				if err := m.repo.UpdateMagnetTrackers(ctx, item.ID, source.Trackers); err != nil {
+					return download.Item{}, err
+				}
+				updated := *item.Magnet
+				updated.Trackers = source.Trackers
+				item.Magnet = &updated
+			}
 			if running := m.active[item.ID]; running != nil {
 				item.Completed, item.Total = running.progress()
 			}
@@ -344,6 +355,10 @@ func (m *Manager) reportMagnet(ctx context.Context, j *job, phase download.Phase
 		if err := m.repo.Update(ctx, item); err == nil {
 			j.item = item
 			m.publish(download.EventUpdated, item)
+		} else if ctx.Err() == nil {
+			// The transfer reports this phase again on each progress tick, so
+			// keep the previous phase in memory until a write succeeds.
+			m.log.Error("record magnet phase", "id", item.ID, "phase", phase, "err", err)
 		}
 	}
 	m.mu.Unlock()

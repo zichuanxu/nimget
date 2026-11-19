@@ -25,6 +25,18 @@ func (s *SQLite) UpdateMagnetOwnership(ctx context.Context, owner download.Item,
 	return tx.Commit()
 }
 
+func (s *SQLite) UpdateMagnetTrackers(ctx context.Context, id string, trackers []string) error {
+	sealed, err := s.encodeMagnetTrackers(&download.Magnet{Trackers: trackers})
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, "UPDATE downloads SET magnet_trackers = ? WHERE id = ?", sealed, id)
+	if err != nil {
+		return fmt.Errorf("update magnet tracker hints for %s: %w", id, err)
+	}
+	return affected(result, id)
+}
+
 type magnetState struct {
 	*download.Magnet
 	DirectConnectionAllowed bool `json:"directConnectionAllowed,omitempty"`

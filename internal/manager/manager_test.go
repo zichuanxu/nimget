@@ -86,6 +86,20 @@ func (r *memoryRepository) UpdateMagnetOwnership(_ context.Context, owner downlo
 	return nil
 }
 
+func (r *memoryRepository) UpdateMagnetTrackers(_ context.Context, id string, trackers []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.items[id]
+	if !ok {
+		return errNotFound
+	}
+	source := *item.Magnet
+	source.Trackers = trackers
+	item.Magnet = &source
+	r.items[id] = item
+	return nil
+}
+
 func (r *memoryRepository) update(item download.Item, withHeaders bool) error {
 	r.updates.Add(1)
 	r.mu.Lock()

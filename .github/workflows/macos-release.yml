@@ -81,6 +81,7 @@ jobs:
           mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
           cp build/bin/nimget "$bundle/Contents/MacOS/nimget"
           cp build/darwin/icons.icns "$bundle/Contents/Resources/icons.icns"
+          cp ../LICENSE ../NOTICE "$bundle/Contents/Resources/"
           cp build/darwin/Info.plist "$bundle/Contents/Info.plist"
           plutil -replace CFBundleVersion -string "$numeric" "$bundle/Contents/Info.plist"
           plutil -replace CFBundleShortVersionString -string "$numeric" "$bundle/Contents/Info.plist"

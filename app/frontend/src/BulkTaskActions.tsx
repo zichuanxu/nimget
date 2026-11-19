@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { Pause, Play, RotateCw, Trash2, X } from "lucide-react";
 import { Desktop, Item, Recovery, Status, TaskAction, message } from "./api";
-import { baseName } from "./format";
+import { taskName } from "./format";
 import { useI18n } from "./i18n";
 import { Modal } from "./ui";
 
@@ -88,11 +88,11 @@ export default function BulkTaskActions({
 
     const names = new Map<string, number>();
     for (const item of targets) {
-      const name = baseName(item.destination);
+      const name = taskName(item);
       names.set(name, (names.get(name) ?? 0) + 1);
     }
     const outcomes: Outcome[] = targets.map((item) => {
-      const name = baseName(item.destination);
+      const name = taskName(item);
       return {
         id: item.id,
         destination: item.destination,

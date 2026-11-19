@@ -69,16 +69,21 @@ const (
 )
 
 type Item struct {
-	ID          string   `json:"id"`
-	URL         string   `json:"url"`
-	Destination string   `json:"destination"`
-	Status      Status   `json:"status"`
-	Completed   int64    `json:"completed"`
-	Total       int64    `json:"total"`
-	Error       string   `json:"error,omitempty"`
-	Failure     Failure  `json:"failure,omitempty"`
-	Recovery    Recovery `json:"recovery,omitempty"`
-	Priority    int      `json:"priority"`
+	ID          string     `json:"id"`
+	URL         string     `json:"url"`
+	Destination string     `json:"destination"`
+	Status      Status     `json:"status"`
+	Completed   int64      `json:"completed"`
+	Total       int64      `json:"total"`
+	Error       string     `json:"error,omitempty"`
+	Failure     Failure    `json:"failure,omitempty"`
+	Recovery    Recovery   `json:"recovery,omitempty"`
+	Priority    int        `json:"priority"`
+	SourceKind  SourceKind `json:"sourceKind,omitempty"`
+	Phase       Phase      `json:"phase,omitempty"`
+	Name        string     `json:"name,omitempty"`
+	Directory   string     `json:"directory,omitempty"`
+	Magnet      *Magnet    `json:"-"`
 	// Connections overrides the site and default connection count when set.
 	Connections int `json:"connections,omitempty"`
 	// SpeedLimit caps this download in bytes per second; 0 is none.

@@ -21,6 +21,8 @@ import (
 
 	"github.com/amemiya02/nimget/internal/download"
 	"github.com/amemiya02/nimget/internal/hls"
+	"github.com/amemiya02/nimget/internal/magnet"
+	"github.com/amemiya02/nimget/internal/netproxy"
 	"github.com/amemiya02/nimget/internal/settings"
 	"golang.org/x/time/rate"
 )
@@ -75,11 +77,12 @@ func (j *job) progress() (completed, total int64) {
 }
 
 type Manager struct {
-	repo   download.Repository
-	runner download.Runner
-	opts   Options
-	roots  []string
-	log    *slog.Logger
+	repo    download.Repository
+	runner  download.Runner
+	magnets *magnet.Runner
+	opts    Options
+	roots   []string
+	log     *slog.Logger
 
 	wake         chan struct{}
 	progressWake chan struct{}
@@ -135,6 +138,7 @@ func New(repo download.Repository, runner download.Runner, opts Options) (*Manag
 		global: rate.NewLimiter(rate.Inf, limiterBurst),
 		active: make(map[string]*job), retryAt: make(map[string]time.Time), hostConns: make(map[string]int),
 	}
+	m.magnets = magnet.NewRunner(m.global)
 	stored, ok, err := repo.LoadSettings(context.Background())
 	if err != nil {
 		return nil, err
@@ -228,6 +232,9 @@ func (m *Manager) saveSettings(ctx context.Context, s settings.Settings) error {
 }
 
 func (m *Manager) Add(ctx context.Context, req download.Request) (download.Item, error) {
+	if magnet.IsLink(strings.TrimSpace(req.URL)) {
+		return m.addMagnet(ctx, req)
+	}
 	return m.add(ctx, req, m.opts.InspectTimeout, "", func(ctx context.Context, item download.Item) (bool, error) {
 		return true, m.repo.Create(ctx, item)
 	})
@@ -385,6 +392,7 @@ func (m *Manager) Pause(ctx context.Context, id string) error {
 			item.Completed, item.Total = j.progress()
 		}
 		item.Status = download.StatusPaused
+		item.Phase = ""
 		item.Error, item.Failure = "", ""
 		return nil
 	})
@@ -430,6 +438,9 @@ func (m *Manager) Update(ctx context.Context, id string, p download.Patch) error
 		}
 	}
 	err := m.transition(ctx, id, p.URL != nil || p.Headers != nil, func(item *download.Item) error {
+		if item.SourceKind == download.SourceMagnet && (p.URL != nil || p.Headers != nil || p.Connections != nil || p.SpeedLimit != nil) {
+			return fmt.Errorf("%w: only priority can be changed on a magnet download", download.ErrInvalidDownload)
+		}
 		if p.URL != nil {
 			if _, active := m.active[id]; active {
 				return ErrActive
@@ -519,6 +530,9 @@ func (m *Manager) Restart(ctx context.Context, id string) error {
 }
 
 func (m *Manager) discardPartial(item download.Item) error {
+	if item.SourceKind == download.SourceMagnet {
+		return nil
+	}
 	return m.runner.Discard(download.Spec{URL: item.URL, Destination: item.Destination, ResumeKey: item.ID})
 }
 
@@ -578,6 +592,9 @@ func (m *Manager) Delete(ctx context.Context, id string, removeFiles bool) error
 	m.publish(download.EventDeleted, item)
 	m.log.Info("download deleted", "id", id, "removeFiles", removeFiles)
 	if !removeFiles {
+		return nil
+	}
+	if item.SourceKind == download.SourceMagnet && item.Status != download.StatusCompleted {
 		return nil
 	}
 	// Re-check confinement: a symlinked ancestor may have changed since Add.
@@ -648,6 +665,7 @@ func (m *Manager) requeueOrphans(ctx context.Context) {
 			continue
 		}
 		item.Status = download.StatusQueued
+		item.Phase = ""
 		item.UpdatedAt = m.opts.Now().UTC()
 		if err := m.repo.Update(ctx, item); err != nil {
 			m.log.Error("requeue interrupted download", "id", item.ID, "err", err)
@@ -664,12 +682,16 @@ func (m *Manager) requeueOrphans(ctx context.Context) {
 func (m *Manager) applySchedule(now time.Time) {
 	s := m.Settings()
 	m.global.SetLimit(limitOf(s.SpeedLimitAt(now)))
-	if s.QueueOpen(now) {
-		return
-	}
+	queueOpen := s.QueueOpen(now)
+	proxy := netproxy.Effective(s.Proxy)
 	for id, j := range m.active {
-		if j.item.Status == download.StatusRunning {
+		if j.item.Status != download.StatusRunning {
+			continue
+		}
+		if !queueOpen {
 			m.log.Info("queue window closed; stopping download", "id", id)
+			j.cancel()
+		} else if proxy && j.item.SourceKind == download.SourceMagnet {
 			j.cancel()
 		}
 	}
@@ -731,6 +753,9 @@ func (m *Manager) start(ctx context.Context, id string, s settings.Settings, now
 	}
 	if item.Status != download.StatusQueued {
 		return nil
+	}
+	if item.SourceKind == download.SourceMagnet {
+		return m.startMagnet(ctx, item, s, now)
 	}
 	// Four downloads at eight connections each must not become 32 sockets
 	// against one server: each takes what is left of its host's cap.
@@ -810,8 +835,10 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	defer m.mu.Unlock()
 	id := j.item.ID
 	delete(m.active, id)
-	if m.hostConns[j.host] -= j.conns; m.hostConns[j.host] <= 0 {
-		delete(m.hostConns, j.host)
+	if j.conns > 0 {
+		if m.hostConns[j.host] -= j.conns; m.hostConns[j.host] <= 0 {
+			delete(m.hostConns, j.host)
+		}
 	}
 	defer m.signal()
 
@@ -822,6 +849,11 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	}
 	item.Completed, item.Total = j.progress()
 	item.UpdatedAt = m.opts.Now().UTC()
+	item.Phase = ""
+	if item.SourceKind == download.SourceMagnet && runErr != nil {
+		// This attempt no longer owns a staging file.
+		item.Completed = 0
+	}
 	switch {
 	case runErr == nil:
 		// Checked first: a Pause that raced the final rename must not hide a
@@ -844,6 +876,9 @@ func (m *Manager) finish(j *job, runErr error, canceled bool) {
 	case canceled:
 		// Service shutdown or a closing queue window: resume later.
 		item.Status = download.StatusQueued
+		if item.SourceKind == download.SourceMagnet && netproxy.Effective(m.Settings().Proxy) {
+			item.Phase = download.PhaseProxyBlocked
+		}
 	default:
 		item.Status = download.StatusFailed
 		item.Error = taskDiagnostic(runErr)

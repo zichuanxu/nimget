@@ -1,4 +1,5 @@
 import type { T } from "./i18n";
+import { Phase, type Item } from "./api";
 
 const units = ["B", "KiB", "MiB", "GiB", "TiB"];
 
@@ -73,6 +74,23 @@ export function speedText(bps: number): string {
 
 export function looksLikeURL(text: string): boolean {
   return /^https?:\/\/\S+$/i.test(text.trim());
+}
+
+export function looksLikeMagnet(text: string): boolean {
+  return /^magnet:/i.test(text.trim());
+}
+
+export function taskName(item: Item): string {
+  return item.name || baseName(item.destination);
+}
+
+export function taskStatus(item: Item, t: T): string {
+  switch (item.phase) {
+    case Phase.PhaseMetadata: return t("status.retrievingMetadata");
+    case Phase.PhaseWaitingPeers: return t("status.waitingPeers");
+    case Phase.PhaseProxyBlocked: return t("status.proxyBlocked");
+    default: return t(`status.${item.status}` as "status.queued");
+  }
 }
 
 export function looksLikeCurl(text: string): boolean {

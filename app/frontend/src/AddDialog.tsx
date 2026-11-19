@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowDownToLine, ChevronRight, CircleAlert, Cookie, Folder, Layers, Link2, X } from "lucide-react";
 import { Desktop, Request, message } from "./api";
-import { baseName, joinPath, looksLikeCurl, looksLikeURL, parseSpeed } from "./format";
+import { baseName, joinPath, looksLikeCurl, looksLikeMagnet, looksLikeURL, parseSpeed } from "./format";
 import { useI18n } from "./i18n";
 import { Field, Modal, Segmented } from "./ui";
 
@@ -84,7 +84,7 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
   }, []);
 
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const pattern = !isCurl && lines.length === 1 && /\[[^\]]+-[^\]]+\]|\{[^}]*,[^}]*\}/.test(lines[0]) ? lines[0] : "";
+  const pattern = !isCurl && lines.length === 1 && !looksLikeMagnet(lines[0]) && /\[[^\]]+-[^\]]+\]|\{[^}]*,[^}]*\}/.test(lines[0]) ? lines[0] : "";
   const [expansion, setExpansion] = useState<{ pattern: string; urls?: string[]; error?: string }>();
   useEffect(() => {
     setExpansion(undefined);
@@ -100,12 +100,14 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
   const expanded = expansion?.pattern === pattern ? expansion.urls : undefined;
   const batchError = expansion?.pattern === pattern ? expansion.error : undefined;
   const urls = expanded ?? lines;
+  const pendingURLs = batch?.filter((entry) => entry.status !== "accepted").map((entry) => entry.url) ?? urls;
+  const magnetsOnly = pendingURLs.length > 0 && pendingURLs.every(looksLikeMagnet);
   const isBatch = batch !== null || urls.length > 1;
   const accepted = batch?.filter((entry) => entry.status === "accepted").length ?? 0;
   const rejected = batch?.filter((entry) => entry.status === "rejected").length ?? 0;
   const valid = batch !== null
     ? rejected > 0 && batch.every((entry) => entry.status !== "rejected" || entry.url.trim())
-    : urls.length > 0 && !isCurl && (!pattern || !!expanded) && (isBatch || looksLikeURL(urls[0]));
+    : urls.length > 0 && !isCurl && (!pattern || !!expanded) && (isBatch || looksLikeURL(urls[0]) || looksLikeMagnet(urls[0]));
 
   function close() {
     if (submitting.current && batch === null) return;
@@ -127,14 +129,14 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
     setBusy(true);
     setError("");
     try {
-      const base = {
-        priority,
-        connections: connections ? parseInt(connections, 10) : 0,
-        speedLimit: parseSpeed(limit),
-        checksum: checksum.trim(),
-      };
       function requestFor(url: string) {
-        const req = new Request({ ...base, url });
+        if (looksLikeMagnet(url)) return new Request({ url, priority, directory: directory || undefined });
+        const req = new Request({
+          url, priority,
+          connections: connections ? parseInt(connections, 10) : 0,
+          speedLimit: parseSpeed(limit),
+          checksum: checksum.trim(),
+        });
         if (Object.keys(headers).length && headerOrigin && originOf(url) === headerOrigin) req.headers = headers;
         if (fileName.trim() && !isBatch) {
           req.destination = joinPath(directory || defaultDirectory, fileName.trim());
@@ -175,9 +177,8 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
   }
 
   const headerCount = Object.keys(headers).length;
-  const pendingURLs = batch?.filter((entry) => entry.status !== "accepted").map((entry) => entry.url) ?? urls;
   const otherOrigins = headerCount > 0 && pendingURLs.some((url) => originOf(url) !== headerOrigin);
-  const optionsSet = priority !== 0 || !!connections || !!limit || !!checksum;
+  const optionsSet = priority !== 0 || (!magnetsOnly && (!!connections || !!limit || !!checksum));
   const finished = batch !== null && !busy && rejected === 0;
   if (!prefill) return null;
 
@@ -251,7 +252,10 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
               className="urls"
               rows={3}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                if (error) setError("");
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
                   e.preventDefault();
@@ -278,7 +282,7 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
           <span className="ellipsis">{t("add.batch", { n: expanded.length, first: baseName(expanded[0]), last: baseName(expanded[expanded.length - 1]) })}</span>
         </div>
       )}
-      {headerCount > 0 && (
+      {headerCount > 0 && !magnetsOnly && (
         <div className="chip">
           <Cookie size={14} />
           <span className="grow ellipsis" title={Object.keys(headers).join(", ")}>
@@ -295,7 +299,7 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
         <div className="folder-picker">
           <Folder size={15} />
           <span className={`grow ellipsis ${directory ? "" : "muted"}`} title={directory || defaultDirectory}>
-            {directory || t("add.categoryFolder", { dir: defaultDirectory })}
+            {directory || (magnetsOnly ? defaultDirectory : t("add.categoryFolder", { dir: defaultDirectory }))}
           </span>
           {directory && (
             <button className="small ghost" onClick={() => setDirectory("")}>
@@ -308,7 +312,7 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
         </div>
       </Field>
 
-      {!isBatch && (
+      {!isBatch && !magnetsOnly && (
         <Field label={t("add.fileName")}>
           <input value={fileName} onChange={(e) => setFileName(e.target.value)} placeholder={t("add.fileNameHint")} spellCheck={false} />
         </Field>
@@ -332,7 +336,7 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
               ]}
             />
           </Field>
-          <div className="grid2">
+          {!magnetsOnly && <><div className="grid2">
             <Field label={t("add.connections")}>
               <input type="number" min={1} max={32} placeholder={t("add.default")} value={connections} onChange={(e) => setConnections(e.target.value)} />
             </Field>
@@ -343,11 +347,12 @@ export default function AddDialog({ prefill, hasNewPrefill, defaultDirectory, on
           <Field label={t("add.checksum")}>
             <input className="mono" placeholder="sha256:…" value={checksum} onChange={(e) => setChecksum(e.target.value)} spellCheck={false} />
           </Field>
+          </>}
         </div>
       )}
 
       {error && (
-        <p className="form-error">
+        <p className="form-error" role="status">
           <CircleAlert size={14} />
           {error}
         </p>

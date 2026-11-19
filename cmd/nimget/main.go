@@ -175,7 +175,8 @@ func newAddCommand(cfg *cliConfig) *cobra.Command {
 		Use:   "add URL [OUTPUT]",
 		Short: "Queue a download in the service",
 		Long: "Queue a download in the service. Without OUTPUT the file name comes from the server\n" +
-			"and the file goes to --dir, or to a category folder under the download root.",
+			"and the file goes to --dir, or to a category folder under the download root.\n" +
+			"For a magnet link, use --dir to choose the save directory. The torrent names the file.",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := cfg.client()
@@ -225,7 +226,7 @@ func newAddCommand(cfg *cliConfig) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&isBatch, "batch", false, "treat URL as a pattern: [1-10], [01-10], [a-z], [0-100:5], {a,b}")
-	cmd.Flags().StringVar(&dir, "dir", "", "directory for a server-named file")
+	cmd.Flags().StringVar(&dir, "dir", "", "save directory for a web or magnet download")
 	cmd.Flags().StringVar(&priority, "priority", "normal", "low, normal, or high")
 	cmd.Flags().IntVar(&connections, "connections", 0, "connections, 1-32 (default: site or global setting)")
 	cmd.Flags().StringVar(&speed, "speed-limit", "0", "speed limit in bytes per second, with K, M, or G suffix; 0 for none")

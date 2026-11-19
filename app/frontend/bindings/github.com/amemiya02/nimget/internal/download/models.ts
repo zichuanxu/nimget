@@ -70,6 +70,10 @@ export class Item {
     "failure"?: Failure;
     "recovery"?: Recovery;
     "priority": number;
+    "sourceKind"?: SourceKind;
+    "phase"?: Phase;
+    "name"?: string;
+    "directory"?: string;
 
     /**
      * Connections overrides the site and default connection count when set.
@@ -167,6 +171,18 @@ export class Patch {
     }
 }
 
+export enum Phase {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    PhaseMetadata = "metadata",
+    PhaseWaitingPeers = "waiting-peers",
+    PhaseTransferring = "transferring",
+    PhaseProxyBlocked = "proxy-blocked",
+};
+
 export enum Recovery {
     /**
      * The Go zero value for the underlying type of the enum.
@@ -212,6 +228,19 @@ export class Request {
         return new Request($$parsedSource as Partial<Request>);
     }
 }
+
+/**
+ * SourceKind identifies how a download task is fetched. Existing tasks use
+ * the zero value for HTTP and HTTPS.
+ */
+export enum SourceKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    SourceMagnet = "magnet",
+};
 
 export enum Status {
     /**

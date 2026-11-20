@@ -469,6 +469,10 @@ func (r *rangedRun) validate(req *http.Request, resp *http.Response, start, end 
 		if r.changed(resp) || (ifRange != "" && ifRange == r.info.lastModified && resp.Header.Get("Last-Modified") == "") {
 			return fatal(ErrSourceChanged)
 		}
+		// Some servers return 200 for a range covering the entire file.
+		if start == 0 && end == r.info.size && resp.ContentLength == r.info.size && resp.Header.Get("Content-Range") == "" {
+			return nil
+		}
 		if ifRange != "" && ifRange == r.info.lastModified && resp.Header.Get("Last-Modified") == r.info.lastModified {
 			// Same representation, yet a full body: the server does not honour
 			// date validators in If-Range.

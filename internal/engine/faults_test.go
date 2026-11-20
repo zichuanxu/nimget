@@ -93,6 +93,25 @@ func TestRetryAfterIsHonoured(t *testing.T) {
 	}
 }
 
+func TestFullFileRangeCanReturnOK(t *testing.T) {
+	const size = 442065
+	data := randomData(t, size)
+	server := (&fileServer{data: data, fault: func(w http.ResponseWriter, r *http.Request, start, end, _ int64) bool {
+		if !isRange(r) || start != 0 || end != size-1 {
+			return false
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(size))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
+		return true
+	}}).start(t)
+	dest := filepath.Join(t.TempDir(), "out.bin")
+	if err := run(t, Config{}, server.URL, dest); err != nil {
+		t.Fatal(err)
+	}
+	requireFile(t, dest, data)
+}
+
 func TestProtocolViolationsFail(t *testing.T) {
 	for name, tc := range map[string]struct {
 		fault func(w http.ResponseWriter, r *http.Request, start, end, n int64) bool

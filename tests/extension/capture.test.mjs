@@ -12,7 +12,7 @@ function browserEvent() {
 
 const url = "https://example.test/files/archive.zip";
 
-async function startCapture(t, { stored = {}, cookies = [], fetch, tabs = [] } = {}) {
+async function startCapture(t, { stored = {}, cookies = [], cookieUrl = url, fetch, tabs = [] } = {}) {
   const storage = { pairingCredential: "fixture-token", ...stored };
   let settle;
   const outcome = new Promise((resolve) => { settle = resolve; });
@@ -34,7 +34,7 @@ async function startCapture(t, { stored = {}, cookies = [], fetch, tabs = [] } =
   globalThis.chrome = {
     storage: { local },
     permissions: { contains: async () => true },
-    cookies: { getAll: async (query) => { assert.deepEqual(query, { url }); return cookies; } },
+    cookies: { getAll: async (query) => { assert.deepEqual(query, { url: cookieUrl }); return cookies; } },
     action: {
       setBadgeBackgroundColor: async () => {},
       setBadgeText: async () => {},
@@ -77,6 +77,21 @@ test("capture is on by default and hands a browser download to NimGet", async (t
   // Cancel before releasing the filename, so no Save As dialog appears.
   assert.deepEqual(events, ["cancel", "erase", "suggest"]);
   assert.equal(suggest.mock.callCount(), 1);
+});
+
+test("a download reached through a meta refresh is handed off from the file's URL", async (t) => {
+  const page = "https://example.test/download.html?dd=files%2Freport.pdf";
+  const file = "https://example.test/download.html?d=files/report.pdf";
+  const { transport, download } = await startCapture(t, {
+    cookieUrl: file,
+    cookies: [{ name: "session", value: "fixture", expirationDate: Math.floor(Date.now() / 1000) + 600 }],
+  });
+  const { result } = await download({ url: page, finalUrl: file, referrer: page, filename: "report.pdf" });
+
+  assert.equal(result, "captureAccepted");
+  const body = JSON.parse(transport.mock.calls[0].arguments[1].body);
+  assert.equal(body.url, file);
+  assert.equal(body.websiteSession.cookie, "session=fixture");
 });
 
 test("the website's cookies travel with the download", async (t) => {

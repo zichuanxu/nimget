@@ -56,9 +56,16 @@ function eligible(item) {
     !postedRecently(item.url, item.finalUrl);
 }
 
+// url is where the download started, finalUrl the response that served the
+// file. A client redirect such as <meta http-equiv="refresh"> starts the
+// chain at an HTML page, so replaying url fetches that page instead of the file.
+function sourceUrl(item) {
+  return item.finalUrl || item.url;
+}
+
 function sameOriginReferer(item) {
   try {
-    const { origin } = new URL(item.url);
+    const { origin } = new URL(sourceUrl(item));
     return item.referrer && new URL(item.referrer).origin === origin ? origin + "/" : undefined;
   } catch {
     return undefined;
@@ -92,11 +99,11 @@ async function considerDownload(item, release) {
 
   let websiteSession = null;
   try {
-    websiteSession = await readWebsiteSession({ url: item.url, referer: sameOriginReferer(item) });
+    websiteSession = await readWebsiteSession({ url: sourceUrl(item), referer: sameOriginReferer(item) });
   } catch {
     /* Hand off without cookies; public downloads need none. */
   }
-  const request = { handoffId: crypto.randomUUID(), url: item.url };
+  const request = { handoffId: crypto.randomUUID(), url: sourceUrl(item) };
   const body = websiteSession ? { ...request, websiteSession } : request;
   let receipt = await handOff(body, credential);
   if (receipt === "captureDesktopUnavailable" && await wakeDesktop()) receipt = await handOff(body, credential);
